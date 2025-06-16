@@ -279,9 +279,12 @@ INSERT INTO software_installers (
 				return ctxerr.Wrap(ctx, err, "generate automatic policy query data")
 			}
 
-			if err := ds.createAutomaticPolicy(ctx, tx, *generatedPolicyData, payload.TeamID, ptr.Uint(installerID), nil); err != nil {
+			policy, err := ds.createAutomaticPolicy(ctx, tx, *generatedPolicyData, payload.TeamID, ptr.Uint(installerID), nil)
+			if err != nil {
 				return ctxerr.Wrap(ctx, err, "create automatic policy")
 			}
+
+			payload.AddedAutomaticInstallPolicy = policy
 		}
 
 		return nil
@@ -329,30 +332,32 @@ func setOrUpdateSoftwareInstallerCategoriesDB(ctx context.Context, tx sqlx.ExtCo
 	return nil
 }
 
-func (ds *Datastore) createAutomaticPolicy(ctx context.Context, tx sqlx.ExtContext, policyData automatic_policy.PolicyData, teamID *uint, softwareInstallerID *uint, vppAppsTeamsID *uint) error {
+func (ds *Datastore) createAutomaticPolicy(ctx context.Context, tx sqlx.ExtContext, policyData automatic_policy.PolicyData, teamID *uint, softwareInstallerID *uint, vppAppsTeamsID *uint) (*fleet.Policy, error) {
 	tmID := fleet.PolicyNoTeamID
 	if teamID != nil {
 		tmID = *teamID
 	}
 	availablePolicyName, err := getAvailablePolicyName(ctx, tx, tmID, policyData.Name)
 	if err != nil {
-		return ctxerr.Wrap(ctx, err, "get available policy name")
+		return nil, ctxerr.Wrap(ctx, err, "get available policy name")
 	}
 	var userID *uint
 	if ctxUser := authz.UserFromContext(ctx); ctxUser != nil {
 		userID = &ctxUser.ID
 	}
-	if _, err := newTeamPolicy(ctx, tx, tmID, userID, fleet.PolicyPayload{
+	policy, err := newTeamPolicy(ctx, tx, tmID, userID, fleet.PolicyPayload{
 		Name:                availablePolicyName,
 		Query:               policyData.Query,
 		Platform:            policyData.Platform,
 		Description:         policyData.Description,
 		SoftwareInstallerID: softwareInstallerID,
 		VPPAppsTeamsID:      vppAppsTeamsID,
-	}); err != nil {
-		return ctxerr.Wrap(ctx, err, "create automatic policy query")
+	})
+	if err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "create automatic policy query")
 	}
-	return nil
+
+	return policy, nil
 }
 
 func getAvailablePolicyName(ctx context.Context, db sqlx.QueryerContext, teamID uint, tentativePolicyName string) (string, error) {
@@ -516,25 +521,27 @@ func (ds *Datastore) SaveInstallerUpdates(ctx context.Context, payload *fleet.Up
 	}
 
 	var touchUploaded string
+	var clearFleetMaintainedAppID string // FMA becomes custom package when uploading a new installer file
 	if payload.InstallerFile != nil {
 		touchUploaded = ", uploaded_at = NOW()"
+		clearFleetMaintainedAppID = ", fleet_maintained_app_id = NULL"
 	}
 
 	err = ds.withRetryTxx(ctx, func(tx sqlx.ExtContext) error {
 		stmt := fmt.Sprintf(`UPDATE software_installers SET
-	storage_id = ?,
-	filename = ?,
-	version = ?,
-	package_ids = ?,
-	install_script_content_id = ?,
-	pre_install_query = ?,
-	post_install_script_content_id = ?,
-    uninstall_script_content_id = ?,
-    self_service = ?,
-	user_id = ?,
-	user_name = (SELECT name FROM users WHERE id = ?),
-	user_email = (SELECT email FROM users WHERE id = ?) %s
-	WHERE id = ?`, touchUploaded)
+			storage_id = ?,
+			filename = ?,
+			version = ?,
+			package_ids = ?,
+			install_script_content_id = ?,
+			pre_install_query = ?,
+			post_install_script_content_id = ?,
+			uninstall_script_content_id = ?,
+			self_service = ?,
+			user_id = ?,
+			user_name = (SELECT name FROM users WHERE id = ?),
+			user_email = (SELECT email FROM users WHERE id = ?)%s%s
+			WHERE id = ?`, touchUploaded, clearFleetMaintainedAppID)
 
 		args := []interface{}{
 			payload.StorageID,
@@ -1055,7 +1062,7 @@ func (ds *Datastore) runInstallerUpdateSideEffectsInTransaction(ctx context.Cont
 	return affectedHostIDs, nil
 }
 
-func (ds *Datastore) InsertSoftwareUninstallRequest(ctx context.Context, executionID string, hostID uint, softwareInstallerID uint) error {
+func (ds *Datastore) InsertSoftwareUninstallRequest(ctx context.Context, executionID string, hostID uint, softwareInstallerID uint, selfService bool) error {
 	const (
 		getInstallerStmt = `SELECT title_id, COALESCE(st.name, '[deleted title]') title_name
 			FROM software_installers si LEFT JOIN software_titles st ON si.title_id = st.id WHERE si.id = ?`
@@ -1069,7 +1076,8 @@ VALUES
 			'installer_filename', '',
 			'version', 'unknown',
 			'software_title_name', ?,
-			'user', (SELECT JSON_OBJECT('name', name, 'email', email, 'gravatar_url', gravatar_url) FROM users WHERE id = ?)
+			'user', (SELECT JSON_OBJECT('name', name, 'email', email, 'gravatar_url', gravatar_url) FROM users WHERE id = ?),
+			'self_service', ?
 		)
 	)`
 
@@ -1118,6 +1126,7 @@ VALUES
 			executionID,
 			installerDetails.TitleName,
 			userID,
+			selfService,
 		)
 		if err != nil {
 			return err
@@ -2300,17 +2309,17 @@ func (ds *Datastore) HasSelfServiceSoftwareInstallers(ctx context.Context, hostP
 	return hasInstallers, nil
 }
 
-func (ds *Datastore) GetSoftwareTitleNameFromExecutionID(ctx context.Context, executionID string) (string, error) {
+func (ds *Datastore) GetDetailsForUninstallFromExecutionID(ctx context.Context, executionID string) (string, bool, error) {
 	stmt := `
-	SELECT st.name
+	SELECT COALESCE(st.name, hsi.software_title_name) name, hsi.self_service
 	FROM software_titles st
 	INNER JOIN software_installers si ON si.title_id = st.id
 	INNER JOIN host_software_installs hsi ON hsi.software_installer_id = si.id
-	WHERE hsi.execution_id = ?
+	WHERE hsi.execution_id = ? AND hsi.uninstall = TRUE
 
 	UNION
 
-	SELECT st.name
+	SELECT st.name, COALESCE(ua.payload->'$.self_service', FALSE) self_service
 	FROM
 		software_titles st
 		INNER JOIN software_installers si ON si.title_id = st.id
@@ -2319,14 +2328,17 @@ func (ds *Datastore) GetSoftwareTitleNameFromExecutionID(ctx context.Context, ex
 		INNER JOIN upcoming_activities ua ON ua.id = siua.upcoming_activity_id
 	WHERE
 		ua.execution_id = ? AND
-		ua.activity_type IN ('software_install', 'software_uninstall')
+		ua.activity_type = 'software_uninstall'
 	`
-	var name string
-	err := sqlx.GetContext(ctx, ds.reader(ctx), &name, stmt, executionID, executionID)
-	if err != nil {
-		return "", ctxerr.Wrap(ctx, err, "get software title name from execution ID")
+	var result struct {
+		Name        string `db:"name"`
+		SelfService bool   `db:"self_service"`
 	}
-	return name, nil
+	err := sqlx.GetContext(ctx, ds.reader(ctx), &result, stmt, executionID, executionID)
+	if err != nil {
+		return "", false, ctxerr.Wrap(ctx, err, "get software details for uninstall activity from execution ID")
+	}
+	return result.Name, result.SelfService, nil
 }
 
 func (ds *Datastore) GetSoftwareInstallersWithoutPackageIDs(ctx context.Context) (map[uint]string, error) {
