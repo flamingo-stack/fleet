@@ -2,8 +2,7 @@ name: Build binaries
 
 on:
   push:
-    branches:
-      - main
+    branches: [main, feature/agent-ci]
   pull_request:
   workflow_dispatch:
 
