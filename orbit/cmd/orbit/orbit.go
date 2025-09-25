@@ -1950,6 +1950,7 @@ var versionCommand = &cli.Command{
 	},
 }
 
+// Openframe command that gets host UUID from osquery database
 var uuidCommand = &cli.Command{
 	Name:  "uuid",
 	Usage: "Get the host hardware UUID",
