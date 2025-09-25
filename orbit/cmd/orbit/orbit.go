@@ -1938,50 +1938,7 @@ func getHostInfo(osqueryPath string, osqueryDBPath string) (*osqueryHostInfo, er
 	return &info[0], nil
 }
 
-// getHostUUID retrieves only the host UUID by shelling out to `osqueryd -S` and performing a simple SELECT query.
-func getHostUUID(osqueryPath string, osqueryDBPath string) (string, error) {
-	// Make sure parent directory exists (`osqueryd -S` doesn't create the parent directories).
-	if err := os.MkdirAll(filepath.Dir(osqueryDBPath), constant.DefaultDirMode); err != nil {
-		return "", err
-	}
-	const uuidQuery = `SELECT uuid FROM system_info`
-	args := []string{
-		"-S",
-		"--database_path", osqueryDBPath,
-		"--json", uuidQuery,
-	}
-	cmd := exec.Command(osqueryPath, args...)
-	var (
-		osquerydStdout bytes.Buffer
-		osquerydStderr bytes.Buffer
-	)
-	cmd.Stdout = &osquerydStdout
-	cmd.Stderr = &osquerydStderr
-	
-	var result []map[string]interface{}
-	if err := cmd.Run(); err != nil {
-		// Try to unmarshal the result even if there's an error (osquery exit status 78 issue)
-		unmarshalErr := json.Unmarshal(osquerydStdout.Bytes(), &result)
-		if unmarshalErr != nil {
-			return "", fmt.Errorf("osqueryd failed: %w, output: %s, stderr: %s", err, osquerydStdout.String(), osquerydStderr.String())
-		}
-	} else {
-		if err := json.Unmarshal(osquerydStdout.Bytes(), &result); err != nil {
-			return "", fmt.Errorf("failed to parse osqueryd output: %w", err)
-		}
-	}
-	
-	if len(result) != 1 {
-		return "", fmt.Errorf("expected 1 row from UUID query, got %d", len(result))
-	}
-	
-	uuid, ok := result[0]["uuid"].(string)
-	if !ok {
-		return "", fmt.Errorf("UUID field not found or not a string")
-	}
-	
-	return uuid, nil
-}
+
 
 var versionCommand = &cli.Command{
 	Name:  "version",
@@ -2077,6 +2034,50 @@ var uuidCommand = &cli.Command{
 		}
 		return nil
 	},
+}
+
+func getHostUUID(osqueryPath string, osqueryDBPath string) (string, error) {
+	// Make sure parent directory exists (`osqueryd -S` doesn't create the parent directories).
+	if err := os.MkdirAll(filepath.Dir(osqueryDBPath), constant.DefaultDirMode); err != nil {
+		return "", err
+	}
+	const uuidQuery = `SELECT uuid FROM system_info`
+	args := []string{
+		"-S",
+		"--database_path", osqueryDBPath,
+		"--json", uuidQuery,
+	}
+	cmd := exec.Command(osqueryPath, args...)
+	var (
+		osquerydStdout bytes.Buffer
+		osquerydStderr bytes.Buffer
+	)
+	cmd.Stdout = &osquerydStdout
+	cmd.Stderr = &osquerydStderr
+	
+	var result []map[string]interface{}
+	if err := cmd.Run(); err != nil {
+		// Try to unmarshal the result even if there's an error (osquery exit status 78 issue)
+		unmarshalErr := json.Unmarshal(osquerydStdout.Bytes(), &result)
+		if unmarshalErr != nil {
+			return "", fmt.Errorf("osqueryd failed: %w, output: %s, stderr: %s", err, osquerydStdout.String(), osquerydStderr.String())
+		}
+	} else {
+		if err := json.Unmarshal(osquerydStdout.Bytes(), &result); err != nil {
+			return "", fmt.Errorf("failed to parse osqueryd output: %w", err)
+		}
+	}
+	
+	if len(result) != 1 {
+		return "", fmt.Errorf("expected 1 row from UUID query, got %d", len(result))
+	}
+	
+	uuid, ok := result[0]["uuid"].(string)
+	if !ok {
+		return "", fmt.Errorf("UUID field not found or not a string")
+	}
+	
+	return uuid, nil
 }
 
 // serviceChecker is a helper to gracefully shutdown the runners group when a
