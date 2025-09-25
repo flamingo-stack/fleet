@@ -1938,8 +1938,6 @@ func getHostInfo(osqueryPath string, osqueryDBPath string) (*osqueryHostInfo, er
 	return &info[0], nil
 }
 
-
-
 var versionCommand = &cli.Command{
 	Name:  "version",
 	Usage: "Get the orbit version",
