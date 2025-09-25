@@ -10,7 +10,7 @@ permissions:
 
 on:
   push:
-    branches: [feature/agent-ci]
+    branches: [main, feature/agent-ci]
     paths-ignore:
       - "**/*.md"
   workflow_dispatch:
@@ -74,19 +74,25 @@ jobs:
             architectures=($(echo '${{ toJSON(matrix.go_arch) }}' | jq -r '.[]'))
             for arch in "${architectures[@]}"; do
               echo "Building for ${{ matrix.go_os }}/${arch}"
-              go build -o ./build_target/orbit-"${arch}" ./orbit/cmd/orbit
+              env CGO_ENABLED=0 GOOS=${{ matrix.go_os }} GOARCH=${arch} go build -o ./build_target/orbit-mac-${arch} ./orbit/cmd/orbit
             done
+            ls -la ./build_target
             echo "Create ${{ matrix.artifact_name }}"
             mkdir -p ./artifacts
-            lipo -create ./build_target/orbit-* -output ./artifacts/"${{ matrix.artifact_name }}"
-            lipo -info ./artifacts/"${{ matrix.artifact_name }}"
+            arch0=${architectures[0]}
+            arch1=${architectures[1]}
+            lipo -create ./build_target/orbit-mac-${arch0} ./build_target/orbit-mac-${arch1} -output "./artifacts/${{ matrix.artifact_name }}"
+            lipo -info ./artifacts/${{ matrix.artifact_name }}
+            ls -la ./artifacts
             rm -rf ./build_target
           elif [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            env CGO_ENABLED=0 GOOS=${{ matrix.go_os }} GOARCH=${{ matrix.go_arch }} go build -o orbit-"${{ matrix.go_arch }}" ./orbit/cmd/orbit
+            mkdir -p ./artifacts
+            env CGO_ENABLED=0 GOOS=${{ matrix.go_os }} GOARCH=${{ matrix.go_arch }} go build -o ./artifacts/orbit-"${{ matrix.go_arch }}" ./orbit/cmd/orbit
+            ls -la ./artifacts
           fi
 
       - name: Sign MacOS package
-        if: matrix.go_os == 'darwin'
+        if: runner.os == 'macOS'
         uses: ./.github/steps/sign-macos-package
         with:
           apple_certificate_p12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -103,7 +109,7 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            ./
+            artifacts/
           if-no-files-found: warn
           retention-days: 30
           compression-level: 9
