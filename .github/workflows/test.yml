@@ -1,4 +1,4 @@
-name: Fleet Agent Build and Push Latest
+name: Fleet Agent Build and Test Latest
 
 permissions:
   contents: write
@@ -9,7 +9,8 @@ permissions:
   id-token: write
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths-ignore:
       - "**/*.md"
@@ -19,6 +20,10 @@ on:
         description: "Tag to release (e.g., v1.2.3)"
         required: true
         type: string
+
+concurrency:
+  group: pr-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: "ghcr.io"
@@ -34,7 +39,7 @@ jobs:
     name: "Build Go Client (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
     if: |
-      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.event_name == 'workflow_dispatch'
     defaults:
       run:
         shell: bash
@@ -103,13 +108,3 @@ jobs:
           apple_team_id: ${{ secrets.APPLE_TEAM_ID }}
           binary_name: ${{ matrix.artifact_name }}
           app_name: FleetAgent
-
-      - name: Upload client artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: |
-            artifacts/
-          if-no-files-found: warn
-          retention-days: 30
-          compression-level: 9
