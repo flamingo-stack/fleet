@@ -50,10 +50,10 @@ jobs:
             go_os: windows
             go_arch: amd64
             artifact_name: fleet-windows-amd64.exe
-          - os: windows-latest
-            go_os: windows
-            go_arch: 386
-            artifact_name: fleet-windows-i386.exe
+          # - os: windows-latest
+          #   go_os: windows
+          #   go_arch: 386
+          #   artifact_name: fleet-windows-i386.exe
          
     steps:
       - name: Checkout
