@@ -213,6 +213,68 @@ func TestVerifyQueryPlatforms(t *testing.T) {
 	}
 }
 
+func TestQueryPayloadVerify_HostIDsConflict(t *testing.T) {
+	testCases := []struct {
+		name      string
+		payload   QueryPayload
+		shouldErr bool
+	}{
+		{
+			"host_ids alone is valid",
+			QueryPayload{
+				Name:    ptr.String("test"),
+				Query:   ptr.String("SELECT 1"),
+				Logging: ptr.String("snapshot"),
+				HostIDs: &[]uint{1, 2},
+			},
+			false,
+		},
+		{
+			"host_ids with labels_include_any",
+			QueryPayload{
+				Name:             ptr.String("test"),
+				Query:            ptr.String("SELECT 1"),
+				Logging:          ptr.String("snapshot"),
+				HostIDs:          &[]uint{1},
+				LabelsIncludeAny: []string{"label1"},
+			},
+			true,
+		},
+		{
+			"nil host_ids with labels is fine",
+			QueryPayload{
+				Name:             ptr.String("test"),
+				Query:            ptr.String("SELECT 1"),
+				Logging:          ptr.String("snapshot"),
+				LabelsIncludeAny: []string{"label1"},
+			},
+			false,
+		},
+		{
+			"empty host_ids with labels is fine",
+			QueryPayload{
+				Name:             ptr.String("test"),
+				Query:            ptr.String("SELECT 1"),
+				Logging:          ptr.String("snapshot"),
+				HostIDs:          &[]uint{},
+				LabelsIncludeAny: []string{"label1"},
+			},
+			false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.payload.Verify()
+			if tc.shouldErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "host_ids cannot be used with labels_include_any")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestMapQueryReportResultRows(t *testing.T) {
 	macOSUSBDevicesLastFetched := time.Now()
 	ubuntuUSBDevicesLastFetched := time.Now().Add(-1 * time.Hour)

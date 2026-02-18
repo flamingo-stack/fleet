@@ -152,6 +152,7 @@ type Label struct {
 	LabelMembershipType LabelMembershipType `json:"label_membership_type" db:"label_membership_type"`
 	HostCount           int                 `json:"host_count,omitempty" db:"host_count"`
 	TeamID              *uint               `json:"team_id" db:"team_id"`
+	Hidden              bool                `json:"-" db:"hidden"`
 }
 
 type LabelWithTeamName struct {

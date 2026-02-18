@@ -9,6 +9,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/mock"
 	"github.com/fleetdm/fleet/v4/server/ptr"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -319,4 +320,129 @@ func TestApplyPolicySpecsLabelsValidation(t *testing.T) {
 	})
 
 	require.Error(t, err)
+}
+
+func TestNewGlobalPolicyWithHostIDs(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+	ds.NewActivityFunc = func(ctx context.Context, user *fleet.User, activity fleet.ActivityDetails, details []byte, createdAt time.Time) error {
+		return nil
+	}
+
+	var savedPolicyAutoLabelID *uint
+	ds.NewGlobalPolicyFunc = func(ctx context.Context, authorID *uint, args fleet.PolicyPayload) (*fleet.Policy, error) {
+		return &fleet.Policy{PolicyData: fleet.PolicyData{
+			ID:    1,
+			Name:  args.Name,
+			Query: args.Query,
+		}}, nil
+	}
+	ds.LabelByNameFunc = func(ctx context.Context, name string, filter fleet.TeamFilter) (*fleet.Label, error) {
+		return nil, &notFoundError{}
+	}
+	ds.NewLabelFunc = func(ctx context.Context, label *fleet.Label, opts ...fleet.OptionalArg) (*fleet.Label, error) {
+		assert.True(t, label.Hidden)
+		assert.Contains(t, label.Name, "__fleet_host_target_policy_1")
+		label.ID = 100
+		return label, nil
+	}
+	ds.UpdateLabelMembershipByHostIDsFunc = func(ctx context.Context, label fleet.Label, hostIDs []uint, filter fleet.TeamFilter) (*fleet.Label, []uint, error) {
+		assert.Equal(t, uint(100), label.ID)
+		assert.Equal(t, []uint{10, 20, 30}, hostIDs)
+		return &label, hostIDs, nil
+	}
+	ds.SavePolicyFunc = func(ctx context.Context, p *fleet.Policy, shouldDeleteAll bool, removePolicyStats bool) error {
+		savedPolicyAutoLabelID = p.AutoHostIDsLabelID
+		assert.NotNil(t, p.AutoHostIDsLabelID)
+		assert.Equal(t, uint(100), *p.AutoHostIDsLabelID)
+		assert.Len(t, p.LabelsIncludeAny, 1)
+		assert.Equal(t, "__fleet_host_target_policy_1", p.LabelsIncludeAny[0].LabelName)
+		return nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	policy, err := svc.NewGlobalPolicy(ctx, fleet.PolicyPayload{
+		Name:    "test policy",
+		Query:   "SELECT 1",
+		HostIDs: []uint{10, 20, 30},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, policy)
+	assert.Equal(t, uint(1), policy.ID)
+	assert.Equal(t, []uint{10, 20, 30}, policy.HostIDs)
+	assert.NotNil(t, savedPolicyAutoLabelID)
+	assert.Equal(t, uint(100), *savedPolicyAutoLabelID)
+	assert.True(t, ds.NewLabelFuncInvoked)
+	assert.True(t, ds.SavePolicyFuncInvoked)
+}
+
+func TestNewGlobalPolicyWithHostIDs_ConflictsWithLabels(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	// Should fail: host_ids with labels_include_any
+	_, err := svc.NewGlobalPolicy(ctx, fleet.PolicyPayload{
+		Name:             "test",
+		Query:            "SELECT 1",
+		HostIDs:          []uint{1},
+		LabelsIncludeAny: []string{"label1"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host_ids cannot be used with labels_include_any or labels_exclude_any")
+}
+
+func TestDeleteGlobalPoliciesWithHostIDs(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{
+			WebhookSettings: fleet.WebhookSettings{},
+		}, nil
+	}
+	ds.SaveAppConfigFunc = func(ctx context.Context, config *fleet.AppConfig) error {
+		return nil
+	}
+	ds.NewActivityFunc = func(ctx context.Context, user *fleet.User, activity fleet.ActivityDetails, details []byte, createdAt time.Time) error {
+		return nil
+	}
+
+	autoLabelDeleted := false
+	ds.PoliciesByIDFunc = func(ctx context.Context, ids []uint) (map[uint]*fleet.Policy, error) {
+		return map[uint]*fleet.Policy{
+			1: {PolicyData: fleet.PolicyData{ID: 1, Name: "p1", AutoHostIDsLabelID: ptr.Uint(100)}},
+		}, nil
+	}
+	ds.LabelFunc = func(ctx context.Context, lid uint, filter fleet.TeamFilter) (*fleet.LabelWithTeamName, []uint, error) {
+		return &fleet.LabelWithTeamName{Label: fleet.Label{ID: lid, Name: "__fleet_host_target_policy_1"}}, nil, nil
+	}
+	ds.DeleteLabelFunc = func(ctx context.Context, name string, filter fleet.TeamFilter) error {
+		assert.Equal(t, "__fleet_host_target_policy_1", name)
+		autoLabelDeleted = true
+		return nil
+	}
+	ds.DeleteGlobalPoliciesFunc = func(ctx context.Context, ids []uint) ([]uint, error) {
+		return ids, nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	deleted, err := svc.DeleteGlobalPolicies(ctx, []uint{1})
+	require.NoError(t, err)
+	assert.Equal(t, []uint{1}, deleted)
+	assert.True(t, autoLabelDeleted, "auto-label should have been deleted")
 }

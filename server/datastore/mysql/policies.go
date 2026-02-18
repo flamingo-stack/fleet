@@ -25,7 +25,8 @@ const policyCols = `
 	p.id, p.team_id, p.resolution, p.name, p.query, p.description,
 	p.author_id, p.platforms, p.created_at, p.updated_at, p.critical,
 	p.calendar_events_enabled, p.software_installer_id, p.script_id,
-	p.vpp_apps_teams_id, p.conditional_access_enabled
+	p.vpp_apps_teams_id, p.conditional_access_enabled,
+	p.auto_host_ids_label_id
 `
 
 var (
@@ -279,6 +280,43 @@ func policyDB(ctx context.Context, q sqlx.QueryerContext, id uint, teamID *uint)
 	return &policy, nil
 }
 
+func (ds *Datastore) PolicyByName(ctx context.Context, teamID *uint, name string) (*fleet.Policy, error) {
+	teamWhere := "p.team_id IS NULL"
+	args := []interface{}{name}
+	if teamID != nil {
+		teamWhere = "p.team_id = ?"
+		args = append(args, *teamID)
+	}
+
+	var policy fleet.Policy
+	err := sqlx.GetContext(ctx, ds.reader(ctx), &policy,
+		fmt.Sprintf(`
+		SELECT %s,
+		    COALESCE(u.name, '<deleted>') AS author_name,
+			COALESCE(u.email, '') AS author_email,
+			ps.updated_at as host_count_updated_at,
+			COALESCE(ps.passing_host_count, 0) as passing_host_count,
+			COALESCE(ps.failing_host_count, 0) as failing_host_count
+		FROM policies p
+		LEFT JOIN users u ON p.author_id = u.id
+		LEFT JOIN policy_stats ps ON p.id = ps.policy_id
+		AND ((p.team_id IS NULL AND ps.inherited_team_id IS NULL) OR (p.team_id IS NOT NULL))
+		WHERE p.name = ? AND %s`, policyCols, teamWhere),
+		args...)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ctxerr.Wrap(ctx, notFound("Policy").WithName(name))
+		}
+		return nil, ctxerr.Wrap(ctx, err, "getting policy by name")
+	}
+
+	if err := loadLabelsForPolicies(ctx, ds.reader(ctx), []*fleet.Policy{&policy}); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
+	}
+
+	return &policy, nil
+}
+
 func (ds *Datastore) PolicyLite(ctx context.Context, id uint) (*fleet.PolicyLite, error) {
 	var policy fleet.PolicyLite
 	err := sqlx.GetContext(
@@ -328,11 +366,12 @@ func savePolicy(ctx context.Context, db sqlx.ExtContext, logger kitlog.Logger, p
 			SET name = ?, query = ?, description = ?, resolution = ?,
 			platforms = ?, critical = ?, calendar_events_enabled = ?,
 			software_installer_id = ?, script_id = ?, vpp_apps_teams_id = ?,
-			conditional_access_enabled = ?, checksum = ` + policiesChecksumComputedColumn() + `
+			conditional_access_enabled = ?, auto_host_ids_label_id = ?,
+			checksum = ` + policiesChecksumComputedColumn() + `
 			WHERE id = ?
 	`
 	result, err := db.ExecContext(
-		ctx, updateStmt, p.Name, p.Query, p.Description, p.Resolution, p.Platform, p.Critical, p.CalendarEventsEnabled, p.SoftwareInstallerID, p.ScriptID, p.VPPAppsTeamsID, p.ConditionalAccessEnabled, p.ID,
+		ctx, updateStmt, p.Name, p.Query, p.Description, p.Resolution, p.Platform, p.Critical, p.CalendarEventsEnabled, p.SoftwareInstallerID, p.ScriptID, p.VPPAppsTeamsID, p.ConditionalAccessEnabled, p.AutoHostIDsLabelID, p.ID,
 	)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "updating policy")

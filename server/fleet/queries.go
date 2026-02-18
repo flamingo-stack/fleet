@@ -46,6 +46,9 @@ type QueryPayload struct {
 	// LabelsIncludeAny is a list of labels that will be used to
 	// target a query
 	LabelsIncludeAny []string `json:"labels_include_any"`
+	// HostIDs is a list of host IDs to target with this query.
+	// Mutually exclusive with LabelsIncludeAny.
+	HostIDs *[]uint `json:"host_ids"`
 }
 
 // Query represents a osquery query to run on devices.
@@ -108,6 +111,11 @@ type Query struct {
 	// target a query
 	LabelsIncludeAny []LabelIdent `json:"labels_include_any"`
 
+	// AutoHostIDsLabelID is the ID of the hidden auto-created label for host_ids targeting.
+	AutoHostIDsLabelID *uint `json:"-" db:"auto_host_ids_label_id"`
+	// HostIDs is populated from the auto-label's membership for response serialization.
+	HostIDs []uint `json:"host_ids,omitempty"`
+
 	/////////////////////////////////////////////////////////////////
 	// WARNING: If you add to this struct make sure it's taken into
 	// account in the Query Clone implementation!
@@ -160,6 +168,13 @@ func (q *Query) Copy() *Query {
 	if q.LabelsIncludeAny != nil {
 		clone.LabelsIncludeAny = make([]LabelIdent, len(q.LabelsIncludeAny))
 		copy(clone.LabelsIncludeAny, q.LabelsIncludeAny)
+	}
+	if q.AutoHostIDsLabelID != nil {
+		clone.AutoHostIDsLabelID = ptr.Uint(*q.AutoHostIDsLabelID)
+	}
+	if q.HostIDs != nil {
+		clone.HostIDs = make([]uint, len(q.HostIDs))
+		copy(clone.HostIDs, q.HostIDs)
 	}
 	return &clone
 }
@@ -246,6 +261,9 @@ func (q *QueryPayload) Verify() error {
 		if err := verifyQueryPlatforms(*q.Platform); err != nil {
 			return err
 		}
+	}
+	if q.HostIDs != nil && len(*q.HostIDs) > 0 && len(q.LabelsIncludeAny) > 0 {
+		return errors.New("host_ids cannot be used with labels_include_any")
 	}
 	return nil
 }
@@ -374,6 +392,9 @@ type QuerySpec struct {
 	// If not set, then the default value is false.
 	DiscardData      bool     `json:"discard_data"`
 	LabelsIncludeAny []string `json:"labels_include_any,omitempty"`
+	// HostIDs is a list of host IDs to target with this query.
+	// Mutually exclusive with LabelsIncludeAny.
+	HostIDs []uint `json:"host_ids,omitempty"`
 }
 
 func LoadQueriesFromYaml(yml string) ([]*Query, error) {

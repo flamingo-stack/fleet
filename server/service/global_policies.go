@@ -34,6 +34,7 @@ type globalPolicyRequest struct {
 	Critical         bool     `json:"critical" premium:"true"`
 	LabelsIncludeAny []string `json:"labels_include_any"`
 	LabelsExcludeAny []string `json:"labels_exclude_any"`
+	HostIDs          []uint   `json:"host_ids"`
 }
 
 type globalPolicyResponse struct {
@@ -55,6 +56,7 @@ func globalPolicyEndpoint(ctx context.Context, request interface{}, svc fleet.Se
 		Critical:         req.Critical,
 		LabelsIncludeAny: req.LabelsIncludeAny,
 		LabelsExcludeAny: req.LabelsExcludeAny,
+		HostIDs:          req.HostIDs,
 	})
 	if err != nil {
 		return globalPolicyResponse{Err: err}, nil
@@ -84,6 +86,21 @@ func (svc Service) NewGlobalPolicy(ctx context.Context, p fleet.PolicyPayload) (
 	if err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "storing policy")
 	}
+
+	// Handle host_ids auto-label creation
+	if len(p.HostIDs) > 0 {
+		_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "policy", policy.ID, p.HostIDs)
+		if err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "creating auto label for policy host_ids")
+		}
+		policy.AutoHostIDsLabelID = &labelID
+		policy.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("policy", policy.ID)}}
+		if err := svc.ds.SavePolicy(ctx, policy, false, false); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "saving policy with auto label")
+		}
+		policy.HostIDs = p.HostIDs
+	}
+
 	// Note: Issue #4191 proposes that we move to SQL transactions for actions so that we can
 	// rollback an action in the event of an error writing the associated activity
 	globalTeamID := int64(-1)
@@ -173,6 +190,9 @@ func (svc Service) GetPolicyByIDQueries(ctx context.Context, policyID uint) (*fl
 	if err := svc.populatePolicyRunScript(ctx, policy); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "populate run_script")
 	}
+	if err := populatePolicyHostIDs(ctx, svc.ds, policy); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "populate host_ids")
+	}
 
 	return policy, nil
 }
@@ -260,6 +280,13 @@ func (svc Service) DeleteGlobalPolicies(ctx context.Context, ids []uint) ([]uint
 			)
 		}
 	}
+	// Clean up auto-labels for policies being deleted
+	for _, policy := range policiesByID {
+		if err := deleteAutoLabel(ctx, svc.ds, policy.AutoHostIDsLabelID); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "deleting auto label for policy")
+		}
+	}
+
 	if err := svc.removeGlobalPoliciesFromWebhookConfig(ctx, ids); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "removing global policies from webhook config")
 	}
@@ -609,6 +636,33 @@ func (svc *Service) ApplyPolicySpecs(ctx context.Context, policies []*fleet.Poli
 	if err := svc.ds.ApplyPolicySpecs(ctx, vc.UserID(), policies); err != nil {
 		return ctxerr.Wrap(ctx, err, "applying policy specs")
 	}
+
+	// Post-process host_ids: create/update auto-labels for specs that have host_ids
+	for _, spec := range policies {
+		if len(spec.HostIDs) == 0 {
+			continue
+		}
+		// Look up the policy by name to get its ID
+		var teamID *uint
+		if spec.Team != "" && spec.Team != "No team" {
+			tid := teamIDsByName[spec.Team]
+			teamID = &tid
+		}
+		policy, err := svc.ds.PolicyByName(ctx, teamID, spec.Name)
+		if err != nil {
+			return ctxerr.Wrap(ctx, err, "looking up policy by name for host_ids")
+		}
+		_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "policy", policy.ID, spec.HostIDs)
+		if err != nil {
+			return ctxerr.Wrap(ctx, err, "creating auto label for policy spec host_ids")
+		}
+		policy.AutoHostIDsLabelID = &labelID
+		policy.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("policy", policy.ID)}}
+		if err := svc.ds.SavePolicy(ctx, policy, false, false); err != nil {
+			return ctxerr.Wrap(ctx, err, "saving policy with auto label from spec")
+		}
+	}
+
 	// Note: Issue #4191 proposes that we move to SQL transactions for actions so that we can
 	// rollback an action in the event of an error writing the associated activity
 	if err := svc.NewActivity(

@@ -762,7 +762,8 @@ func (ds *Datastore) ListLabels(ctx context.Context, filter fleet.TeamFilter, op
 
 var errInaccessibleTeam = errors.New("The team ID you provided refers to a team that either does not exist or you do not have permission to access.")
 
-// applyLabelTeamFilter requires the labels table to be aliased as "l" to work
+// applyLabelTeamFilter requires the labels table to be aliased as "l" to work.
+// Hidden labels are automatically excluded from the results.
 func applyLabelTeamFilter(query string, filter fleet.TeamFilter, initialParams ...any) (string, []any, error) {
 	// using this rather than a "contains a WHERE" check because some queries have subqueries
 	// but don't have any parameters for those subqueries
@@ -770,6 +771,10 @@ func applyLabelTeamFilter(query string, filter fleet.TeamFilter, initialParams .
 	if len(initialParams) > 0 {
 		whereOrAnd = " AND "
 	}
+
+	// Always exclude hidden labels from user-facing queries.
+	// After this, all subsequent conditions use AND.
+	query += whereOrAnd + "l.hidden = 0"
 
 	// apply sqlx.In if we had initial params, as they may include slices for where-ins other than the team one
 	maybeIn := func(query string) (string, []any, error) {
@@ -780,21 +785,21 @@ func applyLabelTeamFilter(query string, filter fleet.TeamFilter, initialParams .
 	}
 
 	if filter.User == nil { // fall back to safe (global-only) filter if this happens (it shouldn't)
-		return maybeIn(query + whereOrAnd + " l.team_id IS NULL")
+		return maybeIn(query + " AND l.team_id IS NULL")
 	}
 
 	if filter.TeamID != nil {
 		if *filter.TeamID == 0 { // global labels only; any user can see them
-			return maybeIn(query + whereOrAnd + "l.team_id IS NULL")
+			return maybeIn(query + " AND l.team_id IS NULL")
 		} else if !filter.UserCanAccessSelectedTeam() {
 			return "", nil, fleet.NewUserMessageError(errInaccessibleTeam, 403)
 		} // else user can see the team labels they're asking for; return global labels plus that team's labels
 
-		return sqlx.In(query+whereOrAnd+"(l.team_id IS NULL OR l.team_id = ?)", append(initialParams, *filter.TeamID)...)
+		return sqlx.In(query+" AND (l.team_id IS NULL OR l.team_id = ?)", append(initialParams, *filter.TeamID)...)
 	}
 
 	if !filter.User.HasAnyGlobalRole() && filter.User.HasAnyTeamRole() { // filter to teams user can see
-		return sqlx.In(query+whereOrAnd+"(l.team_id IS NULL OR l.team_id IN (?))", append(initialParams, filter.User.TeamIDsWithAnyRole())...)
+		return sqlx.In(query+" AND (l.team_id IS NULL OR l.team_id IN (?))", append(initialParams, filter.User.TeamIDsWithAnyRole())...)
 	} // else user exists and has a global role, so we don't need to filter out any team labels
 
 	return maybeIn(query)
@@ -1580,4 +1585,14 @@ func (ds *Datastore) RemoveLabelsFromHost(ctx context.Context, hostID uint, labe
 		return ctxerr.Wrap(ctx, err, "delete from label_membership")
 	}
 	return nil
+}
+
+func (ds *Datastore) HostIDsInLabel(ctx context.Context, labelID uint) ([]uint, error) {
+	var hostIDs []uint
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &hostIDs,
+		`SELECT host_id FROM label_membership WHERE label_id = ?`, labelID,
+	); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "get host IDs in label")
+	}
+	return hostIDs, nil
 }

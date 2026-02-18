@@ -167,6 +167,8 @@ type ListLabelsFunc func(ctx context.Context, filter fleet.TeamFilter, opt fleet
 
 type LabelsSummaryFunc func(ctx context.Context, filter fleet.TeamFilter) ([]*fleet.LabelSummary, error)
 
+type HostIDsInLabelFunc func(ctx context.Context, labelID uint) ([]uint, error)
+
 type GetEnrollmentIDsWithPendingMDMAppleCommandsFunc func(ctx context.Context) ([]string, error)
 
 type LabelQueriesForHostFunc func(ctx context.Context, host *fleet.Host) (map[string]string, error)
@@ -584,6 +586,8 @@ type ApplyPolicySpecsFunc func(ctx context.Context, authorID uint, specs []*flee
 type NewGlobalPolicyFunc func(ctx context.Context, authorID *uint, args fleet.PolicyPayload) (*fleet.Policy, error)
 
 type PolicyFunc func(ctx context.Context, id uint) (*fleet.Policy, error)
+
+type PolicyByNameFunc func(ctx context.Context, teamID *uint, name string) (*fleet.Policy, error)
 
 type PolicyLiteFunc func(ctx context.Context, id uint) (*fleet.PolicyLite, error)
 
@@ -1936,6 +1940,9 @@ type DataStore struct {
 	LabelsSummaryFunc        LabelsSummaryFunc
 	LabelsSummaryFuncInvoked bool
 
+	HostIDsInLabelFunc        HostIDsInLabelFunc
+	HostIDsInLabelFuncInvoked bool
+
 	GetEnrollmentIDsWithPendingMDMAppleCommandsFunc        GetEnrollmentIDsWithPendingMDMAppleCommandsFunc
 	GetEnrollmentIDsWithPendingMDMAppleCommandsFuncInvoked bool
 
@@ -2562,6 +2569,9 @@ type DataStore struct {
 
 	PolicyFunc        PolicyFunc
 	PolicyFuncInvoked bool
+
+	PolicyByNameFunc        PolicyByNameFunc
+	PolicyByNameFuncInvoked bool
 
 	PolicyLiteFunc        PolicyLiteFunc
 	PolicyLiteFuncInvoked bool
@@ -4771,6 +4781,13 @@ func (s *DataStore) LabelsSummary(ctx context.Context, filter fleet.TeamFilter) 
 	return s.LabelsSummaryFunc(ctx, filter)
 }
 
+func (s *DataStore) HostIDsInLabel(ctx context.Context, labelID uint) ([]uint, error) {
+	s.mu.Lock()
+	s.HostIDsInLabelFuncInvoked = true
+	s.mu.Unlock()
+	return s.HostIDsInLabelFunc(ctx, labelID)
+}
+
 func (s *DataStore) GetEnrollmentIDsWithPendingMDMAppleCommands(ctx context.Context) ([]string, error) {
 	s.mu.Lock()
 	s.GetEnrollmentIDsWithPendingMDMAppleCommandsFuncInvoked = true
@@ -6232,6 +6249,13 @@ func (s *DataStore) Policy(ctx context.Context, id uint) (*fleet.Policy, error) 
 	s.PolicyFuncInvoked = true
 	s.mu.Unlock()
 	return s.PolicyFunc(ctx, id)
+}
+
+func (s *DataStore) PolicyByName(ctx context.Context, teamID *uint, name string) (*fleet.Policy, error) {
+	s.mu.Lock()
+	s.PolicyByNameFuncInvoked = true
+	s.mu.Unlock()
+	return s.PolicyByNameFunc(ctx, teamID, name)
 }
 
 func (s *DataStore) PolicyLite(ctx context.Context, id uint) (*fleet.PolicyLite, error) {

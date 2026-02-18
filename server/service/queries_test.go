@@ -1023,3 +1023,223 @@ func TestApplyQuerySpec(t *testing.T) {
 	})
 	assert.Error(t, err)
 }
+
+func TestNewQueryWithHostIDs(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+	ds.NewActivityFunc = func(ctx context.Context, user *fleet.User, activity fleet.ActivityDetails, details []byte, createdAt time.Time) error {
+		return nil
+	}
+
+	var savedQueryAutoLabelID *uint
+	ds.NewQueryFunc = func(ctx context.Context, query *fleet.Query, opts ...fleet.OptionalArg) (*fleet.Query, error) {
+		query.ID = 1
+		return query, nil
+	}
+	ds.LabelByNameFunc = func(ctx context.Context, name string, filter fleet.TeamFilter) (*fleet.Label, error) {
+		return nil, &notFoundError{}
+	}
+	ds.NewLabelFunc = func(ctx context.Context, label *fleet.Label, opts ...fleet.OptionalArg) (*fleet.Label, error) {
+		assert.True(t, label.Hidden)
+		assert.Contains(t, label.Name, "__fleet_host_target_query_1")
+		label.ID = 200
+		return label, nil
+	}
+	ds.UpdateLabelMembershipByHostIDsFunc = func(ctx context.Context, label fleet.Label, hostIDs []uint, filter fleet.TeamFilter) (*fleet.Label, []uint, error) {
+		assert.Equal(t, uint(200), label.ID)
+		assert.Equal(t, []uint{5, 6, 7}, hostIDs)
+		return &label, hostIDs, nil
+	}
+	ds.SaveQueryFunc = func(ctx context.Context, query *fleet.Query, shouldDiscardResults bool, shouldDeleteStats bool) error {
+		savedQueryAutoLabelID = query.AutoHostIDsLabelID
+		assert.NotNil(t, query.AutoHostIDsLabelID)
+		assert.Equal(t, uint(200), *query.AutoHostIDsLabelID)
+		return nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	hostIDs := []uint{5, 6, 7}
+	query, err := svc.NewQuery(ctx, fleet.QueryPayload{
+		Name:    ptr.String("test query"),
+		Query:   ptr.String("SELECT 1"),
+		Logging: ptr.String("snapshot"),
+		HostIDs: &hostIDs,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, query)
+	assert.Equal(t, uint(1), query.ID)
+	assert.Equal(t, []uint{5, 6, 7}, query.HostIDs)
+	assert.NotNil(t, savedQueryAutoLabelID)
+	assert.Equal(t, uint(200), *savedQueryAutoLabelID)
+	assert.True(t, ds.NewLabelFuncInvoked)
+	assert.True(t, ds.SaveQueryFuncInvoked)
+}
+
+func TestNewQueryWithHostIDs_ConflictsWithLabels(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	hostIDs := []uint{1}
+	_, err := svc.NewQuery(ctx, fleet.QueryPayload{
+		Name:             ptr.String("test"),
+		Query:            ptr.String("SELECT 1"),
+		Logging:          ptr.String("snapshot"),
+		HostIDs:          &hostIDs,
+		LabelsIncludeAny: []string{"label1"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "host_ids cannot be used with labels_include_any")
+}
+
+func TestModifyQueryWithHostIDs(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+	ds.NewActivityFunc = func(ctx context.Context, user *fleet.User, activity fleet.ActivityDetails, details []byte, createdAt time.Time) error {
+		return nil
+	}
+
+	// Start with a query that has no auto-label
+	ds.QueryFunc = func(ctx context.Context, id uint) (*fleet.Query, error) {
+		return &fleet.Query{
+			ID:      1,
+			Name:    "test query",
+			Query:   "SELECT 1",
+			Logging: "snapshot",
+		}, nil
+	}
+	ds.LabelByNameFunc = func(ctx context.Context, name string, filter fleet.TeamFilter) (*fleet.Label, error) {
+		return nil, &notFoundError{}
+	}
+	ds.NewLabelFunc = func(ctx context.Context, label *fleet.Label, opts ...fleet.OptionalArg) (*fleet.Label, error) {
+		assert.True(t, label.Hidden)
+		label.ID = 300
+		return label, nil
+	}
+	ds.UpdateLabelMembershipByHostIDsFunc = func(ctx context.Context, label fleet.Label, hostIDs []uint, filter fleet.TeamFilter) (*fleet.Label, []uint, error) {
+		return &label, hostIDs, nil
+	}
+	ds.SaveQueryFunc = func(ctx context.Context, query *fleet.Query, shouldDiscardResults bool, shouldDeleteStats bool) error {
+		return nil
+	}
+	ds.HostIDsInLabelFunc = func(ctx context.Context, labelID uint) ([]uint, error) {
+		return []uint{10, 20}, nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	// Add host_ids to an existing query
+	hostIDs := []uint{10, 20}
+	query, err := svc.ModifyQuery(ctx, 1, fleet.QueryPayload{
+		HostIDs: &hostIDs,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, query)
+	assert.Equal(t, []uint{10, 20}, query.HostIDs)
+	assert.True(t, ds.NewLabelFuncInvoked)
+}
+
+func TestModifyQueryClearHostIDs(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+	ds.NewActivityFunc = func(ctx context.Context, user *fleet.User, activity fleet.ActivityDetails, details []byte, createdAt time.Time) error {
+		return nil
+	}
+
+	autoLabelDeleted := false
+	// Start with a query that has an auto-label
+	ds.QueryFunc = func(ctx context.Context, id uint) (*fleet.Query, error) {
+		return &fleet.Query{
+			ID:                 1,
+			Name:               "test query",
+			Query:              "SELECT 1",
+			Logging:            "snapshot",
+			AutoHostIDsLabelID: ptr.Uint(300),
+		}, nil
+	}
+	ds.LabelFunc = func(ctx context.Context, lid uint, filter fleet.TeamFilter) (*fleet.LabelWithTeamName, []uint, error) {
+		return &fleet.LabelWithTeamName{Label: fleet.Label{ID: lid, Name: "__fleet_host_target_query_1"}}, nil, nil
+	}
+	ds.DeleteLabelFunc = func(ctx context.Context, name string, filter fleet.TeamFilter) error {
+		autoLabelDeleted = true
+		return nil
+	}
+	ds.SaveQueryFunc = func(ctx context.Context, query *fleet.Query, shouldDiscardResults bool, shouldDeleteStats bool) error {
+		assert.Nil(t, query.AutoHostIDsLabelID, "auto_host_ids_label_id should be cleared")
+		assert.Nil(t, query.LabelsIncludeAny, "labels_include_any should be cleared")
+		return nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	// Clear host_ids by passing empty slice
+	emptyHostIDs := []uint{}
+	query, err := svc.ModifyQuery(ctx, 1, fleet.QueryPayload{
+		HostIDs: &emptyHostIDs,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, query)
+	assert.True(t, autoLabelDeleted, "auto-label should have been deleted")
+}
+
+func TestDeleteQueryWithHostIDs(t *testing.T) {
+	ds := new(mock.Store)
+
+	ds.AppConfigFunc = func(ctx context.Context) (*fleet.AppConfig, error) {
+		return &fleet.AppConfig{}, nil
+	}
+	ds.NewActivityFunc = func(ctx context.Context, user *fleet.User, activity fleet.ActivityDetails, details []byte, createdAt time.Time) error {
+		return nil
+	}
+
+	autoLabelDeleted := false
+	ds.QueryByNameFunc = func(ctx context.Context, teamID *uint, name string) (*fleet.Query, error) {
+		return &fleet.Query{
+			ID:                 1,
+			Name:               "test query",
+			Query:              "SELECT 1",
+			Logging:            "snapshot",
+			AutoHostIDsLabelID: ptr.Uint(400),
+		}, nil
+	}
+	ds.LabelFunc = func(ctx context.Context, lid uint, filter fleet.TeamFilter) (*fleet.LabelWithTeamName, []uint, error) {
+		return &fleet.LabelWithTeamName{Label: fleet.Label{ID: lid, Name: "__fleet_host_target_query_1"}}, nil, nil
+	}
+	ds.DeleteLabelFunc = func(ctx context.Context, name string, filter fleet.TeamFilter) error {
+		autoLabelDeleted = true
+		return nil
+	}
+	ds.DeleteQueryFunc = func(ctx context.Context, teamID *uint, name string) error {
+		return nil
+	}
+
+	svc, ctx := newTestService(t, ds, nil, nil)
+	user := &fleet.User{ID: 1, GlobalRole: ptr.String(fleet.RoleAdmin)}
+	ctx = viewer.NewContext(ctx, viewer.Viewer{User: user})
+
+	err := svc.DeleteQuery(ctx, nil, "test query")
+	require.NoError(t, err)
+	assert.True(t, autoLabelDeleted, "auto-label should have been deleted on query deletion")
+}

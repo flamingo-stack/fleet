@@ -34,6 +34,7 @@ type teamPolicyRequest struct {
 	LabelsIncludeAny         []string `json:"labels_include_any"`
 	LabelsExcludeAny         []string `json:"labels_exclude_any"`
 	ConditionalAccessEnabled bool     `json:"conditional_access_enabled"`
+	HostIDs                  []uint   `json:"host_ids"`
 }
 
 type teamPolicyResponse struct {
@@ -59,6 +60,7 @@ func teamPolicyEndpoint(ctx context.Context, request interface{}, svc fleet.Serv
 		LabelsIncludeAny:         req.LabelsIncludeAny,
 		LabelsExcludeAny:         req.LabelsExcludeAny,
 		ConditionalAccessEnabled: req.ConditionalAccessEnabled,
+		HostIDs:                  req.HostIDs,
 	})
 	if err != nil {
 		return teamPolicyResponse{Err: err}, nil
@@ -98,6 +100,20 @@ func (svc Service) NewTeamPolicy(ctx context.Context, teamID uint, tp fleet.NewT
 	policy, err := svc.ds.NewTeamPolicy(ctx, teamID, ptr.Uint(vc.UserID()), p)
 	if err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "creating policy")
+	}
+
+	// Handle host_ids auto-label creation
+	if len(p.HostIDs) > 0 {
+		_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "policy", policy.ID, p.HostIDs)
+		if err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "creating auto label for policy host_ids")
+		}
+		policy.AutoHostIDsLabelID = &labelID
+		policy.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("policy", policy.ID)}}
+		if err := svc.ds.SavePolicy(ctx, policy, false, false); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "saving policy with auto label")
+		}
+		policy.HostIDs = p.HostIDs
 	}
 
 	if err := svc.populatePolicyInstallSoftware(ctx, policy); err != nil {
@@ -209,6 +225,7 @@ func (svc *Service) newTeamPolicyPayloadToPolicyPayload(ctx context.Context, tea
 		LabelsIncludeAny:         p.LabelsIncludeAny,
 		LabelsExcludeAny:         p.LabelsExcludeAny,
 		ConditionalAccessEnabled: p.ConditionalAccessEnabled,
+		HostIDs:                  p.HostIDs,
 	}, nil
 }
 
@@ -275,6 +292,9 @@ func (svc *Service) ListTeamPolicies(ctx context.Context, teamID uint, opts flee
 			if err := svc.populatePolicyRunScript(ctx, policies[i]); err != nil {
 				return nil, nil, ctxerr.Wrapf(ctx, err, "populate run_script for policy_id: %d", policies[i].ID)
 			}
+			if err := populatePolicyHostIDs(ctx, svc.ds, policies[i]); err != nil {
+				return nil, nil, ctxerr.Wrapf(ctx, err, "populate host_ids for policy_id: %d", policies[i].ID)
+			}
 		}
 		return policies, nil, err
 	}
@@ -290,6 +310,9 @@ func (svc *Service) ListTeamPolicies(ctx context.Context, teamID uint, opts flee
 		}
 		if err := svc.populatePolicyRunScript(ctx, teamPolicies[i]); err != nil {
 			return nil, nil, ctxerr.Wrapf(ctx, err, "populate run_script for policy_id: %d", teamPolicies[i].ID)
+		}
+		if err := populatePolicyHostIDs(ctx, svc.ds, teamPolicies[i]); err != nil {
+			return nil, nil, ctxerr.Wrapf(ctx, err, "populate host_ids for policy_id: %d", teamPolicies[i].ID)
 		}
 	}
 
@@ -389,6 +412,9 @@ func (svc Service) GetTeamPolicyByIDQueries(ctx context.Context, teamID uint, po
 	if err := svc.populatePolicyRunScript(ctx, teamPolicy); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "populate run_script")
 	}
+	if err := populatePolicyHostIDs(ctx, svc.ds, teamPolicy); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "populate host_ids")
+	}
 
 	return teamPolicy, nil
 }
@@ -449,6 +475,13 @@ func (svc Service) DeleteTeamPolicies(ctx context.Context, teamID uint, ids []ui
 				policy,
 				fleet.ActionWrite,
 			)
+		}
+	}
+
+	// Clean up auto-labels for policies being deleted
+	for _, policy := range policiesByID {
+		if err := deleteAutoLabel(ctx, svc.ds, policy.AutoHostIDsLabelID); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "deleting auto label for policy")
 		}
 	}
 
@@ -655,6 +688,27 @@ func (svc *Service) modifyPolicy(ctx context.Context, teamID *uint, id uint, p f
 		}
 	}
 
+	// Handle host_ids changes
+	if p.HostIDs != nil {
+		if len(*p.HostIDs) == 0 {
+			// Clear host_ids: delete auto-label
+			if err := deleteAutoLabel(ctx, svc.ds, policy.AutoHostIDsLabelID); err != nil {
+				return nil, ctxerr.Wrap(ctx, err, "deleting auto label for policy")
+			}
+			policy.AutoHostIDsLabelID = nil
+			// Clear labels_include_any that was pointing to the auto-label
+			policy.LabelsIncludeAny = nil
+		} else {
+			// Create or update auto-label
+			_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "policy", policy.ID, *p.HostIDs)
+			if err != nil {
+				return nil, ctxerr.Wrap(ctx, err, "creating/updating auto label for policy host_ids")
+			}
+			policy.AutoHostIDsLabelID = &labelID
+			policy.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("policy", policy.ID)}}
+		}
+	}
+
 	logging.WithExtras(ctx, "name", policy.Name, "sql", policy.Query)
 
 	err = svc.ds.SavePolicy(ctx, policy, removeAllMemberships, removeStats)
@@ -667,6 +721,9 @@ func (svc *Service) modifyPolicy(ctx context.Context, teamID *uint, id uint, p f
 	}
 	if err := svc.populatePolicyRunScript(ctx, policy); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "populate run_script")
+	}
+	if err := populatePolicyHostIDs(ctx, svc.ds, policy); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "populate host_ids")
 	}
 
 	if teamID == nil {

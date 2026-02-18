@@ -227,6 +227,9 @@ type Datastore interface {
 	ListLabels(ctx context.Context, filter TeamFilter, opt ListOptions, includeHostCounts bool) ([]*Label, error)
 	LabelsSummary(ctx context.Context, filter TeamFilter) ([]*LabelSummary, error)
 
+	// HostIDsInLabel returns the host IDs that are members of the given label.
+	HostIDsInLabel(ctx context.Context, labelID uint) ([]uint, error)
+
 	GetEnrollmentIDsWithPendingMDMAppleCommands(ctx context.Context) ([]string, error)
 
 	// LabelQueriesForHost returns the (dynamic) label queries that should be executed for the given host.
@@ -788,6 +791,7 @@ type Datastore interface {
 
 	NewGlobalPolicy(ctx context.Context, authorID *uint, args PolicyPayload) (*Policy, error)
 	Policy(ctx context.Context, id uint) (*Policy, error)
+	PolicyByName(ctx context.Context, teamID *uint, name string) (*Policy, error)
 	PolicyLite(ctx context.Context, id uint) (*PolicyLite, error)
 
 	// SavePolicy updates some fields of the given policy on the datastore.

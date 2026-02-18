@@ -48,6 +48,9 @@ func (svc *Service) GetQuery(ctx context.Context, id uint) (*fleet.Query, error)
 	if err := svc.authz.Authorize(ctx, query, fleet.ActionRead); err != nil {
 		return nil, err
 	}
+	if err := populateQueryHostIDs(ctx, svc.ds, query); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "populate host_ids")
+	}
 	return query, nil
 }
 
@@ -339,6 +342,20 @@ func (svc *Service) NewQuery(ctx context.Context, p fleet.QueryPayload) (*fleet.
 		return nil, err
 	}
 
+	// Handle host_ids auto-label creation
+	if p.HostIDs != nil && len(*p.HostIDs) > 0 {
+		_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "query", query.ID, *p.HostIDs)
+		if err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "creating auto label for query host_ids")
+		}
+		query.AutoHostIDsLabelID = &labelID
+		query.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("query", query.ID)}}
+		if err := svc.ds.SaveQuery(ctx, query, false, false); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "saving query with auto label")
+		}
+		query.HostIDs = *p.HostIDs
+	}
+
 	var teamID int64
 	var teamName *string
 	if query.TeamID != nil {
@@ -481,10 +498,34 @@ func (svc *Service) ModifyQuery(ctx context.Context, id uint, p fleet.QueryPaylo
 		query.LabelsIncludeAny = labelIdents
 	}
 
+	// Handle host_ids changes
+	if p.HostIDs != nil {
+		if len(*p.HostIDs) == 0 {
+			// Clear host_ids: delete auto-label
+			if err := deleteAutoLabel(ctx, svc.ds, query.AutoHostIDsLabelID); err != nil {
+				return nil, ctxerr.Wrap(ctx, err, "deleting auto label for query")
+			}
+			query.AutoHostIDsLabelID = nil
+			query.LabelsIncludeAny = nil
+		} else {
+			// Create or update auto-label
+			_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "query", query.ID, *p.HostIDs)
+			if err != nil {
+				return nil, ctxerr.Wrap(ctx, err, "creating/updating auto label for query host_ids")
+			}
+			query.AutoHostIDsLabelID = &labelID
+			query.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("query", query.ID)}}
+		}
+	}
+
 	logging.WithExtras(ctx, "name", query.Name, "sql", query.Query)
 
 	if err := svc.ds.SaveQuery(ctx, query, shouldDiscardQueryResults, shouldDeleteStats); err != nil {
 		return nil, err
+	}
+
+	if err := populateQueryHostIDs(ctx, svc.ds, query); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "populate host_ids")
 	}
 
 	var teamID int64
@@ -570,6 +611,11 @@ func (svc *Service) DeleteQuery(ctx context.Context, teamID *uint, name string) 
 		return err
 	}
 
+	// Clean up auto-label
+	if err := deleteAutoLabel(ctx, svc.ds, query.AutoHostIDsLabelID); err != nil {
+		return ctxerr.Wrap(ctx, err, "deleting auto label for query")
+	}
+
 	if err := svc.ds.DeleteQuery(ctx, teamID, name); err != nil {
 		return err
 	}
@@ -637,6 +683,11 @@ func (svc *Service) DeleteQueryByID(ctx context.Context, id uint) error {
 	}
 	if err := svc.authz.Authorize(ctx, query, fleet.ActionWrite); err != nil {
 		return err
+	}
+
+	// Clean up auto-label
+	if err := deleteAutoLabel(ctx, svc.ds, query.AutoHostIDsLabelID); err != nil {
+		return ctxerr.Wrap(ctx, err, "deleting auto label for query")
 	}
 
 	if err := svc.ds.DeleteQuery(ctx, query.TeamID, query.Name); err != nil {
@@ -711,6 +762,11 @@ func (svc *Service) DeleteQueries(ctx context.Context, ids []uint) (uint, error)
 			return 0, err
 		}
 
+		// Clean up auto-label
+		if err := deleteAutoLabel(ctx, svc.ds, query.AutoHostIDsLabelID); err != nil {
+			return 0, ctxerr.Wrap(ctx, err, "deleting auto label for query")
+		}
+
 		// Capture team information for activity logging.
 		if query.TeamID != nil {
 			logTeamID = int64(*query.TeamID) //nolint:gosec // dismiss G115
@@ -771,6 +827,12 @@ func (svc *Service) ApplyQuerySpecs(ctx context.Context, specs []*fleet.QuerySpe
 	// 1. Turn specs into queries.
 	queries := []*fleet.Query{}
 	for _, spec := range specs {
+		// Validate host_ids and labels_include_any are mutually exclusive
+		if len(spec.HostIDs) > 0 && len(spec.LabelsIncludeAny) > 0 {
+			return ctxerr.Wrap(ctx, &fleet.BadRequestError{
+				Message: "host_ids cannot be used with labels_include_any",
+			})
+		}
 		query, err := svc.queryFromSpec(ctx, spec)
 		if err != nil {
 			setAuthCheckedOnPreAuthErr(ctx)
@@ -820,6 +882,32 @@ func (svc *Service) ApplyQuerySpecs(ctx context.Context, specs []*fleet.QuerySpe
 	err := svc.ds.ApplyQueries(ctx, vc.UserID(), queries, queriesToDiscardResults)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "applying queries")
+	}
+
+	// Post-process host_ids: create/update auto-labels for specs that have host_ids
+	for i, spec := range specs {
+		if len(spec.HostIDs) == 0 {
+			continue
+		}
+		// queries[i] corresponds to specs[i] and should have its ID set after ApplyQueries
+		q := queries[i]
+		if q.ID == 0 {
+			// Look up the query by name to get its ID
+			dbQuery, err := svc.ds.QueryByName(ctx, q.TeamID, q.Name)
+			if err != nil {
+				return ctxerr.Wrap(ctx, err, "looking up query by name for host_ids")
+			}
+			q.ID = dbQuery.ID
+		}
+		_, labelID, err := createOrUpdateAutoLabel(ctx, svc.ds, "query", q.ID, spec.HostIDs)
+		if err != nil {
+			return ctxerr.Wrap(ctx, err, "creating auto label for query spec host_ids")
+		}
+		q.AutoHostIDsLabelID = &labelID
+		q.LabelsIncludeAny = []fleet.LabelIdent{{LabelName: autoLabelName("query", q.ID)}}
+		if err := svc.ds.SaveQuery(ctx, q, false, false); err != nil {
+			return ctxerr.Wrap(ctx, err, "saving query with auto label from spec")
+		}
 	}
 
 	if err := svc.NewActivity(
@@ -941,6 +1029,29 @@ func (svc *Service) specFromQuery(ctx context.Context, query *fleet.Query) (*fle
 		}
 		teamName = team.Name
 	}
+
+	// If the query has an auto-label for host_ids, populate HostIDs instead of labels
+	if query.AutoHostIDsLabelID != nil {
+		if err := populateQueryHostIDs(ctx, svc.ds, query); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "populate host_ids for spec")
+		}
+		return &fleet.QuerySpec{
+			Name:        query.Name,
+			Description: query.Description,
+			Query:       query.Query,
+
+			TeamName:           teamName,
+			Interval:           query.Interval,
+			ObserverCanRun:     query.ObserverCanRun,
+			Platform:           query.Platform,
+			MinOsqueryVersion:  query.MinOsqueryVersion,
+			AutomationsEnabled: query.AutomationsEnabled,
+			Logging:            query.Logging,
+			DiscardData:        query.DiscardData,
+			HostIDs:            query.HostIDs,
+		}, nil
+	}
+
 	labelsAny := []string{}
 	for _, label := range query.LabelsIncludeAny {
 		labelsAny = append(labelsAny, label.LabelName)

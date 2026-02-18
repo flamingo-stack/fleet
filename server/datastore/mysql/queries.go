@@ -207,7 +207,8 @@ func (ds *Datastore) QueryByName(
 			logging_type,
 			discard_data,
 			created_at,
-			updated_at
+			updated_at,
+			auto_host_ids_label_id
 		FROM queries
 		WHERE name = ?
 	`
@@ -409,20 +410,21 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 
 	updateSQL := `
 		UPDATE queries
-		SET name                = ?,
-			description         = ?,
-			query               = ?,
-			author_id           = ?,
-			saved               = ?,
-			observer_can_run    = ?,
-			team_id             = ?,
-			team_id_char        = ?,
-			platform            = ?,
-			min_osquery_version = ?,
-			schedule_interval   = ?,
-			automations_enabled = ?,
-			logging_type        = ?,
-			discard_data		= ?
+		SET name                    = ?,
+			description             = ?,
+			query                   = ?,
+			author_id               = ?,
+			saved                   = ?,
+			observer_can_run        = ?,
+			team_id                 = ?,
+			team_id_char            = ?,
+			platform                = ?,
+			min_osquery_version     = ?,
+			schedule_interval       = ?,
+			automations_enabled     = ?,
+			logging_type            = ?,
+			discard_data            = ?,
+			auto_host_ids_label_id  = ?
 		WHERE id = ?
 	`
 	result, err := ds.writer(ctx).ExecContext(
@@ -442,6 +444,7 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 		q.AutomationsEnabled,
 		q.Logging,
 		q.DiscardData,
+		q.AutoHostIDsLabelID,
 		q.ID)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "updating query")
@@ -602,6 +605,7 @@ func query(ctx context.Context, db sqlx.QueryerContext, id uint) (*fleet.Query, 
 			q.created_at,
 			q.updated_at,
 			q.discard_data,
+			q.auto_host_ids_label_id,
 			COALESCE(NULLIF(u.name, ''), u.email, '') AS author_name,
 			COALESCE(u.email, '') AS author_email,
 			JSON_EXTRACT(json_value, '$.user_time_p50') as user_time_p50,
@@ -657,6 +661,7 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 			q.discard_data,
 			q.created_at,
 			q.updated_at,
+			q.auto_host_ids_label_id,
 			COALESCE(u.name, '<deleted>') AS author_name,
 			COALESCE(u.email, '') AS author_email,
 			JSON_EXTRACT(json_value, '$.user_time_p50') as user_time_p50,

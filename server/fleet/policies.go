@@ -56,6 +56,9 @@ type PolicyPayload struct {
 	//
 	// Only applies to team policies.
 	ConditionalAccessEnabled bool
+	// HostIDs is a list of host IDs to target with this policy.
+	// Mutually exclusive with LabelsIncludeAny and LabelsExcludeAny.
+	HostIDs []uint
 }
 
 // NewTeamPolicyPayload holds data for team policy creation.
@@ -94,14 +97,18 @@ type NewTeamPolicyPayload struct {
 	LabelsExcludeAny []string
 	// ConditionalAccessEnabled indicates whether this is a policy used for Microsoft conditional access.
 	ConditionalAccessEnabled bool
+	// HostIDs is a list of host IDs to target with this policy.
+	// Mutually exclusive with LabelsIncludeAny and LabelsExcludeAny.
+	HostIDs []uint
 }
 
 var (
-	errPolicyEmptyName         = errors.New("policy name cannot be empty")
-	errPolicyEmptyQuery        = errors.New("policy query cannot be empty")
-	errPolicyIDAndQuerySet     = errors.New("both fields \"queryID\" and \"query\" cannot be set")
-	errPolicyInvalidPlatform   = errors.New("invalid policy platform")
-	errPolicyConflictingLabels = errors.New("policy cannot include both labels_include_any and labels_exclude_any")
+	errPolicyEmptyName                    = errors.New("policy name cannot be empty")
+	errPolicyEmptyQuery                   = errors.New("policy query cannot be empty")
+	errPolicyIDAndQuerySet                = errors.New("both fields \"queryID\" and \"query\" cannot be set")
+	errPolicyInvalidPlatform              = errors.New("invalid policy platform")
+	errPolicyConflictingLabels            = errors.New("policy cannot include both labels_include_any and labels_exclude_any")
+	errPolicyHostIDsConflictsWithLabels   = errors.New("host_ids cannot be used with labels_include_any or labels_exclude_any")
 )
 
 // PolicyNoTeamID is the team ID of "No team" policies.
@@ -126,6 +133,9 @@ func (p PolicyPayload) Verify() error {
 	}
 	if len(p.LabelsIncludeAny) > 0 && len(p.LabelsExcludeAny) > 0 {
 		return errPolicyConflictingLabels
+	}
+	if len(p.HostIDs) > 0 && (len(p.LabelsIncludeAny) > 0 || len(p.LabelsExcludeAny) > 0) {
+		return errPolicyHostIDsConflictsWithLabels
 	}
 	return nil
 }
@@ -200,6 +210,10 @@ type ModifyPolicyPayload struct {
 	//
 	// Only applies to team policies.
 	ConditionalAccessEnabled *bool `json:"conditional_access_enabled" premium:"true"`
+	// HostIDs is a list of host IDs to target with this policy.
+	// Mutually exclusive with LabelsIncludeAny and LabelsExcludeAny.
+	// Pointer to distinguish absent (nil) vs empty (clear host_ids).
+	HostIDs *[]uint `json:"host_ids"`
 }
 
 // Verify verifies the policy payload is valid.
@@ -218,6 +232,9 @@ func (p ModifyPolicyPayload) Verify() error {
 		if err := verifyPolicyPlatforms(*p.Platform); err != nil {
 			return err
 		}
+	}
+	if p.HostIDs != nil && len(*p.HostIDs) > 0 && (len(p.LabelsIncludeAny) > 0 || len(p.LabelsExcludeAny) > 0) {
+		return errPolicyHostIDsConflictsWithLabels
 	}
 	return nil
 }
@@ -269,6 +286,11 @@ type PolicyData struct {
 	//
 	// Only applies to team policies.
 	ConditionalAccessEnabled bool `json:"conditional_access_enabled" db:"conditional_access_enabled"`
+
+	// AutoHostIDsLabelID is the ID of the hidden auto-created label for host_ids targeting.
+	AutoHostIDsLabelID *uint `json:"-" db:"auto_host_ids_label_id"`
+	// HostIDs is populated from the auto-label's membership for response serialization.
+	HostIDs []uint `json:"host_ids,omitempty"`
 
 	UpdateCreateTimestamps
 }
@@ -386,6 +408,9 @@ type PolicySpec struct {
 	//
 	// Only applies to team policies.
 	ConditionalAccessEnabled bool `json:"conditional_access_enabled"`
+	// HostIDs is a list of host IDs to target with this policy.
+	// Mutually exclusive with LabelsIncludeAny and LabelsExcludeAny.
+	HostIDs []uint `json:"host_ids,omitempty"`
 }
 
 // PolicySoftwareTitle contains software title data for policies.
@@ -416,6 +441,9 @@ func (p PolicySpec) Verify() error {
 	}
 	if err := verifyPolicyPlatforms(p.Platform); err != nil {
 		return err
+	}
+	if len(p.HostIDs) > 0 && (len(p.LabelsIncludeAny) > 0 || len(p.LabelsExcludeAny) > 0) {
+		return errPolicyHostIDsConflictsWithLabels
 	}
 	return nil
 }
