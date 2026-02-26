@@ -216,6 +216,7 @@ jobs:
         run: |
           set -e
           mkdir -p final-artifacts/clients
+          gh release download latest --pattern "*.tar.gz" --pattern "*.zip" --dir final-artifacts/clients || true
 
           # macOS
           if [ -d "release-artifacts/fleet-mac-universal" ]; then
@@ -242,6 +243,12 @@ jobs:
           - **Windows** (amd64): \`fleet-windows-amd64.zip\`
           EOF
 
+      - name: Delete existing latest release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete latest --yes --cleanup-tag || true
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -254,7 +261,3 @@ jobs:
           files: |
             final-artifacts/clients/*.zip
             final-artifacts/clients/*.tar.gz
-
-      - name: Force update latest tag
-        if: ${{ github.event_name == 'push' }}
-        run: git tag -f latest && git push -f origin latest
