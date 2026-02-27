@@ -27,3 +27,4 @@ func TestMyPackageDependencies(t *testing.T) {
 | `WithTestsRecursively()`     | Include test imports from all packages                                   |
 | `IgnoreXTests(pkgs...)`      | Ignore external test packages (`_test` suffix)                           |
 | `Check()`                    | Run the dependency check                                                 |
+
