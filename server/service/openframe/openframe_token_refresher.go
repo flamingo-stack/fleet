@@ -7,10 +7,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const openframeTokenRefreshErrorLogInterval = 100
+
 type OpenframeTokenRefresher struct {
 	tokenExtractor       *OpenframeTokenExtractor
 	authorizationManager *OpenFrameAuthorizationManager
 	cron                 *cron.Cron
+	extractErrCount      int
 }
 
 func NewOpenframeTokenRefresher(
@@ -46,19 +49,23 @@ func (tr *OpenframeTokenRefresher) Stop() {
 }
 
 func (tr *OpenframeTokenRefresher) refreshToken() {
-	log.Info().Msg("Refreshing token")
+	log.Debug().Msg("Refreshing token")
 
 	token, err := tr.tokenExtractor.ExtractToken()
 	if err != nil {
-		log.Error().Err(err).Msg("Error extracting token")
+		tr.extractErrCount++
+		if tr.extractErrCount%openframeTokenRefreshErrorLogInterval == 1 {
+			log.Error().Err(err).Msg("Error extracting token")
+		}
 		return
 	}
+	tr.extractErrCount = 0
 
 	if tr.authorizationManager.GetToken() == token {
-		log.Debug().Msg("Openframe token is the same, skipping refresh")
+        log.Debug().Msg("Openframe token is the same, skipping refresh")
 		return
 	}
 
 	tr.authorizationManager.UpdateToken(token)
-	log.Debug().Msg("Openframe token updated")
+	log.Info().Msg("Openframe token refreshed")
 }
