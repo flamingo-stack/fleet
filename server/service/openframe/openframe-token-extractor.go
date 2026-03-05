@@ -9,6 +9,7 @@ import (
 type OpenframeTokenExtractor struct {
 	encryptionService *OpenframeEncryptionService
 	tokenFilePath     string
+	readErrCount      int
 }
 
 func NewOpenframeTokenExtractor(encryptionService *OpenframeEncryptionService, tokenFilePath string) *OpenframeTokenExtractor {
@@ -20,14 +21,16 @@ func NewOpenframeTokenExtractor(encryptionService *OpenframeEncryptionService, t
 }
 
 func (te *OpenframeTokenExtractor) ExtractToken() (string, error) {
-	// Read the encrypted token from file
 	encryptedData, err := os.ReadFile(te.tokenFilePath)
 	if err != nil {
-		log.Error().Err(err).Msg("Error reading token file")
+		te.readErrCount++
+		if te.readErrCount%openframeTokenRefreshErrorLogInterval == 1 {
+			log.Error().Err(err).Msg("Error reading token file")
+		}
 		return "", err
 	}
+	te.readErrCount = 0
 
-	// Decrypt the data
 	decryptedData, err := te.encryptionService.Decrypt(string(encryptedData))
 	if err != nil {
 		log.Error().Err(err).Msg("Error decrypting data")
