@@ -11,12 +11,15 @@ func init() {
 }
 
 func Up_20210601000007(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if !columnExists(tx, "queries", "observer_can_run") {
+		sql := `
 		ALTER TABLE queries
 		ADD COLUMN observer_can_run TINYINT(1) NOT NULL DEFAULT FALSE
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add column observer_run")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add column observer_run")
+		}
 	}
 	return nil
 }

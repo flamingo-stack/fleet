@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250609112613(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
 	-- The challenges table holds generated challenges intended for single-use applications.
 	-- Whenever a challenge is checked it should be deleted from this table.

@@ -41,23 +41,30 @@ func Up_20220818101352(tx *sql.Tx) error {
 	//----------------
 	// Drop old index
 	//----------------
-	if _, err := tx.Exec(`ALTER TABLE software DROP KEY name`); err != nil {
-		return errors.Wrapf(err, "dropping old index")
+	// Idempotent migration.
+	if indexExistsTx(tx, "software", "name") {
+		if _, err := tx.Exec(`ALTER TABLE software DROP KEY name`); err != nil {
+			return errors.Wrapf(err, "dropping old index")
+		}
 	}
 
 	//------------------
 	// Rename old column
 	//------------------
-	if _, err := tx.Exec(`ALTER TABLE software CHANGE vendor vendor_old varchar(32) DEFAULT '' NOT NULL, ALGORITHM=INPLACE, LOCK=NONE`); err != nil {
-		return errors.Wrapf(err, "renaming old column")
+	if columnExists(tx, "software", "vendor") {
+		if _, err := tx.Exec(`ALTER TABLE software CHANGE vendor vendor_old varchar(32) DEFAULT '' NOT NULL, ALGORITHM=INPLACE, LOCK=NONE`); err != nil {
+			return errors.Wrapf(err, "renaming old column")
+		}
 	}
 
 	// ---------------
 	// Rename new column
 	// ---------------
-	if _, err := tx.Exec(
-		`ALTER TABLE software CHANGE vendor_wide vendor varchar(114) DEFAULT '' NOT NULL, ALGORITHM=INPLACE, LOCK=NONE`); err != nil {
-		return errors.Wrapf(err, "renaming new column")
+	if columnExists(tx, "software", "vendor_wide") {
+		if _, err := tx.Exec(
+			`ALTER TABLE software CHANGE vendor_wide vendor varchar(114) DEFAULT '' NOT NULL, ALGORITHM=INPLACE, LOCK=NONE`); err != nil {
+			return errors.Wrapf(err, "renaming new column")
+		}
 	}
 
 	return nil

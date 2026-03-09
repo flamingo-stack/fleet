@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20210819143446(tx *sql.Tx) error {
+	// Idempotent migration.
 	policiesTable := `
 		CREATE TABLE IF NOT EXISTS policies (
 			id int(10) UNSIGNED NOT NULL AUTO_INCREMENT,

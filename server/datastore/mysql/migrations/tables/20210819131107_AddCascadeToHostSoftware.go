@@ -3,7 +3,6 @@ package tables
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -13,6 +12,7 @@ func init() {
 }
 
 func Up_20210819131107(tx *sql.Tx) error {
+	// Idempotent migration.
 	referencedTables := map[string]struct{}{"hosts": {}, "software": {}}
 	table := "host_software"
 
@@ -22,9 +22,9 @@ func Up_20210819131107(tx *sql.Tx) error {
 	}
 
 	for _, constraint := range constraints {
-		_, err = tx.Exec(fmt.Sprintf(`ALTER TABLE host_software DROP FOREIGN KEY %s;`, constraint))
-		if err != nil {
-			if !strings.Contains(err.Error(), "check that column/key exists") {
+		if fkExists(tx, "host_software", constraint) {
+			_, err = tx.Exec(fmt.Sprintf(`ALTER TABLE host_software DROP FOREIGN KEY %s;`, constraint))
+			if err != nil {
 				return errors.Wrapf(err, "dropping fk %s", constraint)
 			}
 		}
@@ -37,12 +37,21 @@ func Up_20210819131107(tx *sql.Tx) error {
 	if err != nil {
 		return errors.Wrap(err, "")
 	}
-	if _, err := tx.Exec(`
+	if !fkExists(tx, "temp_host_software", "host_software_hosts_fk") {
+		if _, err := tx.Exec(`
 		ALTER TABLE temp_host_software
-		ADD FOREIGN KEY host_software_hosts_fk(host_id) REFERENCES hosts (id) ON DELETE CASCADE,
+		ADD FOREIGN KEY host_software_hosts_fk(host_id) REFERENCES hosts (id) ON DELETE CASCADE
+	`); err != nil {
+			return errors.Wrap(err, "add fk on temp_host_software hosts")
+		}
+	}
+	if !fkExists(tx, "temp_host_software", "host_software_software_fk") {
+		if _, err := tx.Exec(`
+		ALTER TABLE temp_host_software
 		ADD FOREIGN KEY host_software_software_fk(software_id) REFERENCES software (id) ON DELETE CASCADE
 	`); err != nil {
-		return errors.Wrap(err, "add fk on host_software hosts & software")
+			return errors.Wrap(err, "add fk on temp_host_software software")
+		}
 	}
 
 	_, err = tx.Exec(`INSERT IGNORE INTO temp_host_software SELECT * FROM host_software`)
@@ -55,9 +64,11 @@ func Up_20210819131107(tx *sql.Tx) error {
 		return errors.Wrap(err, "clear all host software")
 	}
 
-	_, err = tx.Exec(`RENAME TABLE temp_host_software TO host_software`)
-	if err != nil {
-		return errors.Wrap(err, "dropping temp table")
+	if tableExists(tx, "temp_host_software") {
+		_, err = tx.Exec(`RENAME TABLE temp_host_software TO host_software`)
+		if err != nil {
+			return errors.Wrap(err, "dropping temp table")
+		}
 	}
 
 	return nil

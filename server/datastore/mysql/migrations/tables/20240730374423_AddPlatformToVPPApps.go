@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20240730374423(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnExists(tx, "vpp_apps", "platform") && columnExists(tx, "vpp_apps_teams", "platform") {
 		return nil
 	}
@@ -29,21 +30,29 @@ func Up_20240730374423(tx *sql.Tx) error {
 	}
 
 	// Drop foreign keys first so they don't interfere with updating primary key.
-	_, err = tx.Exec(`ALTER TABLE vpp_apps_teams DROP FOREIGN KEY vpp_apps_teams_ibfk_1`)
-	if err != nil {
-		return fmt.Errorf("updating foreign key in vpp_apps: %w", err)
+	if fkExists(tx, "vpp_apps_teams", "vpp_apps_teams_ibfk_1") {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps_teams DROP FOREIGN KEY vpp_apps_teams_ibfk_1`)
+		if err != nil {
+			return fmt.Errorf("updating foreign key in vpp_apps: %w", err)
+		}
 	}
 
 	// We drop this foreign key in this migration (for MySQL 8.4). It will be added back in the next migration.
-	_, err = tx.Exec(`
+	if fkExists(tx, "host_vpp_software_installs", "host_vpp_software_installs_ibfk_2") {
+		_, err = tx.Exec(`
 		ALTER TABLE host_vpp_software_installs DROP FOREIGN KEY host_vpp_software_installs_ibfk_2`)
-	if err != nil {
-		return fmt.Errorf("drop foreign key in host_vpp_software_installs: %w", err)
+		if err != nil {
+			return fmt.Errorf("drop foreign key in host_vpp_software_installs: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE vpp_apps DROP PRIMARY KEY, ADD PRIMARY KEY (adam_id, platform)`)
-	if err != nil {
-		return fmt.Errorf("updating primary key in vpp_apps: %w", err)
+	var count int
+	err = tx.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vpp_apps' AND INDEX_NAME = 'PRIMARY' AND COLUMN_NAME = 'platform'`).Scan(&count)
+	if err != nil || count == 0 {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps DROP PRIMARY KEY, ADD PRIMARY KEY (adam_id, platform)`)
+		if err != nil {
+			return fmt.Errorf("updating primary key in vpp_apps: %w", err)
+		}
 	}
 
 	_, err = tx.Exec(`
@@ -58,21 +67,35 @@ func Up_20240730374423(tx *sql.Tx) error {
 		return fmt.Errorf("updating platform in vpp_apps_teams: %w", err)
 	}
 
-	_, err = tx.Exec(`ALTER TABLE vpp_apps_teams DROP INDEX idx_global_or_team_id_adam_id`)
-	if err != nil {
-		return fmt.Errorf("dropping unique key in vpp_apps: %w", err)
+	if indexExistsTx(tx, "vpp_apps_teams", "idx_global_or_team_id_adam_id") {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps_teams DROP INDEX idx_global_or_team_id_adam_id`)
+		if err != nil {
+			return fmt.Errorf("dropping unique key in vpp_apps: %w", err)
+		}
 	}
-	_, err = tx.Exec(`ALTER TABLE vpp_apps_teams ADD UNIQUE KEY idx_global_or_team_id_adam_id (global_or_team_id, adam_id, platform)`)
-	if err != nil {
-		return fmt.Errorf("adding unique key in vpp_apps: %w", err)
+	if !indexExistsTx(tx, "vpp_apps_teams", "idx_global_or_team_id_adam_id") {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps_teams ADD UNIQUE KEY idx_global_or_team_id_adam_id (global_or_team_id, adam_id, platform)`)
+		if err != nil {
+			return fmt.Errorf("adding unique key in vpp_apps: %w", err)
+		}
 	}
-	_, err = tx.Exec(`ALTER TABLE vpp_apps_teams DROP INDEX adam_id, ADD INDEX (adam_id, platform)`)
-	if err != nil {
-		return fmt.Errorf("updating key in vpp_apps: %w", err)
+	if indexExistsTx(tx, "vpp_apps_teams", "adam_id") {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps_teams DROP INDEX adam_id`)
+		if err != nil {
+			return fmt.Errorf("dropping adam_id key in vpp_apps: %w", err)
+		}
 	}
-	_, err = tx.Exec(`ALTER TABLE vpp_apps_teams ADD FOREIGN KEY vpp_apps_teams_ibfk_3 (adam_id, platform) REFERENCES vpp_apps (adam_id, platform) ON DELETE CASCADE`)
-	if err != nil {
-		return fmt.Errorf("updating foreign key in vpp_apps: %w", err)
+	if !indexExistsTx(tx, "vpp_apps_teams", "adam_id") {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps_teams ADD INDEX adam_id (adam_id, platform)`)
+		if err != nil {
+			return fmt.Errorf("adding adam_id key in vpp_apps: %w", err)
+		}
+	}
+	if !fkExists(tx, "vpp_apps_teams", "vpp_apps_teams_ibfk_3") {
+		_, err = tx.Exec(`ALTER TABLE vpp_apps_teams ADD FOREIGN KEY vpp_apps_teams_ibfk_3 (adam_id, platform) REFERENCES vpp_apps (adam_id, platform) ON DELETE CASCADE`)
+		if err != nil {
+			return fmt.Errorf("updating foreign key in vpp_apps: %w", err)
+		}
 	}
 
 	return nil

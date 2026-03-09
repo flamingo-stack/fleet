@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20251015103600(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 ALTER TABLE software
     RENAME COLUMN browser TO extension_for

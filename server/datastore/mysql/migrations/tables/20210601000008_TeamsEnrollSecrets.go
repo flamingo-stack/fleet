@@ -11,23 +11,37 @@ func init() {
 }
 
 func Up_20210601000008(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add team_id
-	sql := `
+	if !columnExists(tx, "enroll_secrets", "team_id") {
+		sql := `
 		ALTER TABLE enroll_secrets
-		ADD COLUMN team_id INT UNSIGNED,
+		ADD COLUMN team_id INT UNSIGNED
+	`
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add team_id to enroll_secrets")
+		}
+	}
+
+	if !fkExists(tx, "enroll_secrets", "fk_enroll_secrets_team_id") {
+		sql := `
+		ALTER TABLE enroll_secrets
 		ADD FOREIGN KEY fk_enroll_secrets_team_id (team_id) REFERENCES teams (id) ON DELETE CASCADE ON UPDATE CASCADE
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add team_id to enroll_secrets")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add fk_enroll_secrets_team_id to enroll_secrets")
+		}
 	}
 
 	// Remove "active" as a concept from enroll secrets
-	sql = `
+	if columnExists(tx, "enroll_secrets", "active") {
+		sql := `
 		DELETE FROM enroll_secrets
 		WHERE NOT active
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "remove inactive secrets")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "remove inactive secrets")
+		}
 	}
 
 	// ********* TEST ONLY BEGIN *********
@@ -67,22 +81,26 @@ func Up_20210601000008(tx *sql.Tx) error {
 		}
 	}
 
-	sql = `
+	if columnExists(tx, "enroll_secrets", "active") {
+		sql := `
 		ALTER TABLE enroll_secrets
 		DROP COLUMN active,
 		DROP COLUMN name,
 		ADD PRIMARY KEY (secret)
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "alter enroll_secrets")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "alter enroll_secrets")
+		}
 	}
 
-	sql = `
+	if columnExists(tx, "hosts", "enroll_secret_name") {
+		sql := `
 		ALTER TABLE hosts
 		DROP COLUMN enroll_secret_name
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "alter hosts")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "alter hosts")
+		}
 	}
 
 	return nil

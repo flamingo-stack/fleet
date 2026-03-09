@@ -10,16 +10,21 @@ func init() {
 }
 
 func Up_20241231112624(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE host_mdm_apple_declarations
+	// Idempotent migration.
+	if columnExists(tx, "host_mdm_apple_declarations", "checksum") {
+		_, err := tx.Exec(`ALTER TABLE host_mdm_apple_declarations
     	RENAME COLUMN checksum TO token`)
-	if err != nil {
-		return fmt.Errorf("failed to alter mdm_apple_configuration_profiles table: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter mdm_apple_configuration_profiles table: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE mdm_apple_declarations
+	if columnExists(tx, "mdm_apple_declarations", "checksum") {
+		_, err := tx.Exec(`ALTER TABLE mdm_apple_declarations
     	DROP COLUMN checksum`)
-	if err != nil {
-		return fmt.Errorf("failed to alter mdm_apple_configuration_profiles table: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter mdm_apple_configuration_profiles table: %w", err)
+		}
 	}
 
 	return nil

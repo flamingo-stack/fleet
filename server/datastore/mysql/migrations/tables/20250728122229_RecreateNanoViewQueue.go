@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250728122229(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		CREATE OR REPLACE SQL SECURITY INVOKER VIEW nano_view_queue AS
 SELECT

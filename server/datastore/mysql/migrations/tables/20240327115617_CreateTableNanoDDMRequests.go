@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20240327115617(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE mdm_apple_declarative_requests (
+CREATE TABLE IF NOT EXISTS mdm_apple_declarative_requests (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   enrollment_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,

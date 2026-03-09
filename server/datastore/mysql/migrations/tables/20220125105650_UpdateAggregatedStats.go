@@ -11,11 +11,16 @@ func init() {
 }
 
 func Up_20220125105650(tx *sql.Tx) error {
-	if _, err := tx.Exec(`ALTER TABLE aggregated_stats MODIFY id bigint(20) unsigned NOT NULL`); err != nil {
-		return errors.Wrap(err, "make aggregated_stats.id bigint")
+	// Idempotent migration.
+	if columnExists(tx, "aggregated_stats", "id") {
+		if _, err := tx.Exec(`ALTER TABLE aggregated_stats MODIFY id bigint(20) unsigned NOT NULL`); err != nil {
+			return errors.Wrap(err, "make aggregated_stats.id bigint")
+		}
 	}
-	if _, err := tx.Exec("create index aggregated_stats_type_idx on aggregated_stats(`type`);"); err != nil {
-		return errors.Wrap(err, "creating aggregated_stats index")
+	if !indexExistsTx(tx, "aggregated_stats", "aggregated_stats_type_idx") {
+		if _, err := tx.Exec("create index aggregated_stats_type_idx on aggregated_stats(`type`);"); err != nil {
+			return errors.Wrap(err, "creating aggregated_stats index")
+		}
 	}
 	return nil
 }

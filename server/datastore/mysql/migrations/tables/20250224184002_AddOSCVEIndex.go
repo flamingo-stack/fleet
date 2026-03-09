@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20250224184002(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE operating_system_vulnerabilities ADD INDEX idx_os_vulnerabilities_cve (cve);`)
-	if err != nil {
-		return fmt.Errorf("failed to add index to operating_system_vulnerabilities.cve: %w", err)
+	// Idempotent migration.
+	if !indexExistsTx(tx, "operating_system_vulnerabilities", "idx_os_vulnerabilities_cve") {
+		_, err := tx.Exec(`ALTER TABLE operating_system_vulnerabilities ADD INDEX idx_os_vulnerabilities_cve (cve);`)
+		if err != nil {
+			return fmt.Errorf("failed to add index to operating_system_vulnerabilities.cve: %w", err)
+		}
 	}
 	return nil
 }

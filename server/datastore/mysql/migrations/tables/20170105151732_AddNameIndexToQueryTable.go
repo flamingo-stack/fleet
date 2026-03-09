@@ -7,10 +7,15 @@ func init() {
 }
 
 func Up_20170105151732(tx *sql.Tx) error {
-	sqlStatement := "CREATE UNIQUE INDEX idx_query_unique_name " +
-		" ON `queries` (`name` ASC);"
-	_, err := tx.Exec(sqlStatement)
-	return err
+	// Idempotent migration.
+	if !indexExistsTx(tx, "queries", "idx_query_unique_name") {
+		sqlStatement := "CREATE UNIQUE INDEX idx_query_unique_name " +
+			" ON `queries` (`name` ASC);"
+		if _, err := tx.Exec(sqlStatement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170105151732(tx *sql.Tx) error {

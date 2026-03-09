@@ -9,7 +9,8 @@ func init() {
 }
 
 func Up_20161118211713(tx *sql.Tx) error {
-	sqlStatement := "CREATE TABLE `distributed_query_campaign_targets` (" +
+	// Idempotent migration.
+	sqlStatement := "CREATE TABLE IF NOT EXISTS `distributed_query_campaign_targets` (" +
 		"`id` int(10) unsigned NOT NULL AUTO_INCREMENT," +
 		"`type` int(11) DEFAULT NULL," +
 		"`distributed_query_campaign_id` int(10) unsigned DEFAULT NULL," +

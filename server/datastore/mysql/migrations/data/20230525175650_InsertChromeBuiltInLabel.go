@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20230525175650(tx *sql.Tx) error {
+	// Idempotent migration.
 	label := fleet.Label{
 		Name:        "chrome",
 		Query:       "select 1 from os_version where platform = 'chrome';",
@@ -19,7 +20,7 @@ func Up_20230525175650(tx *sql.Tx) error {
 	}
 
 	sql := `
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

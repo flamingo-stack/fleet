@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up20200420120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(
-		"DROP TABLE `distributed_query_executions` ",
+		"DROP TABLE IF EXISTS `distributed_query_executions` ",
 	); err != nil {
 		return errors.Wrap(err, "drop distributed_query_executions table ")
 	}

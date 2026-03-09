@@ -11,8 +11,11 @@ func init() {
 }
 
 func Up_20211207161856(tx *sql.Tx) error {
-	if _, err := tx.Exec(`create index software_listing_idx on software(name, id);`); err != nil {
-		return errors.Wrap(err, "creating software index")
+	// Idempotent migration.
+	if !indexExistsTx(tx, "software", "software_listing_idx") {
+		if _, err := tx.Exec(`create index software_listing_idx on software(name, id);`); err != nil {
+			return errors.Wrap(err, "creating software index")
+		}
 	}
 	return nil
 }

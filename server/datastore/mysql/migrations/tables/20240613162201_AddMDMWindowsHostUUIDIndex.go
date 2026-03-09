@@ -10,12 +10,14 @@ func init() {
 }
 
 func Up_20240613162201(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !indexExistsTx(tx, "mdm_windows_enrollments", "idx_mdm_windows_enrollments_host_uuid") {
+		if _, err := tx.Exec(`
 	ALTER TABLE mdm_windows_enrollments
 		ADD INDEX idx_mdm_windows_enrollments_host_uuid (host_uuid)`,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add index to mdm_windows_enrollments.host_uuid: %w", err)
+		); err != nil {
+			return fmt.Errorf("failed to add index to mdm_windows_enrollments.host_uuid: %w", err)
+		}
 	}
 	return nil
 }

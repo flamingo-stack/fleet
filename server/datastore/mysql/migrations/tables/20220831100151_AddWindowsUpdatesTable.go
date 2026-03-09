@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20220831100151(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE windows_updates (
+CREATE TABLE IF NOT EXISTS windows_updates (
 	id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 	host_id INT UNSIGNED NOT NULL,
 	date_epoch INT UNSIGNED NOT NULL,

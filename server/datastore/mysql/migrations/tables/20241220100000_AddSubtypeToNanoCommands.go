@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20241220100000(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnExists(tx, "nano_commands", "subtype") {
 		_, err := tx.Exec(fmt.Sprintf(`	
 ALTER TABLE nano_commands

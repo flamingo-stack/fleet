@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20250422095806(tx *sql.Tx) error {
+	// Idempotent migration.
 	// fleet_variables stores variable names that can be used in configuration
 	// profiles, scripts, etc. and that get replaced server-side with a
 	// fleet-known value before being used.
@@ -72,7 +73,7 @@ func Up_20250422095806(tx *sql.Tx) error {
 	}
 
 	insStmt := `
-	INSERT INTO fleet_variables (
+	INSERT IGNORE INTO fleet_variables (
 		name, is_prefix, created_at
 	) VALUES
 		('FLEET_VAR_NDES_SCEP_CHALLENGE', 0, :created_at),

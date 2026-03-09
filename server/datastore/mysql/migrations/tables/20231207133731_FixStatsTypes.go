@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20231207133731(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Updating some bad data from osquery (which will be ignored in a later PR).
 	// Seems safer to update rather than delete.
 	stmt := `
@@ -19,7 +20,8 @@ func Up_20231207133731(tx *sql.Tx) error {
 		return fmt.Errorf("fixing last_executed in scheduled_query_stats: %w", err)
 	}
 
-	stmt = `
+	if columnExists(tx, "scheduled_query_stats", "average_memory") {
+		stmt = `
 		ALTER TABLE scheduled_query_stats
 		MODIFY COLUMN average_memory BIGINT UNSIGNED NOT NULL,
 		MODIFY COLUMN executions BIGINT UNSIGNED NOT NULL,
@@ -28,8 +30,9 @@ func Up_20231207133731(tx *sql.Tx) error {
 		MODIFY COLUMN user_time BIGINT UNSIGNED NOT NULL,
 		MODIFY COLUMN wall_time BIGINT UNSIGNED NOT NULL;
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("changing data types for scheduled_query_stats: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("changing data types for scheduled_query_stats: %w", err)
+		}
 	}
 
 	return nil

@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20241009090010(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
-		`CREATE TABLE host_mdm_managed_certificates (
+		`CREATE TABLE IF NOT EXISTS host_mdm_managed_certificates (
 			host_uuid varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 			profile_uuid varchar(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 			challenge_retrieved_at TIMESTAMP(6) NULL,
@@ -20,7 +21,7 @@ func Up_20241009090010(tx *sql.Tx) error {
 			PRIMARY KEY (host_uuid,profile_uuid)
 		)`)
 	if err != nil {
-		return fmt.Errorf("failed to CREATE TABLE host_mdm_managed_certificates: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS host_mdm_managed_certificates: %w", err)
 	}
 	return nil
 }

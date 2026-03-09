@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20241220114904(tx *sql.Tx) error {
+	// Idempotent migration.
 	createVppAppStmt := `
 CREATE TABLE IF NOT EXISTS vpp_app_team_labels (
 	id                   INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

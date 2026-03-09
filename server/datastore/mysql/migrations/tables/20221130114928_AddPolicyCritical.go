@@ -11,11 +11,13 @@ func init() {
 }
 
 func Up_20221130114928(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "policies", "critical") {
+		if _, err := tx.Exec(`
 		ALTER TABLE policies ADD COLUMN critical TINYINT(1) NOT NULL DEFAULT FALSE;
-	`)
-	if err != nil {
-		return errors.Wrapf(err, "adding column critical")
+	`); err != nil {
+			return errors.Wrapf(err, "adding column critical")
+		}
 	}
 
 	return nil

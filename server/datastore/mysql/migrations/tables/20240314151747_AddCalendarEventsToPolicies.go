@@ -10,9 +10,11 @@ func init() {
 }
 
 func Up_20240314151747(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE policies ADD COLUMN calendar_events_enabled TINYINT(1) UNSIGNED NOT NULL DEFAULT '0'`)
-	if err != nil {
-		return fmt.Errorf("failed to add calendar_events_enabled to policies: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "policies", "calendar_events_enabled") {
+		if _, err := tx.Exec(`ALTER TABLE policies ADD COLUMN calendar_events_enabled TINYINT(1) UNSIGNED NOT NULL DEFAULT '0'`); err != nil {
+			return fmt.Errorf("failed to add calendar_events_enabled to policies: %w", err)
+		}
 	}
 	return nil
 }

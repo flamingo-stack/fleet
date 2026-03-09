@@ -14,6 +14,7 @@ func init() {
 }
 
 func Up_20251209221730(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Update global config
 	if err := updateAppConfigJSON(tx, func(config *fleet.AppConfig) error {
 		if config != nil {

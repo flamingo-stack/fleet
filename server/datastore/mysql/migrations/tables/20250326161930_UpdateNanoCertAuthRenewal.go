@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250326161930(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 UPDATE
 	nano_cert_auth_associations ncaa

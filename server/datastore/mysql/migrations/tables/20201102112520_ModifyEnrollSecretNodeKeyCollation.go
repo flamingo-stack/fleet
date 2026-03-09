@@ -11,20 +11,25 @@ func init() {
 }
 
 func Up_20201102112520(tx *sql.Tx) error {
-	query := `
+	// Idempotent migration.
+	if columnExists(tx, "enroll_secrets", "secret") {
+		query := `
 		ALTER TABLE enroll_secrets
 		MODIFY secret VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
 	`
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "alter enroll secret collation")
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "alter enroll secret collation")
+		}
 	}
 
-	query = `
+	if columnExists(tx, "hosts", "node_key") {
+		query := `
 		ALTER TABLE hosts
 		MODIFY node_key VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin
 	`
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "alter node key collation")
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "alter node key collation")
+		}
 	}
 
 	return nil

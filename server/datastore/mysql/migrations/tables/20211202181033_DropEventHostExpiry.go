@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20211202181033(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`DROP EVENT IF EXISTS host_expiry;`); err != nil {
 		return errors.Wrap(err, "dropping host_expiry event")
 	}

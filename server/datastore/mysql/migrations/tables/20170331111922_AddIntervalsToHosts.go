@@ -7,13 +7,18 @@ func init() {
 }
 
 func Up_20170331111922(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `hosts` " +
-			"ADD COLUMN `distributed_interval` int DEFAULT 0, " +
-			"ADD COLUMN `logger_tls_period` int DEFAULT 0, " +
-			"ADD COLUMN `config_tls_refresh` int DEFAULT 0;",
-	)
-	return err
+	// Idempotent migration.
+	if !columnsExists(tx, "hosts", "distributed_interval", "logger_tls_period", "config_tls_refresh") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `hosts` " +
+				"ADD COLUMN `distributed_interval` int DEFAULT 0, " +
+				"ADD COLUMN `logger_tls_period` int DEFAULT 0, " +
+				"ADD COLUMN `config_tls_refresh` int DEFAULT 0;",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170331111922(tx *sql.Tx) error {

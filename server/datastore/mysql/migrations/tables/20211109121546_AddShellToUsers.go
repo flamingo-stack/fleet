@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20211109121546(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnExists(tx, "host_users", "shell") {
 		return nil
 	}

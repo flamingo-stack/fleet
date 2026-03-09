@@ -7,11 +7,16 @@ func init() {
 }
 
 func Up_20170104113816(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `hosts` " +
-			"ADD COLUMN `seen_time` timestamp NULL DEFAULT NULL;",
-	)
-	return err
+	// Idempotent migration.
+	if !columnExists(tx, "hosts", "seen_time") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `hosts` " +
+				"ADD COLUMN `seen_time` timestamp NULL DEFAULT NULL;",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170104113816(tx *sql.Tx) error {

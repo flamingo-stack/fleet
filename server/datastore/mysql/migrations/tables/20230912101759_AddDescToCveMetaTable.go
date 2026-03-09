@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20230912101759(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "cve_meta", "description") {
+		stmt := `
           ALTER TABLE cve_meta
           ADD COLUMN description TEXT COLLATE utf8mb4_unicode_ci DEFAULT NULL;
  	 `
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add description to cve_meta: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add description to cve_meta: %w", err)
+		}
 	}
 	return nil
 }

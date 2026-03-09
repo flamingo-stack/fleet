@@ -10,9 +10,18 @@ func init() {
 }
 
 func Up_20250507170845(tx *sql.Tx) error {
+	// Idempotent migration.
+	// Check if the primary key is already just (host_id) — if so, the migration already ran
+	var count int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'host_scim_user' AND INDEX_NAME = 'PRIMARY' AND COLUMN_NAME = 'scim_user_id'`).Scan(&count)
+	if err == nil && count == 0 {
+		// scim_user_id is not part of the primary key, so migration already completed
+		return nil
+	}
+
 	// Step 1: Create a temporary table to store the rows we want to keep
 	// (for each host_id, keep only the row with the smallest scim_user_id)
-	_, err := tx.Exec(`
+	_, err = tx.Exec(`
 	CREATE TEMPORARY TABLE host_scim_user_temp AS
 	SELECT host_id, MIN(scim_user_id) as scim_user_id, MIN(created_at) as created_at
 	FROM host_scim_user
@@ -23,13 +32,14 @@ func Up_20250507170845(tx *sql.Tx) error {
 	}
 
 	// Step 2: Drop the constraints
-	_, err = tx.Exec(`
-	ALTER TABLE host_scim_user
-	DROP FOREIGN KEY fk_host_scim_scim_user_id,
-	DROP PRIMARY KEY;
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to drop constraints: %s", err)
+	if fkExists(tx, "host_scim_user", "fk_host_scim_scim_user_id") {
+		if _, err = tx.Exec(`
+		ALTER TABLE host_scim_user
+		DROP FOREIGN KEY fk_host_scim_scim_user_id,
+		DROP PRIMARY KEY;
+		`); err != nil {
+			return fmt.Errorf("failed to drop constraints: %s", err)
+		}
 	}
 
 	// Step 3: Delete all rows from the original table
@@ -42,7 +52,7 @@ func Up_20250507170845(tx *sql.Tx) error {
 
 	// Step 4: Insert the rows we want to keep back into the original table
 	_, err = tx.Exec(`
-	INSERT INTO host_scim_user (host_id, scim_user_id, created_at)
+	INSERT IGNORE INTO host_scim_user (host_id, scim_user_id, created_at)
 	SELECT host_id, scim_user_id, created_at FROM host_scim_user_temp;
 	`)
 	if err != nil {
@@ -50,13 +60,14 @@ func Up_20250507170845(tx *sql.Tx) error {
 	}
 
 	// Step 5: Add the new primary key (host_id only) and add back the foreign key constraint
-	_, err = tx.Exec(`
-	ALTER TABLE host_scim_user
-	ADD PRIMARY KEY (host_id),
-	ADD CONSTRAINT fk_host_scim_scim_user_id FOREIGN KEY (scim_user_id) REFERENCES scim_users(id) ON DELETE CASCADE;
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to add constraints: %s", err)
+	if !fkExists(tx, "host_scim_user", "fk_host_scim_scim_user_id") {
+		if _, err = tx.Exec(`
+		ALTER TABLE host_scim_user
+		ADD PRIMARY KEY (host_id),
+		ADD CONSTRAINT fk_host_scim_scim_user_id FOREIGN KEY (scim_user_id) REFERENCES scim_users(id) ON DELETE CASCADE;
+		`); err != nil {
+			return fmt.Errorf("failed to add constraints: %s", err)
+		}
 	}
 
 	// Step 6: Drop the temporary table

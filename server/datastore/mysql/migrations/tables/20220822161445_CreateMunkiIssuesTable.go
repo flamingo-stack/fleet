@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20220822161445(tx *sql.Tx) error {
+	// Idempotent migration.
 	// name is actually the error/warning message - 255 ought to be enough, based
 	// on the example error messages the longest is only ~80. If we need a larger
 	// column, we can always add a column for the hash of the name and set the
@@ -21,7 +22,7 @@ func Up_20220822161445(tx *sql.Tx) error {
 	// issue_type is "warning" or "error", and is not called "type" to avoid using
 	// a keyword that requires quoting.
 	_, err := tx.Exec(`
-	CREATE TABLE munki_issues (
+	CREATE TABLE IF NOT EXISTS munki_issues (
 		id         INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 		name       VARCHAR(255) NOT NULL,
 		issue_type VARCHAR(10) NOT NULL,

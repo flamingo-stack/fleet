@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20251028140200(tx *sql.Tx) error {
+	// Idempotent migration.
 	createTableStmt := `
-CREATE TABLE in_house_apps (
+CREATE TABLE IF NOT EXISTS in_house_apps (
   id int unsigned NOT NULL AUTO_INCREMENT,
   title_id int unsigned DEFAULT NULL,
   team_id int unsigned DEFAULT NULL,
@@ -33,7 +34,7 @@ CREATE TABLE in_house_apps (
 	}
 
 	createLabelMappingTableStmt := `
-CREATE TABLE in_house_app_labels (
+CREATE TABLE IF NOT EXISTS in_house_app_labels (
   id int unsigned NOT NULL AUTO_INCREMENT,
   in_house_app_id int unsigned NOT NULL,
   label_id int unsigned NOT NULL,

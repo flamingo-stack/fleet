@@ -7,7 +7,8 @@ func init() {
 }
 
 func Up_20161118193812(tx *sql.Tx) error {
-	sqlStatement := "CREATE TABLE `app_configs` (" +
+	// Idempotent migration.
+	sqlStatement := "CREATE TABLE IF NOT EXISTS `app_configs` (" +
 		"`id` INT(10) UNSIGNED NOT NULL DEFAULT 1," +
 		"`org_name` VARCHAR(255) NOT NULL DEFAULT ''," +
 		"`org_logo_url` VARCHAR(255) NOT NULL DEFAULT ''," +
@@ -32,7 +33,7 @@ func Up_20161118193812(tx *sql.Tx) error {
 	}
 	// create an app config record with defaults because there is only one, and it
 	// always needs to exist
-	if _, err := tx.Exec("INSERT INTO app_configs VALUES ()"); err != nil {
+	if _, err := tx.Exec("INSERT IGNORE INTO app_configs VALUES ()"); err != nil {
 		return err
 	}
 

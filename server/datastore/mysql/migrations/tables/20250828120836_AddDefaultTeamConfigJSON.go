@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20250828120836(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Create the default_team_config_json table, mirroring app_config_json structure
 	sql := `
 		CREATE TABLE IF NOT EXISTS default_team_config_json (
@@ -93,7 +94,7 @@ func Up_20250828120836(tx *sql.Tx) error {
 
 	// Insert the default configuration with fixed timestamps
 	_, err = tx.Exec(
-		`INSERT INTO default_team_config_json(id, json_value, created_at, updated_at) VALUES(1, ?, '2020-01-01 01:01:01', '2020-01-01 01:01:01')`,
+		`INSERT IGNORE INTO default_team_config_json(id, json_value, created_at, updated_at) VALUES(1, ?, '2020-01-01 01:01:01', '2020-01-01 01:01:01')`,
 		configBytes,
 	)
 	if err != nil {

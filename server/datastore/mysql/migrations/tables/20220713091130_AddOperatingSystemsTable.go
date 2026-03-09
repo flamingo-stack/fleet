@@ -11,9 +11,10 @@ func init() {
 }
 
 func Up_20220713091130(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Length of VARCHAR set to conform with max key length limitations for the unique constraint
 	_, err := tx.Exec(`
-CREATE TABLE operating_systems (
+CREATE TABLE IF NOT EXISTS operating_systems (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
 	version VARCHAR(150) NOT NULL,
@@ -28,7 +29,7 @@ CREATE TABLE operating_systems (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE host_operating_system (
+CREATE TABLE IF NOT EXISTS host_operating_system (
     host_id INT UNSIGNED NOT NULL PRIMARY KEY,
     os_id INT UNSIGNED NOT NULL,
 	FOREIGN KEY fk_operating_systems_id (os_id) REFERENCES operating_systems(id) ON DELETE CASCADE,

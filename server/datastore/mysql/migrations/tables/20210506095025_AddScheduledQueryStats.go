@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20210506095025(tx *sql.Tx) error {
+	// Idempotent migration.
 	sql := `
-		CREATE TABLE scheduled_query_stats (
+		CREATE TABLE IF NOT EXISTS scheduled_query_stats (
 			host_id int unsigned NOT NULL,
 			scheduled_query_id int unsigned NOT NULL,
 			average_memory int,

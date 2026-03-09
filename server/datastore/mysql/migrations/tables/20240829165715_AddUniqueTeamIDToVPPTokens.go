@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20240829165715(tx *sql.Tx) error {
-	stmt := `ALTER TABLE vpp_tokens ADD UNIQUE KEY idx_vpp_tokens_team_id (team_id)`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("adding unique constraint to team_id on vpp_tokens: %w", err)
+	// Idempotent migration.
+	if !indexExistsTx(tx, "vpp_tokens", "idx_vpp_tokens_team_id") {
+		stmt := `ALTER TABLE vpp_tokens ADD UNIQUE KEY idx_vpp_tokens_team_id (team_id)`
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("adding unique constraint to team_id on vpp_tokens: %w", err)
+		}
 	}
 	return nil
 }

@@ -9,22 +9,33 @@ func init() {
 }
 
 func Up_20251121100000(tx *sql.Tx) error {
-	_, err := tx.Exec(`
-		CREATE INDEX idx_activities_user_name ON activities (user_name);
-        CREATE INDEX idx_activities_user_email ON activities (user_email);
-		-- ^ Individual indexes for OR conditions
-		
-		CREATE INDEX idx_activities_activity_type ON activities (activity_type);
-		-- ^ Individual index for filtering, ORDER BY will use it's own index which already exists.
-
-        CREATE INDEX idx_activities_type_created ON activities (activity_type, created_at);
-		-- ^ Composite index for AND conditions 
-
-		-- User table indexes
-		-- Email index comes from the unique key constraint on the table
-		CREATE INDEX idx_users_name ON users (name);
-	`)
-	return err
+	// Idempotent migration.
+	if !indexExistsTx(tx, "activities", "idx_activities_user_name") {
+		if _, err := tx.Exec(`CREATE INDEX idx_activities_user_name ON activities (user_name)`); err != nil {
+			return err
+		}
+	}
+	if !indexExistsTx(tx, "activities", "idx_activities_user_email") {
+		if _, err := tx.Exec(`CREATE INDEX idx_activities_user_email ON activities (user_email)`); err != nil {
+			return err
+		}
+	}
+	if !indexExistsTx(tx, "activities", "idx_activities_activity_type") {
+		if _, err := tx.Exec(`CREATE INDEX idx_activities_activity_type ON activities (activity_type)`); err != nil {
+			return err
+		}
+	}
+	if !indexExistsTx(tx, "activities", "idx_activities_type_created") {
+		if _, err := tx.Exec(`CREATE INDEX idx_activities_type_created ON activities (activity_type, created_at)`); err != nil {
+			return err
+		}
+	}
+	if !indexExistsTx(tx, "users", "idx_users_name") {
+		if _, err := tx.Exec(`CREATE INDEX idx_users_name ON users (name)`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20251121100000(tx *sql.Tx) error {

@@ -11,10 +11,11 @@ func init() {
 }
 
 func Up_20220627104817(tx *sql.Tx) error {
+	// Idempotent migration.
 	// there may be many batteries per host, so the primary key is an
 	// auto-increment, not the host_id.
 	_, err := tx.Exec(`
-CREATE TABLE host_batteries (
+CREATE TABLE IF NOT EXISTS host_batteries (
   id            INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   host_id       INT(10) UNSIGNED NOT NULL,
   serial_number VARCHAR(255) NOT NULL,

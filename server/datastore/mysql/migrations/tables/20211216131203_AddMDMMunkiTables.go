@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20211216131203(tx *sql.Tx) error {
+	// Idempotent migration.
 	mdmTable := `
 		CREATE TABLE IF NOT EXISTS host_mdm (
 			host_id int(10) UNSIGNED NOT NULL,

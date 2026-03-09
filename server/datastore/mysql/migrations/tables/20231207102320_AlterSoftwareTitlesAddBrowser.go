@@ -10,21 +10,24 @@ func init() {
 }
 
 func Up_20231207102320(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec((`DELETE FROM software_titles;`)) // delete all software titles, it will be repopulated on the next cron
 	if err != nil {
 		return fmt.Errorf("failed to delete software titles: %w", err)
 	}
 
-	_, err = tx.Exec(`
-		ALTER TABLE software_titles 
-		ADD COLUMN browser varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '';`)
-	if err != nil {
-		return fmt.Errorf("failed to add browser column to software titles table: %w", err)
+	if !columnExists(tx, "software_titles", "browser") {
+		if _, err := tx.Exec(`
+		ALTER TABLE software_titles
+		ADD COLUMN browser varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '';`); err != nil {
+			return fmt.Errorf("failed to add browser column to software titles table: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE software_titles DROP KEY idx_software_titles_name_source;`)
-	if err != nil {
-		return fmt.Errorf("failed to drop name-source key from software titles table: %w", err)
+	if indexExistsTx(tx, "software_titles", "idx_software_titles_name_source") {
+		if _, err := tx.Exec(`ALTER TABLE software_titles DROP KEY idx_software_titles_name_source;`); err != nil {
+			return fmt.Errorf("failed to drop name-source key from software titles table: %w", err)
+		}
 	}
 
 	return nil

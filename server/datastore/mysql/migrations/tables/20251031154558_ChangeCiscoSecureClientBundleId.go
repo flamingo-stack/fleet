@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20251031154558(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Note: this is almost the same migration as 20250926123048_ChangePrivilegesInstallerBundleId
 	// Since it is the same problem of an installer making a software title with
 	// the wrong bundle id (used the pkg-ref instead)
@@ -46,7 +47,7 @@ func Up_20251031154558(tx *sql.Tx) error {
 	// so we need to insert it
 	if _, ok := bundleIdToTitleId["com.cisco.secureclient.gui"]; !ok {
 		res, err := tx.Exec(`
-			INSERT INTO software_titles (name, source, bundle_identifier) VALUES
+			INSERT IGNORE INTO software_titles (name, source, bundle_identifier) VALUES
 			('Cisco Secure Client', 'apps', 'com.cisco.secureclient.gui')
 		`)
 		if err != nil {

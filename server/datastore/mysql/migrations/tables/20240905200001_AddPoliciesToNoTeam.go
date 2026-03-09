@@ -3,8 +3,6 @@ package tables
 import (
 	"database/sql"
 	"fmt"
-
-	"github.com/pkg/errors"
 )
 
 func init() {
@@ -37,20 +35,23 @@ func Up_20240905200001(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	if len(constraints) != 1 {
-		return errors.New("policies foreign key to teams not found")
-	}
-	if _, err := tx.Exec(fmt.Sprintf(`
+	for _, constraint := range constraints {
+		if fkExists(tx, "policies", constraint) {
+			if _, err := tx.Exec(fmt.Sprintf(`
 		ALTER TABLE policies
 		DROP FOREIGN KEY %s;
-	`, constraints[0])); err != nil {
-		return fmt.Errorf("failed to drop policies foreign key to teams: %w", err)
+	`, constraint)); err != nil {
+				return fmt.Errorf("failed to drop policies foreign key %s to teams: %w", constraint, err)
+			}
+		}
 	}
 
 	// Allow `inherited_team_id` to be NULL to represent global policy stats on the global domain, and `inherited_team_id = 0`
 	// to represent global policy stats on the "No team" domain.
 	// Add `inherited_team_id_char` as generated column to add uniqueness constraint to the table for policies on each domain.
-	if _, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "policy_stats", "inherited_team_id_char") {
+		if _, err := tx.Exec(`
 		ALTER TABLE policy_stats
 		DROP INDEX policy_team_unique,
 		MODIFY inherited_team_id INT UNSIGNED NULL,
@@ -58,7 +59,19 @@ func Up_20240905200001(tx *sql.Tx) error {
 			GENERATED ALWAYS AS (IF(inherited_team_id IS NULL, 'global', CONVERT(inherited_team_id, CHAR))),
 		ADD UNIQUE KEY (policy_id, inherited_team_id_char);
 	`); err != nil {
-		return fmt.Errorf("failed to modify inherited_team_id in policy_stats: %w", err)
+			return fmt.Errorf("failed to modify inherited_team_id in policy_stats: %w", err)
+		}
+	} else {
+		if indexExistsTx(tx, "policy_stats", "policy_team_unique") {
+			if _, err := tx.Exec(`ALTER TABLE policy_stats DROP INDEX policy_team_unique`); err != nil {
+				return fmt.Errorf("failed to drop policy_team_unique index on policy_stats: %w", err)
+			}
+		}
+		if !indexExistsTx(tx, "policy_stats", "policy_id") {
+			if _, err := tx.Exec(`ALTER TABLE policy_stats ADD UNIQUE KEY (policy_id, inherited_team_id_char)`); err != nil {
+				return fmt.Errorf("failed to add unique key on policy_stats: %w", err)
+			}
+		}
 	}
 
 	// Update inherited_team_id from `0` to `NULL` to allow storing stats for the "No team" domain as `inherited_team_id = 0`.

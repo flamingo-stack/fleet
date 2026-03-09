@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20251217120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Insert Security and Utilities categories into software_categories table
 	// Using INSERT IGNORE to avoid errors if categories already exist
 	_, err := tx.Exec(`INSERT IGNORE INTO software_categories (name) VALUES ('Security'), ('Utilities')`)

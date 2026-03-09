@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240816103247(tx *sql.Tx) error {
+	// Idempotent migration.
 
 	// This constraint is required for MySQL 8.4.2 because nano_enrollments foreign key expects nano_users.id to be unique.
 	if !indexExistsTx(tx, "nano_users", "idx_unique_id") {

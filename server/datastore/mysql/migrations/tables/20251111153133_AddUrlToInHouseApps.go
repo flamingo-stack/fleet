@@ -10,12 +10,14 @@ func init() {
 }
 
 func Up_20251111153133(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "in_house_apps", "url") {
+		if _, err := tx.Exec(`
 ALTER TABLE in_house_apps
 	ADD COLUMN url varchar(4095) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT ''
-`)
-	if err != nil {
-		return fmt.Errorf("failed to alter in_house_apps url: %w", err)
+`); err != nil {
+			return fmt.Errorf("failed to alter in_house_apps url: %w", err)
+		}
 	}
 	return nil
 }

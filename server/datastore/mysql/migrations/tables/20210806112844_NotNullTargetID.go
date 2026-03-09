@@ -11,12 +11,15 @@ func init() {
 }
 
 func Up_20210806112844(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`DELETE FROM pack_targets WHERE target_id is NULL`); err != nil {
 		return errors.Wrap(err, "delete target_id null pack targets")
 	}
 
-	if _, err := tx.Exec(`ALTER TABLE pack_targets MODIFY target_id int unsigned NOT NULL`); err != nil {
-		return errors.Wrap(err, "make pack_targets.target_id not null")
+	if columnExists(tx, "pack_targets", "target_id") {
+		if _, err := tx.Exec(`ALTER TABLE pack_targets MODIFY target_id int unsigned NOT NULL`); err != nil {
+			return errors.Wrap(err, "make pack_targets.target_id not null")
+		}
 	}
 	return nil
 }

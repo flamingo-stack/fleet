@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20230421155932(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`UPDATE mdm_apple_delivery_status SET status = 'verifying' WHERE status = 'applied'`)
 	if err != nil {
 		return errors.Wrap(err, "update mdm_apple_delivery_status")

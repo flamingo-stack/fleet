@@ -10,12 +10,14 @@ func init() {
 }
 
 func Up_20250629131032(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `labels` " +
-			"ADD COLUMN `criteria` json DEFAULT NULL; ",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add criteria column to labels table: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "labels", "criteria") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `labels` " +
+				"ADD COLUMN `criteria` json DEFAULT NULL; ",
+		); err != nil {
+			return fmt.Errorf("failed to add criteria column to labels table: %w", err)
+		}
 	}
 	return nil
 }

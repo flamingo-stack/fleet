@@ -10,11 +10,13 @@ func init() {
 }
 
 func Up_20220518124708(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `software_cve` ADD COLUMN `source` int DEFAULT '0'",
-	)
-	if err != nil {
-		return fmt.Errorf("add 'source' column to 'software_cve': %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "software_cve", "source") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `software_cve` ADD COLUMN `source` int DEFAULT '0'",
+		); err != nil {
+			return fmt.Errorf("add 'source' column to 'software_cve': %w", err)
+		}
 	}
 	return nil
 }

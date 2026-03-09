@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20231016091915(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		UPDATE queries SET logging_type = ? WHERE logging_type = '';
     `, fleet.LoggingSnapshot)

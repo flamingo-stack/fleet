@@ -10,11 +10,14 @@ func init() {
 }
 
 func Up_20250803000000(tx *sql.Tx) error {
-	if _, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "host_disks", "tpm_pin_set") {
+		if _, err := tx.Exec(`
 			ALTER TABLE host_disks
 			ADD COLUMN tpm_pin_set bool DEFAULT false
 		`); err != nil {
-		return fmt.Errorf("failed to add 'tpm_pin_set' column to 'host_disks': %w", err)
+			return fmt.Errorf("failed to add 'tpm_pin_set' column to 'host_disks': %w", err)
+		}
 	}
 	return nil
 }

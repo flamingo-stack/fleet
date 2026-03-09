@@ -60,6 +60,7 @@ func changeCharacterSet(tx *sql.Tx, charset string) error {
 }
 
 func Up_20170306075207(tx *sql.Tx) error {
+	// Idempotent migration.
 	return changeCharacterSet(tx, "utf8mb4")
 }
 

@@ -11,37 +11,38 @@ func init() {
 }
 
 func Up_20200707120000(tx *sql.Tx) error {
-	_, err := tx.Exec("DROP TABLE `decorators`")
+	// Idempotent migration.
+	_, err := tx.Exec("DROP TABLE IF EXISTS `decorators`")
 	if err != nil {
 		return errors.Wrap(err, "drop decorators table")
 	}
 
-	_, err = tx.Exec("DROP TABLE `yara_file_paths`")
+	_, err = tx.Exec("DROP TABLE IF EXISTS `yara_file_paths`")
 	if err != nil {
 		return errors.Wrap(err, "drop yara_file_paths table")
 	}
 
-	_, err = tx.Exec("DROP TABLE `yara_signature_paths`")
+	_, err = tx.Exec("DROP TABLE IF EXISTS `yara_signature_paths`")
 	if err != nil {
 		return errors.Wrap(err, "drop yara_signature_paths table")
 	}
 
-	_, err = tx.Exec("DROP TABLE `yara_signatures`")
+	_, err = tx.Exec("DROP TABLE IF EXISTS `yara_signatures`")
 	if err != nil {
 		return errors.Wrap(err, "drop yara_signatures table")
 	}
 
-	_, err = tx.Exec("DROP TABLE `file_integrity_monitoring_files`")
+	_, err = tx.Exec("DROP TABLE IF EXISTS `file_integrity_monitoring_files`")
 	if err != nil {
 		return errors.Wrap(err, "drop file_integrity_monitoring_files table")
 	}
 
-	_, err = tx.Exec("DROP TABLE `file_integrity_monitorings`")
+	_, err = tx.Exec("DROP TABLE IF EXISTS `file_integrity_monitorings`")
 	if err != nil {
 		return errors.Wrap(err, "drop file_integrity_monitorings table")
 	}
 
-	_, err = tx.Exec("DROP TABLE `options`")
+	_, err = tx.Exec("DROP TABLE IF EXISTS `options`")
 	if err != nil {
 		return errors.Wrap(err, "drop file_integrity_monitorings table")
 	}

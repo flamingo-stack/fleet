@@ -21,6 +21,7 @@ func init() {
 }
 
 func Up_20241002104104(tx *sql.Tx) error {
+	// Idempotent migration.
 	existingUninstallScript := regexp.MustCompile(
 		`(?sU)^#!/bin/sh\n\n` +
 			`# Fleet extracts and saves package IDs.\n` +

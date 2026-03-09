@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20251124162948(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "hosts", "last_restarted_at") {
+		stmt := `
 		ALTER TABLE hosts
 		ADD COLUMN last_restarted_at datetime(6) DEFAULT '0001-01-01 00:00:00.000000'
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add last_restarted_at to hosts: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add last_restarted_at to hosts: %w", err)
+		}
 	}
 
 	updateStmt := `

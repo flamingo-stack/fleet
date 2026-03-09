@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_00002(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 CREATE TABLE IF NOT EXISTS query_hosts (
   id int unsigned NOT NULL AUTO_INCREMENT,

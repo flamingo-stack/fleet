@@ -10,13 +10,16 @@ func init() {
 }
 
 func Up_20250528115932(tx *sql.Tx) error {
-	_, err := tx.Exec("ALTER TABLE users ADD COLUMN invite_id int unsigned")
-	if err != nil {
-		return fmt.Errorf("adding invite_id to users table: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "users", "invite_id") {
+		if _, err := tx.Exec("ALTER TABLE users ADD COLUMN invite_id int unsigned"); err != nil {
+			return fmt.Errorf("adding invite_id to users table: %w", err)
+		}
 	}
-	_, err = tx.Exec("ALTER TABLE users ADD UNIQUE (invite_id)")
-	if err != nil {
-		return fmt.Errorf("adding unique contraint to invite_id on users table: %w", err)
+	if !indexExistsTx(tx, "users", "invite_id") {
+		if _, err := tx.Exec("ALTER TABLE users ADD UNIQUE (invite_id)"); err != nil {
+			return fmt.Errorf("adding unique contraint to invite_id on users table: %w", err)
+		}
 	}
 	return nil
 }

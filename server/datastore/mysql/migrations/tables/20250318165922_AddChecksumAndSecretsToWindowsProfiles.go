@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250318165922(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnsExists(tx, "mdm_windows_configuration_profiles", "checksum", "secrets_updated_at") && columnsExists(tx, "host_mdm_windows_profiles",
 		"checksum", "secrets_updated_at", "created_at", "updated_at") {
 		return nil

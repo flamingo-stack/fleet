@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250219142401(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnsExists(tx, "android_enterprises", "signup_token", "pubsub_topic_id") {
 		_, err := tx.Exec(`ALTER TABLE android_enterprises
 			-- Authentication token for callback endpoint to create enterprise
@@ -22,7 +23,7 @@ func Up_20250219142401(tx *sql.Tx) error {
 		}
 	}
 
-	_, err := tx.Exec(`CREATE TABLE android_devices (
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS android_devices (
     		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     		host_id INT UNSIGNED NOT NULL,
     		device_id VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,

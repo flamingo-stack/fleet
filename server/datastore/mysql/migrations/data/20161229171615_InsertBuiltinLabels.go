@@ -47,8 +47,9 @@ func Labels1() []fleet.Label {
 }
 
 func Up_20161229171615(tx *sql.Tx) error {
+	// Idempotent migration.
 	sql := `
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

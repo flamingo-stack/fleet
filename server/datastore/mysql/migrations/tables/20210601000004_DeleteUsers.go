@@ -11,14 +11,17 @@ func init() {
 }
 
 func Up_20210601000004(tx *sql.Tx) error {
-	query := "DELETE FROM users WHERE NOT enabled"
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "delete disabled users")
-	}
+	// Idempotent migration.
+	if columnExists(tx, "users", "enabled") {
+		query := "DELETE FROM users WHERE NOT enabled"
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "delete disabled users")
+		}
 
-	query = "ALTER TABLE users DROP COLUMN enabled"
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "drop enabled")
+		query = "ALTER TABLE users DROP COLUMN enabled"
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "drop enabled")
+		}
 	}
 	return nil
 }

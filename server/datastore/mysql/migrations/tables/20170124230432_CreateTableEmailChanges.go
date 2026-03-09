@@ -7,7 +7,8 @@ func init() {
 }
 
 func Up_20170124230432(tx *sql.Tx) error {
-	sqlStatement := "CREATE TABLE `email_changes` ( " +
+	// Idempotent migration.
+	sqlStatement := "CREATE TABLE IF NOT EXISTS `email_changes` ( " +
 		"`id` int(10) unsigned NOT NULL AUTO_INCREMENT, " +
 		"`user_id` int(10) unsigned NOT NULL, " +
 		"`token` varchar(128) NOT NULL, " +

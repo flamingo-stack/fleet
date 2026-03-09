@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250226153445(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS users_deleted (
 		    -- matches users.id, which is an auto-incrementing primary key

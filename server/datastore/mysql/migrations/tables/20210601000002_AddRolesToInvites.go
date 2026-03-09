@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20210601000002(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Invites <> Teams mapping
 	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS invite_teams (
 		invite_id INT UNSIGNED NOT NULL,
@@ -23,10 +24,12 @@ func Up_20210601000002(tx *sql.Tx) error {
 		return errors.Wrap(err, "create invite_teams")
 	}
 
-	if _, err := tx.Exec(`ALTER TABLE invites
+	if !columnExists(tx, "invites", "global_role") {
+		if _, err := tx.Exec(`ALTER TABLE invites
 		ADD global_role VARCHAR(64) DEFAULT NULL
 	`); err != nil {
-		return errors.Wrap(err, "alter users")
+			return errors.Wrap(err, "alter users")
+		}
 	}
 
 	return nil

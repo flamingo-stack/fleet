@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20170314151620(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Fix for osquery not correctly reporting platform for CentOS6
 	label_query := `select 1 from os_version where platform = 'centos' or name like '%centos%'`
 	sql := `

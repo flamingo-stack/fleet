@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20221220195934(tx *sql.Tx) error {
+	// Idempotent migration.
 	var count int
 	err := tx.QueryRow("SELECT COUNT(*) FROM scep_serials").Scan(&count)
 	if err != nil {

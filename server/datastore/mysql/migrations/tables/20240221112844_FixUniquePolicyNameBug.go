@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20240221112844(tx *sql.Tx) error {
+	// Idempotent migration.
 	// The bug was that the checksum was not updating. So we need to update the checksum for existing rows.
 	const updateStmt = `
 	UPDATE

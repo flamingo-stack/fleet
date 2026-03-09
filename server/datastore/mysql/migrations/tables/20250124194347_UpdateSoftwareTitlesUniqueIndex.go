@@ -10,26 +10,33 @@ func init() {
 }
 
 func Up_20250124194347(tx *sql.Tx) error {
-	if _, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "software_titles", "unique_identifier") {
+		if _, err := tx.Exec(`
         ALTER TABLE software_titles
         ADD COLUMN unique_identifier VARCHAR(255) GENERATED ALWAYS AS (COALESCE(bundle_identifier, name)) VIRTUAL;
     `); err != nil {
-		return fmt.Errorf("failed to add generated column unique_identifier: %w", err)
+			return fmt.Errorf("failed to add generated column unique_identifier: %w", err)
+		}
 	}
 
-	if _, err := tx.Exec(`
+	if !indexExistsTx(tx, "software_titles", "idx_unique_sw_titles") {
+		if _, err := tx.Exec(`
 		ALTER TABLE software_titles
 		ADD UNIQUE INDEX idx_unique_sw_titles (unique_identifier, source, browser);
 	`); err != nil {
-		return fmt.Errorf("failed to add unique index: %w", err)
+			return fmt.Errorf("failed to add unique index: %w", err)
+		}
 	}
 
-	if _, err := tx.Exec(`
+	if indexExistsTx(tx, "software_titles", "idx_sw_titles") {
+		if _, err := tx.Exec(`
 		ALTER TABLE software_titles
 		DROP INDEX idx_sw_titles,
 		ADD INDEX idx_sw_titles (name, source, browser);
 	`); err != nil {
-		return fmt.Errorf("failed to re-add idx_sw_titles: %w", err)
+			return fmt.Errorf("failed to re-add idx_sw_titles: %w", err)
+		}
 	}
 
 	return nil

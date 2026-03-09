@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20251124140138(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS certificate_templates (
 			id INT UNSIGNED NOT NULL AUTO_INCREMENT,

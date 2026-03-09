@@ -13,14 +13,17 @@ func init() {
 }
 
 func Up_20250626130239(tx *sql.Tx) error {
-	if _, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "scim_users", "department") {
+		if _, err := tx.Exec(`
 			ALTER TABLE scim_users
 			ADD COLUMN department VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL
 		`); err != nil {
-		return fmt.Errorf("failed to add 'department' column to 'scim_users': %w", err)
+			return fmt.Errorf("failed to add 'department' column to 'scim_users': %w", err)
+		}
 	}
 
-	insStmt := `INSERT INTO fleet_variables
+	insStmt := `INSERT IGNORE INTO fleet_variables
 	(name, is_prefix, created_at)
 	VALUES ('FLEET_VAR_HOST_END_USER_IDP_DEPARTMENT', 0, :created_at)`
 	// use a constant time so that the generated schema is deterministic

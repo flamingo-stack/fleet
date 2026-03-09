@@ -41,22 +41,33 @@ func Up_20240801115359(tx *sql.Tx) error {
 		return fmt.Errorf("updating platform in host_vpp_software_installs part 2: %w", err)
 	}
 
-	_, err = tx.Exec(`ALTER TABLE host_vpp_software_installs DROP INDEX adam_id, ADD INDEX (adam_id, platform)`)
-	if err != nil {
-		return fmt.Errorf("updating key in host_vpp_software_installs: %w", err)
+	// Idempotent migration.
+	if indexExistsTx(tx, "host_vpp_software_installs", "adam_id") {
+		_, err = tx.Exec(`ALTER TABLE host_vpp_software_installs DROP INDEX adam_id`)
+		if err != nil {
+			return fmt.Errorf("dropping adam_id key in host_vpp_software_installs: %w", err)
+		}
 	}
-	if indexExistsTx(tx, "host_vpp_software_installs", "host_vpp_software_installs_ibfk_2") {
+	if !indexExistsTx(tx, "host_vpp_software_installs", "adam_id") {
+		_, err = tx.Exec(`ALTER TABLE host_vpp_software_installs ADD INDEX adam_id (adam_id, platform)`)
+		if err != nil {
+			return fmt.Errorf("adding adam_id key in host_vpp_software_installs: %w", err)
+		}
+	}
+	if fkExists(tx, "host_vpp_software_installs", "host_vpp_software_installs_ibfk_2") {
 		_, err = tx.Exec(`
 		ALTER TABLE host_vpp_software_installs DROP FOREIGN KEY host_vpp_software_installs_ibfk_2`)
 		if err != nil {
 			return fmt.Errorf("updating foreign key in host_vpp_software_installs: %w", err)
 		}
 	}
-	_, err = tx.Exec(`
+	if !constraintExists(tx, "host_vpp_software_installs", "host_vpp_software_installs_ibfk_3") {
+		_, err = tx.Exec(`
 		ALTER TABLE host_vpp_software_installs
 			ADD CONSTRAINT host_vpp_software_installs_ibfk_3 FOREIGN KEY (adam_id, platform) REFERENCES vpp_apps (adam_id, platform) ON DELETE CASCADE`)
-	if err != nil {
-		return fmt.Errorf("updating foreign key in host_vpp_software_installs: %w", err)
+		if err != nil {
+			return fmt.Errorf("updating foreign key in host_vpp_software_installs: %w", err)
+		}
 	}
 
 	return nil

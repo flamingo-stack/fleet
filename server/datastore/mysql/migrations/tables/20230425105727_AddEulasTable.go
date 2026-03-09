@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20230425105727(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-          CREATE TABLE eulas (
+          CREATE TABLE IF NOT EXISTS eulas (
             id           int(10) unsigned NOT NULL,
             token        varchar(36),
             name         varchar(255),

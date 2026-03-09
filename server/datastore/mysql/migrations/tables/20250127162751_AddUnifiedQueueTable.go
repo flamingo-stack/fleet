@@ -63,13 +63,14 @@ func changeCollation2025(tx *sql.Tx, charset string, collation string) (err erro
 }
 
 func Up_20250127162751(tx *sql.Tx) error {
+	// Idempotent migration.
 	err := changeCollation2025(tx, "utf8mb4", "utf8mb4_unicode_ci")
 	if err != nil {
 		return fmt.Errorf("failed to fix collation: %w", err)
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE upcoming_activities (
+CREATE TABLE IF NOT EXISTS upcoming_activities (
 	id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	host_id         INT UNSIGNED NOT NULL,
 
@@ -115,7 +116,7 @@ CREATE TABLE upcoming_activities (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE script_upcoming_activities (
+CREATE TABLE IF NOT EXISTS script_upcoming_activities (
 	upcoming_activity_id       BIGINT UNSIGNED NOT NULL,
 
 	-- those are all columns and not JSON fields because we need FKs on them to
@@ -150,7 +151,7 @@ CREATE TABLE script_upcoming_activities (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE software_install_upcoming_activities (
+CREATE TABLE IF NOT EXISTS software_install_upcoming_activities (
 	upcoming_activity_id       BIGINT UNSIGNED NOT NULL,
 
 	-- those are all columns and not JSON fields because we need FKs on them to
@@ -182,7 +183,7 @@ CREATE TABLE software_install_upcoming_activities (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE vpp_app_upcoming_activities (
+CREATE TABLE IF NOT EXISTS vpp_app_upcoming_activities (
 	upcoming_activity_id       BIGINT UNSIGNED NOT NULL,
 
 	-- those are all columns and not JSON fields because we need FKs on them to

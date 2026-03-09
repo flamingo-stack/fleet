@@ -10,18 +10,23 @@ func init() {
 }
 
 func Up_20250121094045(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE host_disks
+	// Idempotent migration.
+	if columnExists(tx, "host_disks", "created_at") {
+		_, err := tx.Exec(`ALTER TABLE host_disks
 		MODIFY COLUMN created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(6),
 		MODIFY COLUMN updated_at TIMESTAMP(6) NULL DEFAULT NOW(6) ON UPDATE NOW(6)`)
-	if err != nil {
-		return fmt.Errorf("failed to alter host_disks table: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter host_disks table: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE host_disk_encryption_keys
+	if columnExists(tx, "host_disk_encryption_keys", "created_at") {
+		_, err := tx.Exec(`ALTER TABLE host_disk_encryption_keys
 		MODIFY COLUMN created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(6),
 		MODIFY COLUMN updated_at TIMESTAMP(6) NULL DEFAULT NOW(6) ON UPDATE NOW(6)`)
-	if err != nil {
-		return fmt.Errorf("failed to alter host_disk_encryption_keys table: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter host_disk_encryption_keys table: %w", err)
+		}
 	}
 
 	stmt := `
@@ -42,11 +47,10 @@ CREATE TABLE IF NOT EXISTS host_disk_encryption_keys_archive (
 
 	// Copy all existing rows from host_disk_encryption_keys to host_disk_encryption_keys_archive
 	const copyKeysToArchiveQuery = `
-INSERT INTO host_disk_encryption_keys_archive (host_id, base64_encrypted, base64_encrypted_salt, key_slot, created_at)
+INSERT IGNORE INTO host_disk_encryption_keys_archive (host_id, base64_encrypted, base64_encrypted_salt, key_slot, created_at)
 SELECT host_id, base64_encrypted, base64_encrypted_salt, key_slot, created_at
 FROM host_disk_encryption_keys`
-	_, err = tx.Exec(copyKeysToArchiveQuery)
-	if err != nil {
+	if _, err := tx.Exec(copyKeysToArchiveQuery); err != nil {
 		return fmt.Errorf("failed to copy existing rows to host_disk_encryption_keys_archive: %w", err)
 	}
 
@@ -55,8 +59,7 @@ FROM host_disk_encryption_keys`
 UPDATE host_disk_encryption_keys_archive
 JOIN hosts ON host_disk_encryption_keys_archive.host_id = hosts.id
 SET host_disk_encryption_keys_archive.hardware_serial = hosts.hardware_serial`
-	_, err = tx.Exec(updateHardwareSerialQuery)
-	if err != nil {
+	if _, err := tx.Exec(updateHardwareSerialQuery); err != nil {
 		return fmt.Errorf("failed to update host_disk_encryption_keys_archive.hardware_serial: %w", err)
 	}
 

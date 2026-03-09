@@ -10,15 +10,17 @@ func init() {
 }
 
 func Up_20251207050413(tx *sql.Tx) error {
+	// Idempotent migration.
 	// lack of delete cascade is intentional here as label membership needs to be cleaned up when deleting labels, and
 	// there isn't a foreign key relationship back to labels on that table
-	_, err := tx.Exec(
-		"ALTER TABLE `labels` " +
-			"ADD COLUMN `team_id` int unsigned NULL DEFAULT NULL, " +
-			"ADD CONSTRAINT FOREIGN KEY (`team_id`) REFERENCES `teams` (`id`);",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add team_id column to labels table: %w", err)
+	if !columnExists(tx, "labels", "team_id") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `labels` " +
+				"ADD COLUMN `team_id` int unsigned NULL DEFAULT NULL, " +
+				"ADD CONSTRAINT FOREIGN KEY (`team_id`) REFERENCES `teams` (`id`);",
+		); err != nil {
+			return fmt.Errorf("failed to add team_id column to labels table: %w", err)
+		}
 	}
 
 	return nil

@@ -27,14 +27,17 @@ func Up_20240725182118(tx *sql.Tx) error {
 		return fmt.Errorf("adding additional_identifier to software_titles: %w", err)
 	}
 
-	_, err = tx.Exec(`ALTER TABLE software_titles DROP INDEX idx_software_titles_bundle_identifier`)
-	if err != nil {
-		return fmt.Errorf("dropping unique key for bundle_identifier in software_titles: %w", err)
+	// Idempotent migration.
+	if indexExistsTx(tx, "software_titles", "idx_software_titles_bundle_identifier") {
+		if _, err := tx.Exec(`ALTER TABLE software_titles DROP INDEX idx_software_titles_bundle_identifier`); err != nil {
+			return fmt.Errorf("dropping unique key for bundle_identifier in software_titles: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE software_titles ADD UNIQUE KEY idx_software_titles_bundle_identifier (bundle_identifier, additional_identifier)`)
-	if err != nil {
-		return fmt.Errorf("adding unique key for identifiers in software_titles: %w", err)
+	if !indexExistsTx(tx, "software_titles", "idx_software_titles_bundle_identifier") {
+		if _, err := tx.Exec(`ALTER TABLE software_titles ADD UNIQUE KEY idx_software_titles_bundle_identifier (bundle_identifier, additional_identifier)`); err != nil {
+			return fmt.Errorf("adding unique key for identifiers in software_titles: %w", err)
+		}
 	}
 
 	return nil

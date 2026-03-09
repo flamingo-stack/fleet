@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20221109100749(tx *sql.Tx) error {
+	// Idempotent migration.
 	// NOTE: *not* specifying the ALGORITHM option is better, as for mysql 5.7 it
 	// will use the default of INPLACE, and for mysql 8.0.12+ it will use the
 	// default of INSTANT, which is faster (only updates metadata), and fallback
@@ -23,13 +24,15 @@ func Up_20221109100749(tx *sql.Tx) error {
 	// Also, specifying an explicit LOCK and/or ALGORITHM means that the
 	// operation would fail if the requested option is not supported for the
 	// operation.
-	const removeColStmt = `
+	if columnsExists(tx, "hosts", "gigs_disk_space_available", "percent_disk_space_available") {
+		const removeColStmt = `
 ALTER TABLE hosts
 	DROP COLUMN gigs_disk_space_available,
 	DROP COLUMN percent_disk_space_available;
 `
-	if _, err := tx.Exec(removeColStmt); err != nil {
-		return errors.Wrapf(err, "removing columns from hosts")
+		if _, err := tx.Exec(removeColStmt); err != nil {
+			return errors.Wrapf(err, "removing columns from hosts")
+		}
 	}
 	return nil
 }

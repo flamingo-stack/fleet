@@ -11,7 +11,8 @@ func init() {
 }
 
 func Up_20211110163320(tx *sql.Tx) error {
-	_, err := tx.Exec("DROP TABLE `app_configs`")
+	// Idempotent migration.
+	_, err := tx.Exec("DROP TABLE IF EXISTS `app_configs`")
 	if err != nil {
 		return errors.Wrap(err, "drop app_configs table")
 	}

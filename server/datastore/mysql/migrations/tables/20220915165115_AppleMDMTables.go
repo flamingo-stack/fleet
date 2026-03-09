@@ -20,6 +20,7 @@ func init() {
 }
 
 func Up_20220915165115(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Apply MDM SCEP schema.
 	_, err := tx.Exec(scepSchema)
 	if err != nil {

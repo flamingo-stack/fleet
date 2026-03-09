@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240129162819(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
 		UPDATE
 			mdm_windows_configuration_profiles mwcp

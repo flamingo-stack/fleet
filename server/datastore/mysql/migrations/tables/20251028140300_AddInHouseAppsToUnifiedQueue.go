@@ -10,22 +10,24 @@ func init() {
 }
 
 func Up_20251028140300(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Note that at the moment of this migration, in-house apps uninstall is not
 	// supported, so we don't add it to the enum.
-	_, err := tx.Exec(`
+	if columnExists(tx, "upcoming_activities", "activity_type") {
+		if _, err := tx.Exec(`
 ALTER TABLE upcoming_activities
 	CHANGE COLUMN activity_type activity_type ENUM('script', 'software_install', 'software_uninstall', 'vpp_app_install', 'in_house_app_install')
 		COLLATE utf8mb4_unicode_ci NOT NULL
-`)
-	if err != nil {
-		return fmt.Errorf("failed to alter upcoming_activities activity_type: %w", err)
+`); err != nil {
+			return fmt.Errorf("failed to alter upcoming_activities activity_type: %w", err)
+		}
 	}
 
 	// Note that at the moment of this migration, auto-install and self-service is not
 	// supported for in-house apps, so we don't need to add columns for e.g. policy_id.
 	// See https://www.figma.com/design/zcc45sBgdiDZT11iKjLolh/-30936-Deploy-custom--in-house--iOS-app?node-id=5363-11227&t=S1pEnokvQ83v8eJk-0
-	_, err = tx.Exec(`
-CREATE TABLE in_house_app_upcoming_activities (
+	if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS in_house_app_upcoming_activities (
 	upcoming_activity_id       BIGINT UNSIGNED NOT NULL,
 
 	-- those are all columns and not JSON fields because we need FKs on them to
@@ -49,18 +51,17 @@ CREATE TABLE in_house_app_upcoming_activities (
 		FOREIGN KEY (software_title_id) REFERENCES software_titles (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci
 `,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("failed to create in_house_app_upcoming_activities table: %w", err)
 	}
 
 	// Note that at the time of this migration, in-house apps do not support
 	// auto-install and self-service installs so those columns have not been added.
 	// See https://www.figma.com/design/zcc45sBgdiDZT11iKjLolh/-30936-Deploy-custom--in-house--iOS-app?node-id=5363-11227&t=S1pEnokvQ83v8eJk-0
-	_, err = tx.Exec(`
+	if _, err := tx.Exec(`
 -- This table is the in-house app equivalent of the host_vpp_software_installs table.
 -- It tracks the installation of in-house software on particular hosts.
-CREATE TABLE host_in_house_software_installs (
+CREATE TABLE IF NOT EXISTS host_in_house_software_installs (
 	id              INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
 	host_id         INT(10) UNSIGNED NOT NULL,
 
@@ -88,9 +89,8 @@ CREATE TABLE host_in_house_software_installs (
 	CONSTRAINT fk_host_in_house_software_installs_in_house_app_id
 		FOREIGN KEY (in_house_app_id) REFERENCES in_house_apps (id) ON DELETE CASCADE,
 	INDEX idx_host_in_house_software_installs_verification ((verification_at IS NULL AND verification_failed_at IS NULL))
-) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci`)
-	if err != nil {
-		return fmt.Errorf("failed to create table host_in_house_software_installs: %w", err)
+) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci`); err != nil {
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS host_in_house_software_installs: %w", err)
 	}
 
 	return nil

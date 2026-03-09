@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20231025120016(tx *sql.Tx) error {
+	// Idempotent migration.
 	deleteDuplicatesStmt := `
 DELETE a
 FROM mdm_idp_accounts a
@@ -38,13 +39,17 @@ ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CUR
 	}
 
 	// add an index to prevent further duplicates
-	if _, err := tx.Exec(addIdxStmt); err != nil {
-		return fmt.Errorf("failed to delete duplicated emails in mdm_idp_accounts table: %w", err)
+	if !indexExistsTx(tx, "mdm_idp_accounts", "unique_idp_email") {
+		if _, err := tx.Exec(addIdxStmt); err != nil {
+			return fmt.Errorf("failed to delete duplicated emails in mdm_idp_accounts table: %w", err)
+		}
 	}
 
 	// add missing timestamps
-	if _, err := tx.Exec(addTimestampsStmt); err != nil {
-		return fmt.Errorf("failed to delete duplicated emails in mdm_idp_accounts table: %w", err)
+	if !columnsExists(tx, "mdm_idp_accounts", "created_at", "updated_at") {
+		if _, err := tx.Exec(addTimestampsStmt); err != nil {
+			return fmt.Errorf("failed to delete duplicated emails in mdm_idp_accounts table: %w", err)
+		}
 	}
 
 	return nil

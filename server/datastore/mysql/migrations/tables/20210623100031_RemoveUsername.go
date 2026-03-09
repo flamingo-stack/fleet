@@ -11,21 +11,24 @@ func init() {
 }
 
 func Up_20210623100031(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if columnExists(tx, "users", "username") {
+		sql := `
 		UPDATE users
 		SET name = username
 		WHERE name IS NULL OR name = ''
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "replace empty names with username")
-	}
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "replace empty names with username")
+		}
 
-	sql = `
+		sql = `
 		ALTER TABLE users
 		DROP COLUMN username
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "drop username")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "drop username")
+		}
 	}
 
 	return nil

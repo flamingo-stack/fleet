@@ -12,20 +12,23 @@ func init() {
 }
 
 func Up_20180620164811(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Drop the old foreign key for query name (to be replaced later)
-	query := `
+	if fkExists(tx, "scheduled_queries", "scheduled_queries_ibfk_1") {
+		query := `
 		ALTER TABLE scheduled_queries
 		DROP FOREIGN KEY scheduled_queries_ibfk_1
 	`
-	if _, err := tx.Exec(query); err != nil {
-		// If the foreign key doesn't exist (or exists under a
-		// different name), we can just allow it to dupe and move on
-		// rather than failing and requiring manual intervention.
-		fmt.Println("Skipped deleting foreign key `scheduled_queries_ibfk_1`: " + err.Error())
+		if _, err := tx.Exec(query); err != nil {
+			// If the foreign key doesn't exist (or exists under a
+			// different name), we can just allow it to dupe and move on
+			// rather than failing and requiring manual intervention.
+			fmt.Println("Skipped deleting foreign key `scheduled_queries_ibfk_1`: " + err.Error())
+		}
 	}
 
 	// Delete any scheduled queries where the pack is already deleted
-	query = `
+	query := `
 		DELETE FROM scheduled_queries
 		WHERE pack_id NOT IN (SELECT id FROM packs)
 	`
@@ -33,24 +36,28 @@ func Up_20180620164811(tx *sql.Tx) error {
 		return errors.Wrap(err, "delete dangling scheduled queries")
 	}
 
-	query = `
+	if !fkExists(tx, "scheduled_queries", "scheduled_queries_query_name") {
+		query = `
 		ALTER TABLE scheduled_queries
 		ADD CONSTRAINT scheduled_queries_query_name
 		FOREIGN KEY (query_name) REFERENCES queries (name)
 		ON DELETE CASCADE
 	`
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "add foreign key to query name")
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "add foreign key to query name")
+		}
 	}
 
-	query = `
+	if !fkExists(tx, "scheduled_queries", "scheduled_queries_pack_id") {
+		query = `
 		ALTER TABLE scheduled_queries
 		ADD CONSTRAINT scheduled_queries_pack_id
 		FOREIGN KEY (pack_id) REFERENCES packs (id)
 		ON DELETE CASCADE
 	`
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "add foreign key to pack ID")
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "add foreign key to pack ID")
+		}
 	}
 
 	return nil

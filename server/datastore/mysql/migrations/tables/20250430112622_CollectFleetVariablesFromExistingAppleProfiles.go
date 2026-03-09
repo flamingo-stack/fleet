@@ -15,6 +15,7 @@ func init() {
 }
 
 func Up_20250430112622(tx *sql.Tx) error {
+	// Idempotent migration.
 	// For now, we only collect used fleet variables from existing Apple
 	// configuration profiles, as those are the only ones that rely on the
 	// variables lookup table for the time being.

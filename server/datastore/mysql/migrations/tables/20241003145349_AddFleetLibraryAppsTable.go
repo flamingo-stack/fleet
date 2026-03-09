@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20241003145349(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE fleet_library_apps (
+CREATE TABLE IF NOT EXISTS fleet_library_apps (
 	id                int unsigned NOT NULL PRIMARY KEY AUTO_INCREMENT,
 	name              varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 	-- the "full_token" field from homebrew's JSON API response
@@ -54,14 +55,16 @@ CREATE TABLE fleet_library_apps (
 	// Library, so this fleet_library_app_id would be NULL), it shouldn't see the
 	// same _name_ from the Fleet library as available. But it's probably good in
 	// any case to keep track of this, even if not obviously useful now.
-	_, err = tx.Exec(`
+	if !columnExists(tx, "software_installers", "fleet_library_app_id") {
+		_, err = tx.Exec(`
 ALTER TABLE software_installers
 	ADD COLUMN fleet_library_app_id int unsigned DEFAULT NULL,
 	ADD FOREIGN KEY fk_software_installers_fleet_library_app_id (fleet_library_app_id)
 		REFERENCES fleet_library_apps (id) ON DELETE SET NULL
 	`)
-	if err != nil {
-		return fmt.Errorf("failed to alter software_installers to add fleet_library_app_id: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter software_installers to add fleet_library_app_id: %w", err)
+		}
 	}
 	return nil
 }

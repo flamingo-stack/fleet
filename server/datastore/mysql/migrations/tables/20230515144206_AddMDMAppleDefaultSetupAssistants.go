@@ -10,11 +10,12 @@ func init() {
 }
 
 func Up_20230515144206(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 -- macos default setup assistant stores at most 1 profile uuid per team/no team.
 -- The default setup assistant is used only if the team does not have a (custom)
 -- setup assistant defined in mdm_apple_setup_assistants.
-CREATE TABLE mdm_apple_default_setup_assistants (
+CREATE TABLE IF NOT EXISTS mdm_apple_default_setup_assistants (
     id      INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
     -- team_id NULL is for no team (cannot use 0 with foreign key)
     team_id INT(10) UNSIGNED NULL,

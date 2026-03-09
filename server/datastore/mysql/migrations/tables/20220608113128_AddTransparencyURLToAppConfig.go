@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20220608113128(tx *sql.Tx) error {
+	// Idempotent migration.
 	err := updateAppConfigJSON(tx, func(config *fleet.AppConfig) error {
 		if config.FleetDesktop.TransparencyURL != "" {
 			return errors.New("unexpected transparency_url value in app_config_json")

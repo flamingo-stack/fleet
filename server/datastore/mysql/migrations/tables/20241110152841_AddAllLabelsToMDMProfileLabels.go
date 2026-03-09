@@ -10,26 +10,29 @@ func init() {
 }
 
 func Up_20241110152841(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add columns
-	_, err := tx.Exec(`ALTER TABLE mdm_configuration_profile_labels ADD COLUMN require_all BOOL NOT NULL DEFAULT false`)
-	if err != nil {
-		return fmt.Errorf("failed to add require_all to mdm_configuration_profile_labels: %w", err)
+	if !columnExists(tx, "mdm_configuration_profile_labels", "require_all") {
+		_, err := tx.Exec(`ALTER TABLE mdm_configuration_profile_labels ADD COLUMN require_all BOOL NOT NULL DEFAULT false`)
+		if err != nil {
+			return fmt.Errorf("failed to add require_all to mdm_configuration_profile_labels: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE mdm_declaration_labels ADD COLUMN require_all BOOL NOT NULL DEFAULT false`)
-	if err != nil {
-		return fmt.Errorf("failed to add require_all to mdm_declaration_labels: %w", err)
+	if !columnExists(tx, "mdm_declaration_labels", "require_all") {
+		_, err := tx.Exec(`ALTER TABLE mdm_declaration_labels ADD COLUMN require_all BOOL NOT NULL DEFAULT false`)
+		if err != nil {
+			return fmt.Errorf("failed to add require_all to mdm_declaration_labels: %w", err)
+		}
 	}
 
 	// Set require_all to true if exclude was false (this means that it represents an "include all"
 	// label filter
-	_, err = tx.Exec(`UPDATE mdm_configuration_profile_labels SET require_all = true WHERE exclude = false`)
-	if err != nil {
+	if _, err := tx.Exec(`UPDATE mdm_configuration_profile_labels SET require_all = true WHERE exclude = false`); err != nil {
 		return fmt.Errorf("failed to migrate include all records in mdm_configuration_profile_labels: %w", err)
 	}
 
-	_, err = tx.Exec(`UPDATE mdm_declaration_labels SET require_all = true WHERE exclude = false`)
-	if err != nil {
+	if _, err := tx.Exec(`UPDATE mdm_declaration_labels SET require_all = true WHERE exclude = false`); err != nil {
 		return fmt.Errorf("failed to migrate include all records in mdm_declaration_labels: %w", err)
 	}
 

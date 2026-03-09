@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20230405232025(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-          CREATE TABLE mdm_apple_bootstrap_packages (
+          CREATE TABLE IF NOT EXISTS mdm_apple_bootstrap_packages (
             team_id    int(10) unsigned NOT NULL,
             name       varchar(255),
             sha256     BINARY(32) NOT NULL,

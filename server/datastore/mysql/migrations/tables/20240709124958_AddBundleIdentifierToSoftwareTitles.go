@@ -79,9 +79,11 @@ func Up_20240709124958(tx *sql.Tx) error {
 		return fmt.Errorf("updating orphaned software references: %w", err)
 	}
 
-	_, err = tx.Exec(`ALTER TABLE software_titles ADD UNIQUE KEY idx_software_titles_bundle_identifier (bundle_identifier)`)
-	if err != nil {
-		return fmt.Errorf("adding unique key to bundle_identifier in software_titles: %w", err)
+	// Idempotent migration.
+	if !indexExistsTx(tx, "software_titles", "idx_software_titles_bundle_identifier") {
+		if _, err := tx.Exec(`ALTER TABLE software_titles ADD UNIQUE KEY idx_software_titles_bundle_identifier (bundle_identifier)`); err != nil {
+			return fmt.Errorf("adding unique key to bundle_identifier in software_titles: %w", err)
+		}
 	}
 
 	return nil

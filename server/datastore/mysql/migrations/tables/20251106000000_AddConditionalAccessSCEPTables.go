@@ -10,10 +10,11 @@ func init() {
 }
 
 func Up_20251106000000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Create conditional_access_scep_serials table first (referenced by foreign key)
 	// Reserve serial number 1 for system use, similar to host identity SCEP
 	_, err := tx.Exec(`
-		CREATE TABLE conditional_access_scep_serials (
+		CREATE TABLE IF NOT EXISTS conditional_access_scep_serials (
 			serial bigint unsigned NOT NULL AUTO_INCREMENT,
 			created_at DATETIME(6) NULL DEFAULT NOW(6),
 			PRIMARY KEY (serial)
@@ -25,7 +26,7 @@ func Up_20251106000000(tx *sql.Tx) error {
 
 	// Create conditional_access_scep_certificates table
 	_, err = tx.Exec(`
-		CREATE TABLE conditional_access_scep_certificates (
+		CREATE TABLE IF NOT EXISTS conditional_access_scep_certificates (
 			serial bigint unsigned NOT NULL,
 			host_id int unsigned NOT NULL,
 			name varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,

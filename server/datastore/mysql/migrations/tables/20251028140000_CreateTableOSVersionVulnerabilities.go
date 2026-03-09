@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20251028140000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Create the pre-aggregated OS version vulnerabilities table
 	// This table contains ONLY Linux kernel vulnerabilities
 	// team_id semantics:

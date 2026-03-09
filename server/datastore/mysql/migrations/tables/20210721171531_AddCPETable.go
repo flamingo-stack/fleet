@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20210721171531(tx *sql.Tx) error {
+	// Idempotent migration.
 	sql := `
 		CREATE TABLE IF NOT EXISTS software_cpe (
 			id int(10) unsigned NOT NULL AUTO_INCREMENT,

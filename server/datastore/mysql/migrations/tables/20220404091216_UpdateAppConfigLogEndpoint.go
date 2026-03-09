@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20220404091216(tx *sql.Tx) error {
+	// Idempotent migration.
 	const selectStmt = `SELECT json_value FROM app_config_json LIMIT 1`
 
 	var raw json.RawMessage

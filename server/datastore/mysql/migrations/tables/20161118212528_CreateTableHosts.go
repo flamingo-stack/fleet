@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20161118212528(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
-		"CREATE TABLE `hosts` (" +
+		"CREATE TABLE IF NOT EXISTS `hosts` (" +
 			"`id` int(10) unsigned NOT NULL AUTO_INCREMENT," +
 			"`osquery_host_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL," +
 			"`created_at` timestamp DEFAULT CURRENT_TIMESTAMP," +

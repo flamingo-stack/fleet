@@ -9,8 +9,13 @@ func init() {
 }
 
 func Up_20170509132100(tx *sql.Tx) error {
-	_, err := tx.Exec("ALTER TABLE `users` ADD COLUMN `sso_enabled` TINYINT NOT NULL DEFAULT FALSE AFTER `position`;")
-	return err
+	// Idempotent migration.
+	if !columnExists(tx, "users", "sso_enabled") {
+		if _, err := tx.Exec("ALTER TABLE `users` ADD COLUMN `sso_enabled` TINYINT NOT NULL DEFAULT FALSE AFTER `position`;"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170509132100(tx *sql.Tx) error {

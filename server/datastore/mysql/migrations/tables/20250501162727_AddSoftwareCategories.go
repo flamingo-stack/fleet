@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250501162727(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS software_categories  (
     		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     		name VARCHAR(63) NOT NULL,
@@ -46,7 +47,7 @@ func Up_20250501162727(tx *sql.Tx) error {
 	}
 
 	// insert categories
-	_, err = tx.Exec(`INSERT INTO software_categories (name) VALUES ('Productivity'), ('Browsers'), ('Communication'), ('Developer tools')`)
+	_, err = tx.Exec(`INSERT IGNORE INTO software_categories (name) VALUES ('Productivity'), ('Browsers'), ('Communication'), ('Developer tools')`)
 	if err != nil {
 		return fmt.Errorf("inserting default categories into software_categories table: %w", err)
 	}

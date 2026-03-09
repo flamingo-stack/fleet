@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20230214131519(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-          CREATE TABLE mdm_apple_delivery_status (
+          CREATE TABLE IF NOT EXISTS mdm_apple_delivery_status (
             status VARCHAR(20) PRIMARY KEY
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	if err != nil {
@@ -18,7 +19,7 @@ func Up_20230214131519(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-          INSERT INTO mdm_apple_delivery_status (status)
+          INSERT IGNORE INTO mdm_apple_delivery_status (status)
           VALUES ('failed'), ('applied'), ('pending')
 	`)
 	if err != nil {
@@ -26,7 +27,7 @@ func Up_20230214131519(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-          CREATE TABLE mdm_apple_operation_types (
+          CREATE TABLE IF NOT EXISTS mdm_apple_operation_types (
             operation_type VARCHAR(20) PRIMARY KEY
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	if err != nil {
@@ -34,7 +35,7 @@ func Up_20230214131519(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-          INSERT INTO mdm_apple_operation_types (operation_type)
+          INSERT IGNORE INTO mdm_apple_operation_types (operation_type)
           VALUES ('install'), ('remove')
 	`)
 	if err != nil {
@@ -42,7 +43,7 @@ func Up_20230214131519(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-          CREATE TABLE host_mdm_apple_profiles (
+          CREATE TABLE IF NOT EXISTS host_mdm_apple_profiles (
             profile_id          int(10) UNSIGNED NOT NULL,
             profile_identifier  varchar(255) NOT NULL,
             host_uuid           varchar(255) NOT NULL,

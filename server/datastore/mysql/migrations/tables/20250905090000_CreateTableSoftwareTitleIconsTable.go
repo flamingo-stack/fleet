@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20250905090000(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS software_title_icons (
 			id INT AUTO_INCREMENT PRIMARY KEY,

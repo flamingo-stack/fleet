@@ -20,7 +20,9 @@ func init() {
 }
 
 func Up_20240222073518(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "nano_cert_auth_associations", "cert_not_valid_after") {
+		_, err := tx.Exec(`
 ALTER TABLE nano_cert_auth_associations
 -- used to detect identity certificates that are about to expire. While we have
 -- access to the scep_certificates table, nanomdm assumes that you can use any CA
@@ -28,12 +30,22 @@ ALTER TABLE nano_cert_auth_associations
 -- without major changes.
 ADD COLUMN cert_not_valid_after TIMESTAMP NULL,
 -- used to track the command issued to renew the identity certificate (if one)
-ADD COLUMN renew_command_uuid VARCHAR(127) COLLATE utf8mb4_unicode_ci NULL,
-ADD CONSTRAINT renew_command_uuid_fk 
+ADD COLUMN renew_command_uuid VARCHAR(127) COLLATE utf8mb4_unicode_ci NULL
+`)
+		if err != nil {
+			return fmt.Errorf("failed to alter nano_cert_auth_associations table: %w", err)
+		}
+	}
+
+	if !constraintExists(tx, "nano_cert_auth_associations", "renew_command_uuid_fk") {
+		_, err := tx.Exec(`
+ALTER TABLE nano_cert_auth_associations
+ADD CONSTRAINT renew_command_uuid_fk
     FOREIGN KEY (renew_command_uuid) REFERENCES nano_commands (command_uuid)
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter nano_cert_auth_associations table: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to add FK renew_command_uuid_fk to nano_cert_auth_associations: %w", err)
+		}
 	}
 
 	if err := batchUpdateCertAssociationsTimestamps(tx); err != nil {

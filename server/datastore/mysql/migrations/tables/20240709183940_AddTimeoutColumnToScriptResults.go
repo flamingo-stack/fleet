@@ -13,21 +13,24 @@ func init() {
 // column to the host_script_results table to allow for
 // custom timeouts.
 func Up_20240709183940(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "host_script_results", "timeout") {
+		stmt := `
 	ALTER TABLE host_script_results
 	ADD COLUMN timeout INT DEFAULT NULL;
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return err
-	}
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
 
-	stmt = `
+		stmt = `
 	UPDATE host_script_results
 	SET timeout = 300
 	WHERE timeout IS NULL;
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return err
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
 	}
 
 	return nil

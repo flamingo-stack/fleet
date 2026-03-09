@@ -10,8 +10,11 @@ func init() {
 }
 
 func Up_20250814123333(tx *sql.Tx) error {
-	if _, err := tx.Exec(`ALTER TABLE batch_activity_host_results ADD CONSTRAINT unique_batch_host_results_execution_hostid UNIQUE (batch_execution_id, host_id)`); err != nil {
-		return fmt.Errorf("adding unique index to batch_activity_host_results: %w", err)
+	// Idempotent migration.
+	if !constraintExists(tx, "batch_activity_host_results", "unique_batch_host_results_execution_hostid") {
+		if _, err := tx.Exec(`ALTER TABLE batch_activity_host_results ADD CONSTRAINT unique_batch_host_results_execution_hostid UNIQUE (batch_execution_id, host_id)`); err != nil {
+			return fmt.Errorf("adding unique index to batch_activity_host_results: %w", err)
+		}
 	}
 	return nil
 }

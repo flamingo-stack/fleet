@@ -11,14 +11,16 @@ func init() {
 }
 
 func Up_20240228082706(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "host_dep_assignments", "profile_uuid") {
+		stmt := `
 ALTER TABLE host_dep_assignments
 	-- profile_uuid is the uuid of the enrollment profile that was assigned to the host (which should correspond to an entry in the mdm_apple_setup_assistants table)
 	ADD COLUMN profile_uuid VARCHAR(37) COLLATE utf8mb4_unicode_ci NULL,
-	
+
 	-- assign_profile_response is the response received for the DEP profile assignment request (e.g., 'SUCCESS', 'NOT_ACCESSIBLE', or 'FAILED')
 	ADD COLUMN assign_profile_response VARCHAR(15) COLLATE utf8mb4_unicode_ci NULL,
-	
+
 	-- response_updated_at is the time the most recent DEP profile assignment response was received
 	ADD COLUMN response_updated_at TIMESTAMP NULL,
 
@@ -27,8 +29,13 @@ ALTER TABLE host_dep_assignments
 
 	ADD INDEX idx_hdep_response (assign_profile_response, response_updated_at);`
 
-	if _, err := tx.Exec(stmt); err != nil {
-		return errors.Wrap(err, "alter host_dep_assignments table")
+		if _, err := tx.Exec(stmt); err != nil {
+			return errors.Wrap(err, "alter host_dep_assignments table")
+		}
+	} else if !indexExistsTx(tx, "host_dep_assignments", "idx_hdep_response") {
+		if _, err := tx.Exec(`ALTER TABLE host_dep_assignments ADD INDEX idx_hdep_response (assign_profile_response, response_updated_at)`); err != nil {
+			return errors.Wrap(err, "add index idx_hdep_response")
+		}
 	}
 
 	return nil

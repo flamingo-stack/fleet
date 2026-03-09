@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20230608103123(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	r, err := txx.Exec(`

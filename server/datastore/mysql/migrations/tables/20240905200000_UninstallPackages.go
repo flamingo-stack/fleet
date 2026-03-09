@@ -16,15 +16,18 @@ const placeholderUninstallScript = "# This script will be automatically updated 
 const placeholderUninstallScriptWindows = "# This script will be automatically updated within the next hour\nExit 1"
 
 func Up_20240905200000(tx *sql.Tx) error {
-	if _, err := tx.Exec(`
-ALTER TABLE software_installers 
+	// Idempotent migration.
+	if !columnsExists(tx, "software_installers", "package_ids", "extension", "uninstall_script_content_id", "updated_at") {
+		if _, err := tx.Exec(`
+ALTER TABLE software_installers
 ADD COLUMN package_ids TEXT COLLATE utf8mb4_unicode_ci NOT NULL,
 ADD COLUMN extension VARCHAR(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 ADD COLUMN uninstall_script_content_id int unsigned NOT NULL,
 ADD COLUMN updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
 MODIFY COLUMN uploaded_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 		`); err != nil {
-		return fmt.Errorf("failed to alter software_installers: %w", err)
+			return fmt.Errorf("failed to alter software_installers: %w", err)
+		}
 	}
 
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
@@ -68,16 +71,19 @@ MODIFY COLUMN uploaded_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 	}
 
 	// Add foreign key
-	if _, err := tx.Exec(`
+	if !fkExists(tx, "software_installers", "fk_uninstall_script_content_id") {
+		if _, err := tx.Exec(`
 ALTER TABLE software_installers
-ADD CONSTRAINT fk_uninstall_script_content_id 
+ADD CONSTRAINT fk_uninstall_script_content_id
 	FOREIGN KEY (uninstall_script_content_id)
 	REFERENCES script_contents(id)
 	ON DELETE RESTRICT ON UPDATE CASCADE`); err != nil {
-		return fmt.Errorf("failed to add foreign key to software_installers: %w", err)
+			return fmt.Errorf("failed to add foreign key to software_installers: %w", err)
+		}
 	}
 
-	if _, err := tx.Exec(`
+	if !columnsExists(tx, "host_software_installs", "uninstall_script_output", "uninstall_script_exit_code", "uninstall", "status") {
+		if _, err := tx.Exec(`
 ALTER TABLE host_software_installs
 ADD COLUMN uninstall_script_output TEXT COLLATE utf8mb4_unicode_ci,
 ADD COLUMN uninstall_script_exit_code INT DEFAULT NULL,
@@ -119,7 +125,8 @@ MODIFY COLUMN created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 MODIFY COLUMN updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
 MODIFY COLUMN host_deleted_at TIMESTAMP(6) NULL DEFAULT NULL
 		`); err != nil {
-		return fmt.Errorf("failed to alter host_software_installs: %w", err)
+			return fmt.Errorf("failed to alter host_software_installs: %w", err)
+		}
 	}
 
 	return nil

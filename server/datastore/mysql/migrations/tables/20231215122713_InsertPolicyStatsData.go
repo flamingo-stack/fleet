@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20231215122713(tx *sql.Tx) error {
+	// Idempotent migration.
 	// NOTE these queries are duplicated in the mysql method here.  Updates
 	// to these queries should be reflected there as well.
 	// https://github.com/fleetdm/fleet/blob/main/server/datastore/mysql/policies.go#L1125

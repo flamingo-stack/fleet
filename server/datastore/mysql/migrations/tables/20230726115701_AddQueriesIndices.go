@@ -11,12 +11,15 @@ func init() {
 }
 
 func Up_20230726115701(tx *sql.Tx) error {
-	if _, err := tx.Exec(`
+	// Idempotent migration.
+	if !indexExistsTx(tx, "queries", "idx_name_team_id_unq") || !indexExistsTx(tx, "queries", "idx_team_id_saved_auto_interval") {
+		if _, err := tx.Exec(`
 		ALTER TABLE queries
 			ADD UNIQUE INDEX idx_name_team_id_unq (name, team_id_char),
 			ADD INDEX idx_team_id_saved_auto_interval (team_id, saved, automations_enabled, schedule_interval);
 	`); err != nil {
-		return errors.Wrap(err, "updating queries indices")
+			return errors.Wrap(err, "updating queries indices")
+		}
 	}
 	return nil
 }

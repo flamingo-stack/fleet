@@ -7,11 +7,16 @@ func init() {
 }
 
 func Up_20170118191001(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `app_configs` " +
-			"ADD COLUMN `osquery_enroll_secret` VARCHAR(255) NOT NULL DEFAULT '';",
-	)
-	return err
+	// Idempotent migration.
+	if !columnExists(tx, "app_configs", "osquery_enroll_secret") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `app_configs` " +
+				"ADD COLUMN `osquery_enroll_secret` VARCHAR(255) NOT NULL DEFAULT '';",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170118191001(tx *sql.Tx) error {

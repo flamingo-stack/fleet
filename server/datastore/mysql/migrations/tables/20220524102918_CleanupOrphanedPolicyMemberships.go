@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20220524102918(tx *sql.Tx) error {
+	// Idempotent migration.
 	delStmt := `
     DELETE pm
     FROM policy_membership pm

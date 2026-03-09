@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20210708143152(tx *sql.Tx) error {
+	// Idempotent migration.
 	sqlStatement := `
 		CREATE TABLE IF NOT EXISTS host_users (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

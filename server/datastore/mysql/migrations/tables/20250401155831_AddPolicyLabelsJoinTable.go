@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20250401155831(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
-CREATE TABLE policy_labels (
+CREATE TABLE IF NOT EXISTS policy_labels (
   id int unsigned NOT NULL AUTO_INCREMENT,
   policy_id int unsigned NOT NULL,
   label_id int unsigned NOT NULL,

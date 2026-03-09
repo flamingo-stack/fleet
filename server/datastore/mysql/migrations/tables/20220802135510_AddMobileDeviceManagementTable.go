@@ -11,10 +11,11 @@ func init() {
 }
 
 func Up_20220802135510(tx *sql.Tx) error {
+	// Idempotent migration.
 	// An mdm ID identifies a Vendor + Server URL combination (e.g. Jamf + https://company.jamfcloud.com)
 	// A distinct server URL for the same vendor results in different MDM ID.
 	_, err := tx.Exec(`
-CREATE TABLE mobile_device_management_solutions (
+CREATE TABLE IF NOT EXISTS mobile_device_management_solutions (
   id            INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name          VARCHAR(100) NOT NULL,
   server_url    VARCHAR(255) NOT NULL,
@@ -30,23 +31,26 @@ CREATE TABLE mobile_device_management_solutions (
 	// adding as NULLable to prevent costly migration for users with many hosts,
 	// the mdm_id will be lazily populated as MDM query results get returned by
 	// hosts.
-	_, err = tx.Exec(`ALTER TABLE host_mdm ADD COLUMN mdm_id INT(10) UNSIGNED NULL;`)
-	if err != nil {
-		return errors.Wrapf(err, "alter table")
+	if !columnExists(tx, "host_mdm", "mdm_id") {
+		if _, err = tx.Exec(`ALTER TABLE host_mdm ADD COLUMN mdm_id INT(10) UNSIGNED NULL;`); err != nil {
+			return errors.Wrapf(err, "alter table")
+		}
 	}
 
-	_, err = tx.Exec(`CREATE INDEX host_mdm_mdm_id_idx ON host_mdm (mdm_id);`)
-	if err != nil {
-		return errors.Wrapf(err, "create mdm id index")
+	if !indexExistsTx(tx, "host_mdm", "host_mdm_mdm_id_idx") {
+		if _, err = tx.Exec(`CREATE INDEX host_mdm_mdm_id_idx ON host_mdm (mdm_id);`); err != nil {
+			return errors.Wrapf(err, "create mdm id index")
+		}
 	}
 
 	// those are boolean fields, but indexing is still likely to speed things up
 	// significantly, because a) we will filter on a combination of both booleans and
 	// b) it's unlikely that enrolled/unenrolled ratio will be close to 50%.
 	// see https://stackoverflow.com/questions/10524651/is-there-any-performance-gain-in-indexing-a-boolean-field
-	_, err = tx.Exec(`CREATE INDEX host_mdm_enrolled_installed_from_dep_idx ON host_mdm (enrolled, installed_from_dep);`)
-	if err != nil {
-		return errors.Wrapf(err, "create enrollment status index")
+	if !indexExistsTx(tx, "host_mdm", "host_mdm_enrolled_installed_from_dep_idx") {
+		if _, err = tx.Exec(`CREATE INDEX host_mdm_enrolled_installed_from_dep_idx ON host_mdm (enrolled, installed_from_dep);`); err != nil {
+			return errors.Wrapf(err, "create enrollment status index")
+		}
 	}
 
 	return nil

@@ -11,7 +11,9 @@ func init() {
 }
 
 func Up_20210623133615(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if columnExists(tx, "hosts", "host_name") {
+		sql := `
 		ALTER TABLE hosts
 		CHANGE COLUMN host_name hostname varchar(255) NOT NULL DEFAULT '',
 		CHANGE COLUMN physical_memory memory bigint(20) NOT NULL DEFAULT '0',
@@ -19,8 +21,9 @@ func Up_20210623133615(tx *sql.Tx) error {
 		CHANGE COLUMN label_update_time label_updated_at timestamp NOT NULL DEFAULT '2000-01-01 00:00:00',
 		CHANGE COLUMN last_enroll_time last_enrolled_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "rename columns")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "rename columns")
+		}
 	}
 
 	return nil

@@ -10,23 +10,28 @@ func init() {
 }
 
 func Up_20231122101320(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnsExists(tx, "software", "browser", "extension_id") {
+		stmt := `
 		ALTER TABLE software
 		ADD COLUMN browser varchar(255) NOT NULL DEFAULT '',
 		ADD COLUMN extension_id varchar(255) NOT NULL DEFAULT '';
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add browser and extension_id to software: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add browser and extension_id to software: %w", err)
+		}
 	}
 
 	// We cannot add `extension_id` to the unq_name constraint because it is already at its 3072 byte limit, so we will drop it.
 	// There appears to be no critical reason for this constraint except to help development.
-	stmt = `
+	if indexExistsTx(tx, "software", "unq_name") {
+		stmt := `
 		ALTER TABLE software
 		DROP INDEX unq_name;
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("drop unq_name key from software: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("drop unq_name key from software: %w", err)
+		}
 	}
 
 	return nil

@@ -18,8 +18,9 @@ func init() {
 }
 
 func Up_20240829165605(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE vpp_tokens (
+CREATE TABLE IF NOT EXISTS vpp_tokens (
 	id                     int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
 	organization_name      varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 	location               varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -58,17 +59,19 @@ CREATE TABLE vpp_tokens (
 		FOREIGN KEY (team_id) REFERENCES teams (id) ON DELETE SET NULL
 )`)
 	if err != nil {
-		return fmt.Errorf("failed to create table vpp_tokens: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS vpp_tokens: %w", err)
 	}
 
-	_, err = tx.Exec(`
+	if !columnExists(tx, "host_vpp_software_installs", "vpp_token_id") {
+		_, err = tx.Exec(`
 ALTER TABLE host_vpp_software_installs
 	ADD COLUMN vpp_token_id int(10) UNSIGNED NULL,
 	ADD CONSTRAINT fk_host_vpp_software_installs_vpp_token_id
 		FOREIGN KEY (vpp_token_id) REFERENCES vpp_tokens(id) ON DELETE SET NULL
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter table host_vpp_software_installs: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter table host_vpp_software_installs: %w", err)
+		}
 	}
 
 	// migrate the existing VPP token (if any) to the new vpp_tokens table
@@ -92,7 +95,7 @@ WHERE
 
 	// insert the token in the new table, defaulting to "all teams"
 	const insVPP = `
-INSERT INTO vpp_tokens
+INSERT IGNORE INTO vpp_tokens
 	(
 		organization_name,
 		location,
@@ -158,7 +161,7 @@ SET
 
 	// hard-coded timestamps are used so that schema.sql is stable
 	const query = `
-INSERT INTO jobs (
+INSERT IGNORE INTO jobs (
     name,
     args,
     state,

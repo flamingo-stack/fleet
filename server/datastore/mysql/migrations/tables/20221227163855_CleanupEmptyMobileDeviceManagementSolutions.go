@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20221227163855(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Fetch the IDs of the solutions with:
 	// - empty `server_url`: to remove entries for macOS hosts that are not enrolled
 	// to an MDM and were being associated with an empty "MDM solution"

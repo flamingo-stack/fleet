@@ -16,6 +16,7 @@ func init() {
 }
 
 func Up_20250410104321(tx *sql.Tx) error {
+	// Idempotent migration.
 	titleStmt := `UPDATE software_titles SET name = TRIM( TRAILING '.app' FROM name ) WHERE source = 'apps' AND bundle_identifier IS NOT NULL`
 	_, err := tx.Exec(titleStmt)
 	if err != nil {
@@ -88,9 +89,10 @@ WHERE
 	updateHostSoftwareInstalledPathsStmt := `UPDATE host_software_installed_paths SET software_id = ? WHERE software_id IN (?)`
 
 	var allExcludedIDs []uint64
-	_, err = tx.Exec(`ALTER TABLE host_software_installed_paths ADD INDEX software_id (software_id)`)
-	if err != nil {
-		return fmt.Errorf("adding temporary index to host_software_installed_paths: %w", err)
+	if !indexExistsTx(tx, "host_software_installed_paths", "software_id") {
+		if _, err = tx.Exec(`ALTER TABLE host_software_installed_paths ADD INDEX software_id (software_id)`); err != nil {
+			return fmt.Errorf("adding temporary index to host_software_installed_paths: %w", err)
+		}
 	}
 
 	for newChecksum, idsToMerge := range idsToMergeByNewChecksum {
@@ -118,7 +120,7 @@ WHERE
 		}
 
 		if len(hostIDRecordList) > 0 { // batch host software inserts for query efficiency
-			hostSoftwareInsertQuery := `INSERT INTO host_software (host_id, software_id) VALUES `
+			hostSoftwareInsertQuery := `INSERT IGNORE INTO host_software (host_id, software_id) VALUES `
 			var hostSoftwareInsertParams []any
 
 			for _, h := range hostIDRecordList {
@@ -130,7 +132,7 @@ WHERE
 					if err != nil {
 						return fmt.Errorf("updating host_software.software_id for old software IDs %v: %w", idsToMerge, err)
 					}
-					hostSoftwareInsertQuery = `INSERT INTO host_software (host_id, software_id) VALUES `
+					hostSoftwareInsertQuery = `INSERT IGNORE INTO host_software (host_id, software_id) VALUES `
 					hostSoftwareInsertParams = []any{}
 				}
 			}
@@ -154,9 +156,10 @@ WHERE
 		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE host_software_installed_paths DROP INDEX software_id`)
-	if err != nil {
-		return fmt.Errorf("removing temporary index from host_software_installed_paths: %w", err)
+	if indexExistsTx(tx, "host_software_installed_paths", "software_id") {
+		if _, err = tx.Exec(`ALTER TABLE host_software_installed_paths DROP INDEX software_id`); err != nil {
+			return fmt.Errorf("removing temporary index from host_software_installed_paths: %w", err)
+		}
 	}
 
 	// at this point, every host that needs one has a pointer to the selected ID, so we can delete
@@ -222,10 +225,11 @@ WHERE
 		return fmt.Errorf("updating software name and checksum: %w", err)
 	}
 
-	newColStmt := `ALTER TABLE software ADD COLUMN name_source enum('basic', 'bundle_4.67') DEFAULT 'basic' NOT NULL`
-	_, err = tx.Exec(newColStmt)
-	if err != nil {
-		return fmt.Errorf("adding name_source column to software: %w", err)
+	if !columnExists(tx, "software", "name_source") {
+		newColStmt := `ALTER TABLE software ADD COLUMN name_source enum('basic', 'bundle_4.67') DEFAULT 'basic' NOT NULL`
+		if _, err = tx.Exec(newColStmt); err != nil {
+			return fmt.Errorf("adding name_source column to software: %w", err)
+		}
 	}
 
 	return nil

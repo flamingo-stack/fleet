@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250926123048(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Find incorrect/correct title
 	titleRows, err := tx.Query(`
 		SELECT id, bundle_identifier
@@ -43,7 +44,7 @@ func Up_20250926123048(tx *sql.Tx) error {
 	// so we need to insert it
 	if _, ok := bundleIdToTitleId["corp.sap.privileges"]; !ok {
 		res, err := tx.Exec(`
-			INSERT INTO software_titles (name, source, bundle_identifier) VALUES
+			INSERT IGNORE INTO software_titles (name, source, bundle_identifier) VALUES
 			('Privileges', 'apps', 'corp.sap.privileges')
 		`)
 		if err != nil {

@@ -10,14 +10,17 @@ func init() {
 }
 
 func Up_20231207102321(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE software_titles ADD UNIQUE INDEX idx_sw_titles (name, source, browser);`)
-	if err != nil {
-		return fmt.Errorf("failed to add unique index to software titles table: %w", err)
+	// Idempotent migration.
+	if !indexExistsTx(tx, "software_titles", "idx_sw_titles") {
+		if _, err := tx.Exec(`ALTER TABLE software_titles ADD UNIQUE INDEX idx_sw_titles (name, source, browser);`); err != nil {
+			return fmt.Errorf("failed to add unique index to software titles table: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE software ADD INDEX idx_sw_name_source_browser (name, source, browser);`)
-	if err != nil {
-		return fmt.Errorf("failed to add name-source-browser index to software table: %w", err)
+	if !indexExistsTx(tx, "software", "idx_sw_name_source_browser") {
+		if _, err := tx.Exec(`ALTER TABLE software ADD INDEX idx_sw_name_source_browser (name, source, browser);`); err != nil {
+			return fmt.Errorf("failed to add name-source-browser index to software table: %w", err)
+		}
 	}
 	return nil
 }

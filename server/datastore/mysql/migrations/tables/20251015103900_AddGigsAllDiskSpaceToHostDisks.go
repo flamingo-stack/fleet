@@ -10,13 +10,16 @@ func init() {
 }
 
 func Up_20251015103900(tx *sql.Tx) error {
+	// Idempotent migration.
 	// NULLable since only relevant for Linux hosts
-	stmt := `
+	if !columnExists(tx, "host_disks", "gigs_all_disk_space") {
+		stmt := `
 		ALTER TABLE host_disks
-		ADD COLUMN gigs_all_disk_space decimal(10,2)	
+		ADD COLUMN gigs_all_disk_space decimal(10,2)
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add gigs_all_disk_space to host_disks: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add gigs_all_disk_space to host_disks: %w", err)
+		}
 	}
 	return nil
 }

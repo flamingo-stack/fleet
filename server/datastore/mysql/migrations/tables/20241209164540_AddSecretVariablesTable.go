@@ -9,13 +9,14 @@ func init() {
 }
 
 func Up_20241209164540(tx *sql.Tx) error {
+	// Idempotent migration.
 
 	if tableExists(tx, "secret_variables") {
 		return nil
 	}
 
 	_, err := tx.Exec(`
-		CREATE TABLE secret_variables (
+		CREATE TABLE IF NOT EXISTS secret_variables (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 		name VARCHAR(255) NOT NULL,
 		value BLOB NOT NULL, -- 64KB max value size

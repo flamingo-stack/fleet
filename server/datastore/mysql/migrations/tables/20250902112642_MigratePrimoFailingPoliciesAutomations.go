@@ -15,6 +15,7 @@ func init() {
 }
 
 func Up_20250902112642(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Only run this migration if FLEET_PARTNERSHIPS_ENABLE_PRIMO is set to true
 	enablePrimo := os.Getenv("FLEET_PARTNERSHIPS_ENABLE_PRIMO")
 	if enablePrimo != "true" && enablePrimo != "1" {

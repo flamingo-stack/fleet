@@ -11,20 +11,23 @@ func init() {
 }
 
 func Up_20220526123327(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if tableExists(tx, "cve_scores") {
+		if _, err := tx.Exec(`
 RENAME TABLE
     cve_scores TO cve_meta
-`)
-	if err != nil {
-		return errors.Wrapf(err, "rename table")
+`); err != nil {
+			return errors.Wrapf(err, "rename table")
+		}
 	}
 
-	_, err = tx.Exec(`
+	if !columnExists(tx, "cve_meta", "published") {
+		if _, err := tx.Exec(`
 ALTER TABLE cve_meta
     ADD published TIMESTAMP NULL DEFAULT NULL
-`)
-	if err != nil {
-		return errors.Wrapf(err, "add column")
+`); err != nil {
+			return errors.Wrapf(err, "add column")
+		}
 	}
 
 	return nil

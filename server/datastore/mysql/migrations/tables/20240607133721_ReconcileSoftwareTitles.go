@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240607133721(tx *sql.Tx) error {
+	// Idempotent migration.
 
 	// For users that are not running vulnerabilities job, we need to ensure that software_titles are up-to-date
 

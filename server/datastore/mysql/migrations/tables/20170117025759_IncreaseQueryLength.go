@@ -9,23 +9,27 @@ func init() {
 }
 
 func Up_20170117025759(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `decorators` MODIFY `query` TEXT NOT NULL;",
-	)
-	if err != nil {
-		return err
+	// Idempotent migration.
+	if columnExists(tx, "decorators", "query") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `decorators` MODIFY `query` TEXT NOT NULL;",
+		); err != nil {
+			return err
+		}
 	}
-	_, err = tx.Exec(
-		"ALTER TABLE `queries` MODIFY `query` TEXT NOT NULL;",
-	)
-	if err != nil {
-		return err
+	if columnExists(tx, "queries", "query") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `queries` MODIFY `query` TEXT NOT NULL;",
+		); err != nil {
+			return err
+		}
 	}
-	_, err = tx.Exec(
-		"ALTER TABLE `labels` MODIFY `query` TEXT NOT NULL;",
-	)
-	if err != nil {
-		return err
+	if columnExists(tx, "labels", "query") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `labels` MODIFY `query` TEXT NOT NULL;",
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }

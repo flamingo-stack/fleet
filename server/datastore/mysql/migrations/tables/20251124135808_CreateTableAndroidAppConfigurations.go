@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20251124135808(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-	CREATE TABLE android_app_configurations (
+	CREATE TABLE IF NOT EXISTS android_app_configurations (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 		application_id VARCHAR(255) NOT NULL,
 		team_id INT UNSIGNED NULL,
@@ -25,7 +26,7 @@ func Up_20251124135808(tx *sql.Tx) error {
 		UNIQUE KEY idx_global_or_team_id_application_id (global_or_team_id, application_id)
 	) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci`)
 	if err != nil {
-		return fmt.Errorf("failed to create table android_app_configurations: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS android_app_configurations: %w", err)
 	}
 	return nil
 }

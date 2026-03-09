@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20240430111727(tx *sql.Tx) error {
+	// Idempotent migration.
 	// This cleanup correspond to the following bug: https://github.com/fleetdm/fleet/issues/18079.
 	// The following deletes "team query results" that do not match the host's team.
 	_, err := tx.Exec(`

@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20210421112652(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Use bigint for ID here because MySQL's auto increment handling is going to end up generating a lot of
 	if _, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS software (
@@ -20,7 +21,7 @@ func Up_20210421112652(tx *sql.Tx) error {
 		source varchar(64) NOT NULL,
         UNIQUE KEY idx_name_version (name, version, source)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`); err != nil {
-		return errors.Wrap(err, "create table software")
+		return errors.Wrap(err, "CREATE TABLE IF NOT EXISTS software")
 	}
 
 	if _, err := tx.Exec(`
@@ -29,7 +30,7 @@ func Up_20210421112652(tx *sql.Tx) error {
 		software_id bigint unsigned NOT NULL REFERENCES software(id),
         PRIMARY KEY (host_id, software_id)
 	)`); err != nil {
-		return errors.Wrap(err, "create table host_software")
+		return errors.Wrap(err, "CREATE TABLE IF NOT EXISTS host_software")
 	}
 
 	return nil

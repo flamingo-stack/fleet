@@ -61,6 +61,7 @@ quit_application() {
 var knownGoodAppFilenames = map[string]string{"visual-studio-code": "Visual Studio Code.app", "firefox": "Firefox.app", "brave-browser": "Brave Browser.app"}
 
 func Up_20250121094600(tx *sql.Tx) error {
+	// Idempotent migration.
 	var scriptsToModify []struct {
 		ScriptContents  string `db:"contents"`
 		AppName         string `db:"name"`

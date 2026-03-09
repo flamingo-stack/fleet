@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250217093329(tx *sql.Tx) error {
+	// Idempotent migration.
 	// this migration inserts pending software installs, software uninstalls,
 	// VPP app installs and script executions in the upcoming_activities table
 	// (inserts them already marked as "activated" since they are ready to be

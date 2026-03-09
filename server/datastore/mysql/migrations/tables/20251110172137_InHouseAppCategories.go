@@ -10,9 +10,10 @@ func init() {
 }
 
 func Up_20251110172137(tx *sql.Tx) error {
+	// Idempotent migration.
 
 	createLabelMappingTableStmt := `
-CREATE TABLE in_house_app_software_categories (
+CREATE TABLE IF NOT EXISTS in_house_app_software_categories (
   id int unsigned NOT NULL AUTO_INCREMENT,
   software_category_id int unsigned NOT NULL,
   in_house_app_id int unsigned NOT NULL,

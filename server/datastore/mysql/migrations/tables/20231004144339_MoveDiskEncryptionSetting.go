@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20231004144339(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
 UPDATE teams
 SET

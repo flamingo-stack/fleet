@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20210601000001(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS teams (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -33,17 +34,28 @@ func Up_20210601000001(tx *sql.Tx) error {
 		return errors.Wrap(err, "create user_teams")
 	}
 
-	if _, err := tx.Exec(`ALTER TABLE hosts
-		ADD team_id INT UNSIGNED DEFAULT NULL,
-		ADD FOREIGN KEY fk_hosts_team_id (team_id) REFERENCES teams (id) ON DELETE SET NULL
+	if !columnExists(tx, "hosts", "team_id") {
+		if _, err := tx.Exec(`ALTER TABLE hosts
+		ADD team_id INT UNSIGNED DEFAULT NULL
 	`); err != nil {
-		return errors.Wrap(err, "alter hosts")
+			return errors.Wrap(err, "alter hosts add column")
+		}
 	}
 
-	if _, err := tx.Exec(`ALTER TABLE users
+	if !fkExists(tx, "hosts", "fk_hosts_team_id") {
+		if _, err := tx.Exec(`ALTER TABLE hosts
+		ADD FOREIGN KEY fk_hosts_team_id (team_id) REFERENCES teams (id) ON DELETE SET NULL
+	`); err != nil {
+			return errors.Wrap(err, "alter hosts add foreign key")
+		}
+	}
+
+	if !columnExists(tx, "users", "global_role") {
+		if _, err := tx.Exec(`ALTER TABLE users
 		ADD global_role VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL
 	`); err != nil {
-		return errors.Wrap(err, "alter users")
+			return errors.Wrap(err, "alter users")
+		}
 	}
 
 	return nil

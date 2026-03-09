@@ -415,6 +415,7 @@ WHERE name IN (SELECT query_name
 }
 
 func Up_20230721161508(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Migrates 'old' scheduled queries to the 'new' query schema.
 	// Queries can either be:
 	// 	1 - Scheduled, which can either belong to:

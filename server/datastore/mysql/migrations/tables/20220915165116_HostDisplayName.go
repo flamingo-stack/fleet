@@ -11,27 +11,38 @@ func init() {
 }
 
 func Up_20220915165116(tx *sql.Tx) error {
-	for _, change := range []struct{ name, sql string }{
-		{"delete index", `ALTER TABLE hosts DROP INDEX hosts_search`},
-		{"create index", `CREATE FULLTEXT INDEX hosts_search ON hosts(hostname, uuid, computer_name)`},
-		{"new table", `
-			CREATE TABLE host_display_names (
+	// Idempotent migration.
+	if indexExistsTx(tx, "hosts", "hosts_search") {
+		if _, err := tx.Exec(`ALTER TABLE hosts DROP INDEX hosts_search`); err != nil {
+			return errors.Wrapf(err, "upHostDisplayName: delete index")
+		}
+	}
+
+	if !indexExistsTx(tx, "hosts", "hosts_search") {
+		if _, err := tx.Exec(`CREATE FULLTEXT INDEX hosts_search ON hosts(hostname, uuid, computer_name)`); err != nil {
+			return errors.Wrapf(err, "upHostDisplayName: create index")
+		}
+	}
+
+	if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS host_display_names (
 			    host_id int(10) unsigned NOT NULL,
 			    display_name varchar(255) NOT NULL,
 			    PRIMARY KEY (host_id),
 			    KEY (display_name)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-		`},
-		{"migrate data", `
-			INSERT INTO host_display_names (
+		`); err != nil {
+		return errors.Wrapf(err, "upHostDisplayName: new table")
+	}
+
+	if _, err := tx.Exec(`
+			INSERT IGNORE INTO host_display_names (
 				SELECT id host_id, IF(computer_name='', hostname, computer_name) display_name FROM hosts
 			)
-		`},
-	} {
-		if _, err := tx.Exec(change.sql); err != nil {
-			return errors.Wrapf(err, "upHostDisplayName: %s", change.name)
-		}
+		`); err != nil {
+		return errors.Wrapf(err, "upHostDisplayName: migrate data")
 	}
+
 	return nil
 }
 

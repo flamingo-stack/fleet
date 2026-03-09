@@ -92,6 +92,7 @@ func getTablesForCleanupSoftDeletedColumnsMigration() []string {
 }
 
 func Up20201011162341(tx *sql.Tx) error {
+	// Idempotent migration.
 	tables := getTablesForCleanupSoftDeletedColumnsMigration()
 
 	for _, table := range tables {

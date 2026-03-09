@@ -11,10 +11,18 @@ func init() {
 }
 
 func Up_20210920155130(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		`ALTER TABLE label_membership DROP FOREIGN KEY fk_lm_host_id, DROP FOREIGN KEY fk_lm_label_id;`)
-	if err != nil {
-		return errors.Wrap(err, "dropping foreign keys for label_membership")
+	// Idempotent migration.
+	if fkExists(tx, "label_membership", "fk_lm_host_id") {
+		if _, err := tx.Exec(
+			`ALTER TABLE label_membership DROP FOREIGN KEY fk_lm_host_id`); err != nil {
+			return errors.Wrap(err, "dropping foreign key fk_lm_host_id for label_membership")
+		}
+	}
+	if fkExists(tx, "label_membership", "fk_lm_label_id") {
+		if _, err := tx.Exec(
+			`ALTER TABLE label_membership DROP FOREIGN KEY fk_lm_label_id`); err != nil {
+			return errors.Wrap(err, "dropping foreign key fk_lm_label_id for label_membership")
+		}
 	}
 	return nil
 }

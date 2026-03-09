@@ -11,11 +11,21 @@ func init() {
 }
 
 func Up_20210915144307(tx *sql.Tx) error {
-	if _, err := tx.Exec(`ALTER TABLE policies 
-		ADD COLUMN team_id INT UNSIGNED,
+	// Idempotent migration.
+	if !columnExists(tx, "policies", "team_id") {
+		if _, err := tx.Exec(`ALTER TABLE policies
+		ADD COLUMN team_id INT UNSIGNED
+	`); err != nil {
+			return errors.Wrap(err, "add column team_id")
+		}
+	}
+
+	if !fkExists(tx, "policies", "fk_policies_team_id") {
+		if _, err := tx.Exec(`ALTER TABLE policies
 		ADD FOREIGN KEY fk_policies_team_id (team_id) REFERENCES teams (id) ON DELETE CASCADE ON UPDATE CASCADE
 	`); err != nil {
-		return errors.Wrap(err, "add column team_id")
+			return errors.Wrap(err, "add fk_policies_team_id")
+		}
 	}
 	return nil
 }

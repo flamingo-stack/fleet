@@ -10,46 +10,49 @@ func init() {
 }
 
 func Up_20240730171504(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "vulnerability_host_counts", "global_stats") {
+		stmt := `
 	ALTER TABLE vulnerability_host_counts
 	ADD COLUMN global_stats tinyint(1) NOT NULL DEFAULT 0
 	`
-	_, err := tx.Exec(stmt)
-	if err != nil {
-		return fmt.Errorf("failed to add global_stats column: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to add global_stats column: %w", err)
+		}
 	}
 
-	stmt = `
+	if indexExistsTx(tx, "vulnerability_host_counts", "cve_team_id") {
+		stmt := `
 	ALTER TABLE vulnerability_host_counts
 	DROP INDEX cve_team_id
 	`
-	_, err = tx.Exec(stmt)
-	if err != nil {
-		return fmt.Errorf("failed to drop index cve_team_id: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to drop index cve_team_id: %w", err)
+		}
 	}
 
-	stmt = `
+	if !indexExistsTx(tx, "vulnerability_host_counts", "cve_team_id_global_stats") {
+		stmt := `
 	CREATE UNIQUE INDEX cve_team_id_global_stats
 	ON vulnerability_host_counts (cve, team_id, global_stats)
 	`
-	_, err = tx.Exec(stmt)
-	if err != nil {
-		return fmt.Errorf("failed to create index cve_team_id_global_stats: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to create index cve_team_id_global_stats: %w", err)
+		}
 	}
 
-	stmt = `
+	stmt := `
 	UPDATE vulnerability_host_counts
 	SET global_stats = 1
 	WHERE team_id = 0
 	`
-	_, err = tx.Exec(stmt)
-	if err != nil {
+	if _, err := tx.Exec(stmt); err != nil {
 		return fmt.Errorf("failed to update global_stats for team_id = 0: %w", err)
 	}
 
 	// Insert "no team" counts
 	stmt = `
-	INSERT INTO vulnerability_host_counts (cve, team_id, host_count, global_stats)
+	INSERT IGNORE INTO vulnerability_host_counts (cve, team_id, host_count, global_stats)
 	SELECT
 		vhc1.cve,
 		0 AS team_id,
@@ -64,8 +67,7 @@ func Up_20240730171504(tx *sql.Tx) error {
 	GROUP BY
 		vhc1.cve, vhc1.host_count
 	`
-	_, err = tx.Exec(stmt)
-	if err != nil {
+	if _, err := tx.Exec(stmt); err != nil {
 		return fmt.Errorf("failed to insert no team counts: %w", err)
 	}
 
