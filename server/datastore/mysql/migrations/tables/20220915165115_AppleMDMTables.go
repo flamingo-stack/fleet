@@ -33,6 +33,13 @@ func Up_20220915165115(tx *sql.Tx) error {
 		return fmt.Errorf("failed to apply nanomdm core schema: %w", err)
 	}
 
+	// Add unique constraint on nano_users.id (moved from SQL for idempotency).
+	if !indexExistsTx(tx, "nano_users", "idx_unique_id") {
+		if _, err := tx.Exec(`ALTER TABLE nano_users ADD CONSTRAINT idx_unique_id UNIQUE (id)`); err != nil {
+			return fmt.Errorf("failed to add unique constraint on nano_users: %w", err)
+		}
+	}
+
 	// Apply MDM DEP schema.
 	_, err = tx.Exec(depSchema)
 	if err != nil {
