@@ -157,7 +157,7 @@ func (oc *OrbitClient) requestWithExternal(verb string, pathOrURL string, params
 		if authToken != "" {
 			request.Header.Add("Authorization", "Bearer " + authToken)
 		} else {
-			log.Warn().Msg("authToken is empty, not adding Authorization header")
+			log.Debug().Msg("authToken is empty, not adding Authorization header")
 		}
 	}
 
