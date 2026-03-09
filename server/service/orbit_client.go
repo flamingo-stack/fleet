@@ -77,8 +77,9 @@ type OrbitClient struct {
 	openSSOWindow func() error
 
 	// openframe mode
-	openFrameMode bool
-	authManager   *openframe.OpenFrameAuthorizationManager
+	openFrameMode     bool
+	authManager       *openframe.OpenFrameAuthorizationManager
+	machineIdProvider *openframe.OpenFrameMachineIdProvider
 }
 
 // time-to-live for config cache
@@ -155,9 +156,17 @@ func (oc *OrbitClient) requestWithExternal(verb string, pathOrURL string, params
 		// Add custom header for all requests
 		authToken := oc.authManager.GetToken()
 		if authToken != "" {
-			request.Header.Add("Authorization", "Bearer " + authToken)
+			request.Header.Add("Authorization", "Bearer "+authToken)
 		} else {
 			log.Warn().Msg("authToken is empty, not adding Authorization header")
+		}
+
+		// Add x-machine-id header for rate limiting
+		if oc.machineIdProvider != nil {
+			machineId := oc.machineIdProvider.GetMachineId()
+			if machineId != "" {
+				request.Header.Add("x-machine-id", machineId)
+			}
 		}
 	}
 
@@ -233,6 +242,11 @@ func NewOrbitClient(
 	nodeKeyFilePath := filepath.Join(rootDir, constant.OrbitNodeKeyFileName)
 	ctx, cancelFunc := context.WithCancel(context.Background())
 
+	var machineIdProvider *openframe.OpenFrameMachineIdProvider
+	if openFrameMode {
+		machineIdProvider = openframe.NewOpenFrameMachineIdProvider()
+	}
+
 	return &OrbitClient{
 		nodeKeyFilePath:            nodeKeyFilePath,
 		baseClient:                 bc,
@@ -247,6 +261,7 @@ func NewOrbitClient(
 		hostIdentityCertPath:       hostIdentityCertPath,
 		authManager:                authManager,
 		openFrameMode:              openFrameMode,
+		machineIdProvider:          machineIdProvider,
 	}, nil
 }
 
