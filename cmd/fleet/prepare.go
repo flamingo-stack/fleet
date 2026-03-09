@@ -96,6 +96,10 @@ To setup Fleet infrastructure, use one of the available commands.
 				initFatal(err, "migrating builtin data")
 			}
 
+			if err := ds.MigrateOpenframe(cmd.Context()); err != nil {
+				initFatal(err, "migrating openframe schema")
+			}
+
 			fmt.Println("Migrations completed.")
 		},
 	}

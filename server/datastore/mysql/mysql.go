@@ -25,6 +25,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/common_mysql"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/data"
+	openframemigrations "github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/openframe"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/tables"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/rdsauth"
 	"github.com/fleetdm/fleet/v4/server/fleet"
@@ -423,6 +424,10 @@ func (ds *Datastore) MigrateTables(ctx context.Context) error {
 
 func (ds *Datastore) MigrateData(ctx context.Context) error {
 	return data.MigrationClient.Up(ds.writer(ctx).DB, "")
+}
+
+func (ds *Datastore) MigrateOpenframe(ctx context.Context) error {
+	return openframemigrations.MigrationClient.Up(ds.writer(ctx).DB, "")
 }
 
 // loadMigrations manually loads the applied migrations in ascending

@@ -107,6 +107,8 @@ type Query struct {
 	// LabelsIncludeAny is a list of labels that will be used to
 	// target a query
 	LabelsIncludeAny []LabelIdent `json:"labels_include_any"`
+	// HostsIncludeAny restricts this query to run only on the specified hosts.
+	HostsIncludeAny []HostIdent `json:"hosts_include_any"`
 
 	/////////////////////////////////////////////////////////////////
 	// WARNING: If you add to this struct make sure it's taken into
@@ -160,6 +162,10 @@ func (q *Query) Copy() *Query {
 	if q.LabelsIncludeAny != nil {
 		clone.LabelsIncludeAny = make([]LabelIdent, len(q.LabelsIncludeAny))
 		copy(clone.LabelsIncludeAny, q.LabelsIncludeAny)
+	}
+	if q.HostsIncludeAny != nil {
+		clone.HostsIncludeAny = make([]HostIdent, len(q.HostsIncludeAny))
+		copy(clone.HostsIncludeAny, q.HostsIncludeAny)
 	}
 	return &clone
 }

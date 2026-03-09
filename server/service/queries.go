@@ -1009,3 +1009,167 @@ func (svc *Service) GetQuerySpec(ctx context.Context, teamID *uint, name string)
 	}
 	return spec, nil
 }
+
+/////////////////////////////////////////////////////////////////////////////////
+// Add/Remove hosts for a query (openframe mode)
+/////////////////////////////////////////////////////////////////////////////////
+
+type addQueryHostsRequest struct {
+	QueryID uint   `url:"id"`
+	HostIDs []uint `json:"host_ids"`
+}
+
+type addQueryHostsResponse struct {
+	Added uint  `json:"added"`
+	Err   error `json:"error,omitempty"`
+}
+
+func (r addQueryHostsResponse) Error() error { return r.Err }
+
+func addQueryHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*addQueryHostsRequest)
+	n, err := svc.AddQueryHosts(ctx, req.QueryID, req.HostIDs)
+	if err != nil {
+		return addQueryHostsResponse{Err: err}, nil
+	}
+	return addQueryHostsResponse{Added: n}, nil
+}
+
+func (svc *Service) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	if !fleet.IsOpenframeMode() {
+		return 0, &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	query, err := svc.ds.Query(ctx, queryID)
+	if err != nil {
+		setAuthCheckedOnPreAuthErr(ctx)
+		return 0, err
+	}
+	if err := svc.authz.Authorize(ctx, query, fleet.ActionWrite); err != nil {
+		return 0, err
+	}
+
+	if err := verifyHostsToAssociate(ctx, svc.ds, hostIDs); err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "verify hosts to add")
+	}
+
+	return svc.ds.AddQueryHosts(ctx, queryID, hostIDs)
+}
+
+type removeQueryHostsRequest struct {
+	QueryID uint   `url:"id"`
+	HostIDs []uint `json:"host_ids"`
+}
+
+type removeQueryHostsResponse struct {
+	Removed uint  `json:"removed"`
+	Err     error `json:"error,omitempty"`
+}
+
+func (r removeQueryHostsResponse) Error() error { return r.Err }
+
+func removeQueryHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*removeQueryHostsRequest)
+	n, err := svc.RemoveQueryHosts(ctx, req.QueryID, req.HostIDs)
+	if err != nil {
+		return removeQueryHostsResponse{Err: err}, nil
+	}
+	return removeQueryHostsResponse{Removed: n}, nil
+}
+
+func (svc *Service) RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	if !fleet.IsOpenframeMode() {
+		return 0, &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	query, err := svc.ds.Query(ctx, queryID)
+	if err != nil {
+		setAuthCheckedOnPreAuthErr(ctx)
+		return 0, err
+	}
+	if err := svc.authz.Authorize(ctx, query, fleet.ActionWrite); err != nil {
+		return 0, err
+	}
+
+	return svc.ds.RemoveQueryHosts(ctx, queryID, hostIDs)
+}
+
+type replaceQueryHostsRequest struct {
+	QueryID uint   `url:"id"`
+	HostIDs []uint `json:"host_ids"`
+}
+
+type replaceQueryHostsResponse struct {
+	Err error `json:"error,omitempty"`
+}
+
+func (r replaceQueryHostsResponse) Error() error { return r.Err }
+
+func replaceQueryHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*replaceQueryHostsRequest)
+	err := svc.ReplaceQueryHosts(ctx, req.QueryID, req.HostIDs)
+	if err != nil {
+		return replaceQueryHostsResponse{Err: err}, nil
+	}
+	return replaceQueryHostsResponse{}, nil
+}
+
+func (svc *Service) ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error {
+	if !fleet.IsOpenframeMode() {
+		return &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	query, err := svc.ds.Query(ctx, queryID)
+	if err != nil {
+		setAuthCheckedOnPreAuthErr(ctx)
+		return err
+	}
+	if err := svc.authz.Authorize(ctx, query, fleet.ActionWrite); err != nil {
+		return err
+	}
+
+	if err := verifyHostsToAssociate(ctx, svc.ds, hostIDs); err != nil {
+		return ctxerr.Wrap(ctx, err, "verify hosts to replace")
+	}
+
+	return svc.ds.ReplaceQueryHosts(ctx, queryID, hostIDs)
+}
+
+type listQueryHostsRequest struct {
+	QueryID uint              `url:"id"`
+	Opts    fleet.ListOptions `url:"list_options"`
+}
+
+type listQueryHostsResponse struct {
+	Hosts []fleet.HostIdent        `json:"hosts"`
+	Meta  *fleet.PaginationMetadata `json:"meta,omitempty"`
+	Err   error                     `json:"error,omitempty"`
+}
+
+func (r listQueryHostsResponse) Error() error { return r.Err }
+
+func listQueryHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*listQueryHostsRequest)
+	hosts, meta, err := svc.ListQueryHosts(ctx, req.QueryID, req.Opts)
+	if err != nil {
+		return listQueryHostsResponse{Err: err}, nil
+	}
+	return listQueryHostsResponse{Hosts: hosts, Meta: meta}, nil
+}
+
+func (svc *Service) ListQueryHosts(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	if !fleet.IsOpenframeMode() {
+		return nil, nil, &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	query, err := svc.ds.Query(ctx, queryID)
+	if err != nil {
+		setAuthCheckedOnPreAuthErr(ctx)
+		return nil, nil, err
+	}
+	if err := svc.authz.Authorize(ctx, query, fleet.ActionRead); err != nil {
+		return nil, nil, err
+	}
+
+	return svc.ds.ListQueryHosts(ctx, queryID, opts)
+}

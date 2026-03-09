@@ -476,6 +476,90 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 	return nil
 }
 
+func (ds *Datastore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	if len(hostIDs) == 0 {
+		return 0, nil
+	}
+	params := make([]string, 0, len(hostIDs))
+	args := make([]interface{}, 0, len(hostIDs)*2)
+	for _, hid := range hostIDs {
+		params = append(params, "(?, ?)")
+		args = append(args, queryID, hid)
+	}
+	stmt := fmt.Sprintf(`INSERT IGNORE INTO query_hosts (query_id, host_id) VALUES %s`, strings.Join(params, ", "))
+	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "add query hosts")
+	}
+	n, _ := res.RowsAffected()
+	return uint(n), nil
+}
+
+func (ds *Datastore) RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	if len(hostIDs) == 0 {
+		return 0, nil
+	}
+	stmt, args, err := sqlx.In(`DELETE FROM query_hosts WHERE query_id = ? AND host_id IN (?)`, queryID, hostIDs)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "build remove query hosts query")
+	}
+	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "remove query hosts")
+	}
+	n, _ := res.RowsAffected()
+	return uint(n), nil
+}
+
+func (ds *Datastore) ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error {
+	return ds.withRetryTxx(ctx, func(tx sqlx.ExtContext) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM query_hosts WHERE query_id = ?`, queryID); err != nil {
+			return ctxerr.Wrap(ctx, err, "delete all query hosts")
+		}
+		if len(hostIDs) == 0 {
+			return nil
+		}
+		params := make([]string, 0, len(hostIDs))
+		args := make([]interface{}, 0, len(hostIDs)*2)
+		for _, hid := range hostIDs {
+			params = append(params, "(?, ?)")
+			args = append(args, queryID, hid)
+		}
+		stmt := fmt.Sprintf(`INSERT INTO query_hosts (query_id, host_id) VALUES %s`, strings.Join(params, ", "))
+		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+			return ctxerr.Wrap(ctx, err, "insert query hosts")
+		}
+		return nil
+	})
+}
+
+func (ds *Datastore) ListQueryHosts(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	stmt := `
+		SELECT h.id, h.hostname
+		FROM query_hosts qh
+		INNER JOIN hosts h ON h.id = qh.host_id
+		WHERE qh.query_id = ?`
+
+	args := []interface{}{queryID}
+	stmt, args = appendListOptionsWithCursorToSQL(stmt, args, &opts)
+
+	var hosts []fleet.HostIdent
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &hosts, stmt, args...); err != nil {
+		return nil, nil, ctxerr.Wrap(ctx, err, "list query hosts")
+	}
+
+	var meta *fleet.PaginationMetadata
+	if opts.IncludeMetadata {
+		meta = &fleet.PaginationMetadata{HasPreviousResults: opts.Page > 0}
+		if len(hosts) > int(opts.PerPage) {
+			meta.HasNextResults = true
+			hosts = hosts[:opts.PerPage]
+		}
+	}
+
+	return hosts, meta, nil
+}
+
 func (ds *Datastore) deleteQueryResults(ctx context.Context, queryID uint) error {
 	resultsSQL := `DELETE FROM query_results WHERE query_id = ?`
 	if _, err := ds.writer(ctx).ExecContext(ctx, resultsSQL, queryID); err != nil {
@@ -632,6 +716,12 @@ func query(ctx context.Context, db sqlx.QueryerContext, id uint) (*fleet.Query, 
 		return nil, ctxerr.Wrap(ctx, err, "loading labels for query")
 	}
 
+	if fleet.IsOpenframeMode() {
+		if err := loadHostsForQueries(ctx, db, []*fleet.Query{query}); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "loading hosts for query")
+		}
+	}
+
 	return query, nil
 }
 
@@ -728,6 +818,12 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 		return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading labels for queries")
 	}
 
+	if fleet.IsOpenframeMode() {
+		if err := ds.loadHostsForQueries(ctx, queries); err != nil {
+			return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading hosts for queries")
+		}
+	}
+
 	var meta *fleet.PaginationMetadata
 	if opt.ListOptions.IncludeMetadata {
 		meta = &fleet.PaginationMetadata{HasPreviousResults: opt.ListOptions.Page > 0}
@@ -796,6 +892,58 @@ func loadPacksForQueries(ctx context.Context, db sqlx.QueryerContext, queries []
 
 func (ds *Datastore) loadLabelsForQueries(ctx context.Context, queries []*fleet.Query) error {
 	return loadLabelsForQueries(ctx, ds.reader(ctx), queries)
+}
+
+func (ds *Datastore) loadHostsForQueries(ctx context.Context, queries []*fleet.Query) error {
+	return loadHostsForQueries(ctx, ds.reader(ctx), queries)
+}
+
+func loadHostsForQueries(ctx context.Context, db sqlx.QueryerContext, queries []*fleet.Query) error {
+	if len(queries) == 0 {
+		return nil
+	}
+
+	query := `
+		SELECT
+			qh.query_id AS query_id,
+			h.id,
+			h.hostname
+		FROM query_hosts qh
+		INNER JOIN hosts h ON h.id = qh.host_id
+		WHERE qh.query_id IN (?)
+	`
+
+	queryIDs := make([]uint, 0, len(queries))
+	queryMap := make(map[uint]*fleet.Query, len(queries))
+	for _, q := range queries {
+		q.HostsIncludeAny = nil
+		queryIDs = append(queryIDs, q.ID)
+		queryMap[q.ID] = q
+	}
+
+	stmt, args, err := sqlx.In(query, queryIDs)
+	if err != nil {
+		return ctxerr.Wrap(ctx, err, "building query to load hosts for queries")
+	}
+
+	rows := []struct {
+		QueryID  uint   `db:"query_id"`
+		ID       uint   `db:"id"`
+		Hostname string `db:"hostname"`
+	}{}
+
+	if err := sqlx.SelectContext(ctx, db, &rows, stmt, args...); err != nil {
+		return ctxerr.Wrap(ctx, err, "selecting hosts for queries")
+	}
+
+	for _, row := range rows {
+		queryMap[row.QueryID].HostsIncludeAny = append(queryMap[row.QueryID].HostsIncludeAny, fleet.HostIdent{
+			HostID:   row.ID,
+			Hostname: row.Hostname,
+		})
+	}
+
+	return nil
 }
 
 func loadLabelsForQueries(ctx context.Context, db sqlx.QueryerContext, queries []*fleet.Query) error {
@@ -909,6 +1057,19 @@ func (ds *Datastore) ListScheduledQueriesForAgents(ctx context.Context, teamID *
 			WHERE ql.query_id = q.id
 		))`
 		args = append(args, hostID)
+
+		if fleet.IsOpenframeMode() {
+			labelSQL += `
+		AND (
+			NOT EXISTS (
+				SELECT 1 FROM query_hosts qh WHERE qh.query_id = q.id
+			)
+			OR EXISTS (
+				SELECT 1 FROM query_hosts qh WHERE qh.query_id = q.id AND qh.host_id = ?
+			)
+		)`
+			args = append(args, hostID)
+		}
 	}
 	sqlStmt = fmt.Sprintf(sqlStmt, teamSQL, labelSQL)
 

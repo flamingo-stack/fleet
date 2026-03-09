@@ -83,6 +83,14 @@ type ListQueriesFunc func(ctx context.Context, opt fleet.ListQueryOptions) ([]*f
 
 type ListScheduledQueriesForAgentsFunc func(ctx context.Context, teamID *uint, hostID *uint, queryReportsDisabled bool) ([]*fleet.Query, error)
 
+type AddQueryHostsFunc func(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+
+type RemoveQueryHostsFunc func(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+
+type ReplaceQueryHostsFunc func(ctx context.Context, queryID uint, hostIDs []uint) error
+
+type ListQueryHostsFunc func(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error)
+
 type QueryByNameFunc func(ctx context.Context, teamID *uint, name string) (*fleet.Query, error)
 
 type ObserverCanRunQueryFunc func(ctx context.Context, queryID uint) (bool, error)
@@ -603,6 +611,14 @@ type UpdateHostPolicyCountsFunc func(ctx context.Context) error
 
 type PolicyQueriesForHostFunc func(ctx context.Context, host *fleet.Host) (map[string]string, error)
 
+type AddPolicyHostsFunc func(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+
+type RemovePolicyHostsFunc func(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+
+type ReplacePolicyHostsFunc func(ctx context.Context, policyID uint, hostIDs []uint) error
+
+type ListPolicyHostsFunc func(ctx context.Context, policyID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error)
+
 type GetTeamHostsPolicyMembershipsFunc func(ctx context.Context, domain string, teamID uint, policyIDs []uint, hostID *uint) ([]fleet.HostPolicyMembershipData, error)
 
 type GetPoliciesWithAssociatedInstallerFunc func(ctx context.Context, teamID uint, policyIDs []uint) ([]fleet.PolicySoftwareInstallerData, error)
@@ -622,6 +638,8 @@ type AsyncBatchUpdatePolicyTimestampFunc func(ctx context.Context, ids []uint, t
 type MigrateTablesFunc func(ctx context.Context) error
 
 type MigrateDataFunc func(ctx context.Context) error
+
+type MigrateOpenframeFunc func(ctx context.Context) error
 
 type MigrationStatusFunc func(ctx context.Context) (*fleet.MigrationStatus, error)
 
@@ -1810,6 +1828,18 @@ type DataStore struct {
 	ListScheduledQueriesForAgentsFunc        ListScheduledQueriesForAgentsFunc
 	ListScheduledQueriesForAgentsFuncInvoked bool
 
+	AddQueryHostsFunc        AddQueryHostsFunc
+	AddQueryHostsFuncInvoked bool
+
+	RemoveQueryHostsFunc        RemoveQueryHostsFunc
+	RemoveQueryHostsFuncInvoked bool
+
+	ReplaceQueryHostsFunc        ReplaceQueryHostsFunc
+	ReplaceQueryHostsFuncInvoked bool
+
+	ListQueryHostsFunc        ListQueryHostsFunc
+	ListQueryHostsFuncInvoked bool
+
 	QueryByNameFunc        QueryByNameFunc
 	QueryByNameFuncInvoked bool
 
@@ -2590,6 +2620,18 @@ type DataStore struct {
 	PolicyQueriesForHostFunc        PolicyQueriesForHostFunc
 	PolicyQueriesForHostFuncInvoked bool
 
+	AddPolicyHostsFunc        AddPolicyHostsFunc
+	AddPolicyHostsFuncInvoked bool
+
+	RemovePolicyHostsFunc        RemovePolicyHostsFunc
+	RemovePolicyHostsFuncInvoked bool
+
+	ReplacePolicyHostsFunc        ReplacePolicyHostsFunc
+	ReplacePolicyHostsFuncInvoked bool
+
+	ListPolicyHostsFunc        ListPolicyHostsFunc
+	ListPolicyHostsFuncInvoked bool
+
 	GetTeamHostsPolicyMembershipsFunc        GetTeamHostsPolicyMembershipsFunc
 	GetTeamHostsPolicyMembershipsFuncInvoked bool
 
@@ -2619,6 +2661,9 @@ type DataStore struct {
 
 	MigrateDataFunc        MigrateDataFunc
 	MigrateDataFuncInvoked bool
+
+	MigrateOpenframeFunc        MigrateOpenframeFunc
+	MigrateOpenframeFuncInvoked bool
 
 	MigrationStatusFunc        MigrationStatusFunc
 	MigrationStatusFuncInvoked bool
@@ -4477,6 +4522,34 @@ func (s *DataStore) ListScheduledQueriesForAgents(ctx context.Context, teamID *u
 	return s.ListScheduledQueriesForAgentsFunc(ctx, teamID, hostID, queryReportsDisabled)
 }
 
+func (s *DataStore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.AddQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.AddQueryHostsFunc(ctx, queryID, hostIDs)
+}
+
+func (s *DataStore) RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.RemoveQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.RemoveQueryHostsFunc(ctx, queryID, hostIDs)
+}
+
+func (s *DataStore) ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error {
+	s.mu.Lock()
+	s.ReplaceQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ReplaceQueryHostsFunc(ctx, queryID, hostIDs)
+}
+
+func (s *DataStore) ListQueryHosts(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	s.mu.Lock()
+	s.ListQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ListQueryHostsFunc(ctx, queryID, opts)
+}
+
 func (s *DataStore) QueryByName(ctx context.Context, teamID *uint, name string) (*fleet.Query, error) {
 	s.mu.Lock()
 	s.QueryByNameFuncInvoked = true
@@ -6297,6 +6370,34 @@ func (s *DataStore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host) 
 	return s.PolicyQueriesForHostFunc(ctx, host)
 }
 
+func (s *DataStore) AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.AddPolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.AddPolicyHostsFunc(ctx, policyID, hostIDs)
+}
+
+func (s *DataStore) RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.RemovePolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.RemovePolicyHostsFunc(ctx, policyID, hostIDs)
+}
+
+func (s *DataStore) ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error {
+	s.mu.Lock()
+	s.ReplacePolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ReplacePolicyHostsFunc(ctx, policyID, hostIDs)
+}
+
+func (s *DataStore) ListPolicyHosts(ctx context.Context, policyID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	s.mu.Lock()
+	s.ListPolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ListPolicyHostsFunc(ctx, policyID, opts)
+}
+
 func (s *DataStore) GetTeamHostsPolicyMemberships(ctx context.Context, domain string, teamID uint, policyIDs []uint, hostID *uint) ([]fleet.HostPolicyMembershipData, error) {
 	s.mu.Lock()
 	s.GetTeamHostsPolicyMembershipsFuncInvoked = true
@@ -6365,6 +6466,13 @@ func (s *DataStore) MigrateData(ctx context.Context) error {
 	s.MigrateDataFuncInvoked = true
 	s.mu.Unlock()
 	return s.MigrateDataFunc(ctx)
+}
+
+func (s *DataStore) MigrateOpenframe(ctx context.Context) error {
+	s.mu.Lock()
+	s.MigrateOpenframeFuncInvoked = true
+	s.mu.Unlock()
+	return s.MigrateOpenframeFunc(ctx)
 }
 
 func (s *DataStore) MigrationStatus(ctx context.Context) (*fleet.MigrationStatus, error) {

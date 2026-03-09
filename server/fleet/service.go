@@ -321,6 +321,11 @@ type Service interface {
 	// along with any error.
 	DeleteQueries(ctx context.Context, ids []uint) (uint, error)
 
+	AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+	RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+	ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error
+	ListQueryHosts(ctx context.Context, queryID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+
 	// /////////////////////////////////////////////////////////////////////////////
 	// CampaignService defines the distributed query campaign related service methods
 
@@ -686,6 +691,11 @@ type Service interface {
 	ApplyPolicySpecs(ctx context.Context, policies []*PolicySpec) error
 	CountGlobalPolicies(ctx context.Context, matchQuery string) (int, error)
 	AutofillPolicySql(ctx context.Context, sql string) (description string, resolution string, err error)
+
+	AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+	RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+	ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error
+	ListPolicyHosts(ctx context.Context, policyID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
 
 	// /////////////////////////////////////////////////////////////////////////////
 	// Software

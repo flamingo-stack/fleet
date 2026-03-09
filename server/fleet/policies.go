@@ -256,6 +256,8 @@ type PolicyData struct {
 	LabelsIncludeAny []LabelIdent `json:"labels_include_any,omitempty"`
 	// LabelsExcludeAny is a list of labels excluded from being targeted by this policy
 	LabelsExcludeAny []LabelIdent `json:"labels_exclude_any,omitempty"`
+	// HostsIncludeAny restricts this policy to run only on the specified hosts.
+	HostsIncludeAny []HostIdent `json:"hosts_include_any,omitempty"`
 
 	// CalendarEventsEnabled indicates whether calendar events are enabled for the policy.
 	//
@@ -386,6 +388,12 @@ type PolicySpec struct {
 	//
 	// Only applies to team policies.
 	ConditionalAccessEnabled bool `json:"conditional_access_enabled"`
+}
+
+// HostIdent identifies a host by ID and hostname.
+type HostIdent struct {
+	HostID   uint   `json:"id" db:"id"`
+	Hostname string `json:"hostname" db:"hostname"`
 }
 
 // PolicySoftwareTitle contains software title data for policies.

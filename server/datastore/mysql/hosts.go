@@ -3483,7 +3483,8 @@ func (ds *Datastore) ListPoliciesForHost(ctx context.Context, host *fleet.Host) 
 		// We log to help troubleshooting in case this happens.
 		level.Error(ds.logger).Log("err", "unrecognized platform", "hostID", host.ID, "platform", host.Platform) //nolint:errcheck
 	}
-	query := `SELECT p.id, p.team_id, p.resolution, p.name, p.query, p.description, p.author_id, p.platforms, p.critical, p.created_at, p.updated_at,
+
+	baseQuery := `SELECT p.id, p.team_id, p.resolution, p.name, p.query, p.description, p.author_id, p.platforms, p.critical, p.created_at, p.updated_at,
 		COALESCE(u.name, '<deleted>') AS author_name,
 		COALESCE(u.email, '') AS author_email,
 		CASE
@@ -3521,11 +3522,28 @@ func (ds *Datastore) ListPoliciesForHost(ctx context.Context, host *fleet.Host) 
 		INNER JOIN label_membership lm ON (lm.host_id = ? AND lm.label_id = pl.label_id)
 		WHERE pl.policy_id = p.id
 		AND pl.exclude = 1
-	)
+	)`
+
+	args := []interface{}{host.ID, host.ID, host.FleetPlatform(), host.ID, host.ID}
+
+	if fleet.IsOpenframeMode() {
+		baseQuery += `
+	AND (
+		NOT EXISTS (
+			SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id
+		)
+		OR EXISTS (
+			SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id AND ph.host_id = ?
+		)
+	)`
+		args = append(args, host.ID)
+	}
+
+	baseQuery += `
 	ORDER BY FIELD(response, 'fail', '', 'pass'), p.name`
 
 	var policies []*fleet.HostPolicy
-	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &policies, query, host.ID, host.ID, host.FleetPlatform(), host.ID, host.ID); err != nil {
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &policies, baseQuery, args...); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "get host policies")
 	}
 	return policies, nil
