@@ -1030,7 +1030,7 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 		level.Error(ds.logger).Log("err", "unrecognized platform", "hostID", host.ID, "platform", host.Platform) //nolint:errcheck
 	}
 
-	baseStmt := `
+	stmt := `
 		SELECT p.id, p.query
 		FROM policies p
 		WHERE
@@ -1068,7 +1068,7 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 	args := []interface{}{host.TeamID, host.FleetPlatform(), host.ID, host.ID}
 
 	if fleet.IsOpenframeMode() {
-		baseStmt += `
+		stmt += `
 			AND (
 				NOT EXISTS (
 					SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id
@@ -1084,7 +1084,7 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 		ID    string `db:"id"`
 		Query string `db:"query"`
 	}
-	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &rows, baseStmt, args...); err != nil {
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &rows, stmt, args...); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "selecting policies for host")
 	}
 	results := make(map[string]string)
