@@ -191,6 +191,14 @@ type DeleteQueryByIDFunc func(ctx context.Context, id uint) error
 
 type DeleteQueriesFunc func(ctx context.Context, ids []uint) (uint, error)
 
+type AddQueryHostsFunc func(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+
+type RemoveQueryHostsFunc func(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+
+type ReplaceQueryHostsFunc func(ctx context.Context, queryID uint, hostIDs []uint) error
+
+type ListQueryHostsFunc func(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error)
+
 type NewDistributedQueryCampaignByIdentifiersFunc func(ctx context.Context, queryString string, queryID *uint, hosts []string, labels []string) (*fleet.DistributedQueryCampaign, error)
 
 type NewDistributedQueryCampaignFunc func(ctx context.Context, queryString string, queryID *uint, targets fleet.HostTargets) (*fleet.DistributedQueryCampaign, error)
@@ -442,6 +450,14 @@ type ApplyPolicySpecsFunc func(ctx context.Context, policies []*fleet.PolicySpec
 type CountGlobalPoliciesFunc func(ctx context.Context, matchQuery string) (int, error)
 
 type AutofillPolicySqlFunc func(ctx context.Context, sql string) (description string, resolution string, err error)
+
+type AddPolicyHostsFunc func(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+
+type RemovePolicyHostsFunc func(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+
+type ReplacePolicyHostsFunc func(ctx context.Context, policyID uint, hostIDs []uint) error
+
+type ListPolicyHostsFunc func(ctx context.Context, policyID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error)
 
 type ListSoftwareFunc func(ctx context.Context, opt fleet.SoftwareListOptions) ([]fleet.Software, *fleet.PaginationMetadata, error)
 
@@ -1132,6 +1148,18 @@ type Service struct {
 	DeleteQueriesFunc        DeleteQueriesFunc
 	DeleteQueriesFuncInvoked bool
 
+	AddQueryHostsFunc        AddQueryHostsFunc
+	AddQueryHostsFuncInvoked bool
+
+	RemoveQueryHostsFunc        RemoveQueryHostsFunc
+	RemoveQueryHostsFuncInvoked bool
+
+	ReplaceQueryHostsFunc        ReplaceQueryHostsFunc
+	ReplaceQueryHostsFuncInvoked bool
+
+	ListQueryHostsFunc        ListQueryHostsFunc
+	ListQueryHostsFuncInvoked bool
+
 	NewDistributedQueryCampaignByIdentifiersFunc        NewDistributedQueryCampaignByIdentifiersFunc
 	NewDistributedQueryCampaignByIdentifiersFuncInvoked bool
 
@@ -1509,6 +1537,18 @@ type Service struct {
 
 	AutofillPolicySqlFunc        AutofillPolicySqlFunc
 	AutofillPolicySqlFuncInvoked bool
+
+	AddPolicyHostsFunc        AddPolicyHostsFunc
+	AddPolicyHostsFuncInvoked bool
+
+	RemovePolicyHostsFunc        RemovePolicyHostsFunc
+	RemovePolicyHostsFuncInvoked bool
+
+	ReplacePolicyHostsFunc        ReplacePolicyHostsFunc
+	ReplacePolicyHostsFuncInvoked bool
+
+	ListPolicyHostsFunc        ListPolicyHostsFunc
+	ListPolicyHostsFuncInvoked bool
 
 	ListSoftwareFunc        ListSoftwareFunc
 	ListSoftwareFuncInvoked bool
@@ -2760,6 +2800,34 @@ func (s *Service) DeleteQueries(ctx context.Context, ids []uint) (uint, error) {
 	return s.DeleteQueriesFunc(ctx, ids)
 }
 
+func (s *Service) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.AddQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.AddQueryHostsFunc(ctx, queryID, hostIDs)
+}
+
+func (s *Service) RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.RemoveQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.RemoveQueryHostsFunc(ctx, queryID, hostIDs)
+}
+
+func (s *Service) ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error {
+	s.mu.Lock()
+	s.ReplaceQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ReplaceQueryHostsFunc(ctx, queryID, hostIDs)
+}
+
+func (s *Service) ListQueryHosts(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	s.mu.Lock()
+	s.ListQueryHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ListQueryHostsFunc(ctx, queryID, opts)
+}
+
 func (s *Service) NewDistributedQueryCampaignByIdentifiers(ctx context.Context, queryString string, queryID *uint, hosts []string, labels []string) (*fleet.DistributedQueryCampaign, error) {
 	s.mu.Lock()
 	s.NewDistributedQueryCampaignByIdentifiersFuncInvoked = true
@@ -3640,6 +3708,34 @@ func (s *Service) AutofillPolicySql(ctx context.Context, sql string) (descriptio
 	s.AutofillPolicySqlFuncInvoked = true
 	s.mu.Unlock()
 	return s.AutofillPolicySqlFunc(ctx, sql)
+}
+
+func (s *Service) AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.AddPolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.AddPolicyHostsFunc(ctx, policyID, hostIDs)
+}
+
+func (s *Service) RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	s.mu.Lock()
+	s.RemovePolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.RemovePolicyHostsFunc(ctx, policyID, hostIDs)
+}
+
+func (s *Service) ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error {
+	s.mu.Lock()
+	s.ReplacePolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ReplacePolicyHostsFunc(ctx, policyID, hostIDs)
+}
+
+func (s *Service) ListPolicyHosts(ctx context.Context, policyID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	s.mu.Lock()
+	s.ListPolicyHostsFuncInvoked = true
+	s.mu.Unlock()
+	return s.ListPolicyHostsFunc(ctx, policyID, opts)
 }
 
 func (s *Service) ListSoftware(ctx context.Context, opt fleet.SoftwareListOptions) ([]fleet.Software, *fleet.PaginationMetadata, error) {

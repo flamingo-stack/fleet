@@ -101,6 +101,16 @@ type Datastore interface {
 	// ListScheduledQueriesForAgents returns a list of scheduled queries (without stats) for the
 	// given teamID and hostID. If teamID is nil, then scheduled queries for the 'global' team are returned.
 	ListScheduledQueriesForAgents(ctx context.Context, teamID *uint, hostID *uint, queryReportsDisabled bool) ([]*Query, error)
+
+	// AddQueryHosts adds hosts to a query's host targeting list (openframe mode).
+	AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+	// RemoveQueryHosts removes hosts from a query's host targeting list (openframe mode).
+	RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
+	// ReplaceQueryHosts replaces all hosts for a query (delete-all + insert).
+	ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error
+	// ListQueryHosts returns paginated hosts assigned to a query.
+	ListQueryHosts(ctx context.Context, queryID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+
 	// QueryByName looks up a query by name on a team. If teamID is nil, then the query is looked up in
 	// the 'global' team.
 	QueryByName(ctx context.Context, teamID *uint, name string) (*Query, error)
@@ -804,6 +814,15 @@ type Datastore interface {
 
 	PolicyQueriesForHost(ctx context.Context, host *Host) (map[string]string, error)
 
+	// AddPolicyHosts adds hosts to a policy's host targeting list (openframe mode).
+	AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+	// RemovePolicyHosts removes hosts from a policy's host targeting list (openframe mode).
+	RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
+	// ReplacePolicyHosts replaces all hosts for a policy (delete-all + insert).
+	ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error
+	// ListPolicyHosts returns paginated hosts assigned to a policy.
+	ListPolicyHosts(ctx context.Context, policyID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+
 	// GetTeamHostsPolicyMemberships returns the hosts that belong to the given team and their pass/fail statuses
 	// around the provided policyIDs.
 	// 	- Returns hosts of the team that are failing one or more of the provided policies.
@@ -828,6 +847,8 @@ type Datastore interface {
 	MigrateTables(ctx context.Context) error
 	// MigrateData populates built-in data
 	MigrateData(ctx context.Context) error
+	// MigrateOpenframe runs openframe-specific schema migrations tracked independently from upstream Fleet.
+	MigrateOpenframe(ctx context.Context) error
 	// MigrationStatus returns nil if migrations are complete, and an error if migrations need to be run.
 	MigrationStatus(ctx context.Context) (*MigrationStatus, error)
 

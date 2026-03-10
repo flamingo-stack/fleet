@@ -173,6 +173,139 @@ func updatePolicyLabelsTx(ctx context.Context, tx sqlx.ExtContext, policy *fleet
 	return nil
 }
 
+func (ds *Datastore) AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	if len(hostIDs) == 0 {
+		return 0, nil
+	}
+	params := make([]string, 0, len(hostIDs))
+	args := make([]interface{}, 0, len(hostIDs)*2)
+	for _, hid := range hostIDs {
+		params = append(params, "(?, ?)")
+		args = append(args, policyID, hid)
+	}
+	stmt := fmt.Sprintf(`INSERT IGNORE INTO policy_hosts (policy_id, host_id) VALUES %s`, strings.Join(params, ", "))
+	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "add policy hosts")
+	}
+	n, _ := res.RowsAffected()
+	return uint(n), nil
+}
+
+func (ds *Datastore) RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	if len(hostIDs) == 0 {
+		return 0, nil
+	}
+	stmt, args, err := sqlx.In(`DELETE FROM policy_hosts WHERE policy_id = ? AND host_id IN (?)`, policyID, hostIDs)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "build remove policy hosts query")
+	}
+	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "remove policy hosts")
+	}
+	n, _ := res.RowsAffected()
+	return uint(n), nil
+}
+
+func (ds *Datastore) ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error {
+	return ds.withRetryTxx(ctx, func(tx sqlx.ExtContext) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM policy_hosts WHERE policy_id = ?`, policyID); err != nil {
+			return ctxerr.Wrap(ctx, err, "delete all policy hosts")
+		}
+		if len(hostIDs) == 0 {
+			return nil
+		}
+		params := make([]string, 0, len(hostIDs))
+		args := make([]interface{}, 0, len(hostIDs)*2)
+		for _, hid := range hostIDs {
+			params = append(params, "(?, ?)")
+			args = append(args, policyID, hid)
+		}
+		stmt := fmt.Sprintf(`INSERT INTO policy_hosts (policy_id, host_id) VALUES %s`, strings.Join(params, ", "))
+		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+			return ctxerr.Wrap(ctx, err, "insert policy hosts")
+		}
+		return nil
+	})
+}
+
+func (ds *Datastore) ListPolicyHosts(ctx context.Context, policyID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	stmt := `
+		SELECT h.id, h.hostname
+		FROM policy_hosts ph
+		INNER JOIN hosts h ON h.id = ph.host_id
+		WHERE ph.policy_id = ?`
+
+	args := []interface{}{policyID}
+	stmt, args = appendListOptionsWithCursorToSQL(stmt, args, &opts)
+
+	var hosts []fleet.HostIdent
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &hosts, stmt, args...); err != nil {
+		return nil, nil, ctxerr.Wrap(ctx, err, "list policy hosts")
+	}
+
+	var meta *fleet.PaginationMetadata
+	if opts.IncludeMetadata {
+		meta = &fleet.PaginationMetadata{HasPreviousResults: opts.Page > 0}
+		if len(hosts) > int(opts.PerPage) {
+			meta.HasNextResults = true
+			hosts = hosts[:opts.PerPage]
+		}
+	}
+
+	return hosts, meta, nil
+}
+
+func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
+	const query = `
+		SELECT
+			ph.policy_id,
+			h.id,
+			h.hostname
+		FROM policy_hosts ph
+		INNER JOIN hosts h ON h.id = ph.host_id
+		WHERE ph.policy_id IN (?)
+	`
+
+	if len(policies) == 0 {
+		return nil
+	}
+
+	policyIDs := make([]uint, 0, len(policies))
+	policyMap := make(map[uint]*fleet.Policy, len(policies))
+
+	for _, policy := range policies {
+		policy.HostsIncludeAny = nil
+		policyIDs = append(policyIDs, policy.ID)
+		policyMap[policy.ID] = policy
+	}
+
+	stmt, args, err := sqlx.In(query, policyIDs)
+	if err != nil {
+		return ctxerr.Wrap(ctx, err, "building query to load policy hosts")
+	}
+
+	rows := []struct {
+		PolicyID uint   `db:"policy_id"`
+		ID       uint   `db:"id"`
+		Hostname string `db:"hostname"`
+	}{}
+
+	if err := sqlx.SelectContext(ctx, db, &rows, stmt, args...); err != nil {
+		return ctxerr.Wrap(ctx, err, "selecting policy hosts")
+	}
+
+	for _, row := range rows {
+		policyMap[row.PolicyID].HostsIncludeAny = append(policyMap[row.PolicyID].HostsIncludeAny, fleet.HostIdent{
+			HostID:   row.ID,
+			Hostname: row.Hostname,
+		})
+	}
+
+	return nil
+}
+
 func loadLabelsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
 	const sql = `
 		SELECT
@@ -274,6 +407,12 @@ func policyDB(ctx context.Context, q sqlx.QueryerContext, id uint, teamID *uint)
 
 	if err := loadLabelsForPolicies(ctx, q, []*fleet.Policy{&policy}); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "laoding policy labels")
+	}
+
+	if fleet.IsOpenframeMode() {
+		if err := loadHostsForPolicies(ctx, q, []*fleet.Policy{&policy}); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
+		}
 	}
 
 	return &policy, nil
@@ -708,6 +847,12 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
 	}
 
+	if fleet.IsOpenframeMode() {
+		if err := loadHostsForPolicies(ctx, q, policies); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
+		}
+	}
+
 	return policies, nil
 }
 
@@ -745,6 +890,12 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
 
 	if err := loadLabelsForPolicies(ctx, q, policies); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
+	}
+
+	if fleet.IsOpenframeMode() {
+		if err := loadHostsForPolicies(ctx, q, policies); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
+		}
 	}
 
 	return policies, nil
@@ -878,7 +1029,8 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 		// won't be receiving any policies targeted for specific platforms.
 		level.Error(ds.logger).Log("err", "unrecognized platform", "hostID", host.ID, "platform", host.Platform) //nolint:errcheck
 	}
-	const stmt = `
+
+	stmt := `
 		SELECT p.id, p.query
 		FROM policies p
 		WHERE
@@ -911,13 +1063,28 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 				INNER JOIN label_membership lm ON (lm.host_id = ? AND lm.label_id = pl.label_id)
 				WHERE pl.policy_id = p.id
 				AND pl.exclude = 1
-			)
-`
+			)`
+
+	args := []interface{}{host.TeamID, host.FleetPlatform(), host.ID, host.ID}
+
+	if fleet.IsOpenframeMode() {
+		stmt += `
+			AND (
+				NOT EXISTS (
+					SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id
+				)
+				OR EXISTS (
+					SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id AND ph.host_id = ?
+				)
+			)`
+		args = append(args, host.ID)
+	}
+
 	var rows []struct {
 		ID    string `db:"id"`
 		Query string `db:"query"`
 	}
-	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &rows, stmt, host.TeamID, host.FleetPlatform(), host.ID, host.ID); err != nil {
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &rows, stmt, args...); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "selecting policies for host")
 	}
 	results := make(map[string]string)
@@ -1066,6 +1233,12 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
 
 	if err := loadLabelsForPolicies(ctx, ds.reader(ctx), policies); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
+	}
+
+	if fleet.IsOpenframeMode() {
+		if err := loadHostsForPolicies(ctx, ds.reader(ctx), policies); err != nil {
+			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
+		}
 	}
 
 	return policies, nil
@@ -1346,13 +1519,16 @@ func (ds *Datastore) ApplyPolicySpecs(ctx context.Context, authorID uint, specs 
 				for _, labelExclude := range spec.LabelsExcludeAny {
 					labelsExcludeAnyIdents = append(labelsExcludeAnyIdents, fleet.LabelIdent{LabelName: labelExclude})
 				}
-				err = updatePolicyLabelsTx(ctx, tx, &fleet.Policy{
+
+				specPolicy := &fleet.Policy{
 					PolicyData: fleet.PolicyData{
 						ID:               uint(lastID), //nolint:gosec // dismiss G115
 						LabelsIncludeAny: labelsIncludeAnyIdents,
 						LabelsExcludeAny: labelsExcludeAnyIdents,
 					},
-				})
+				}
+
+				err = updatePolicyLabelsTx(ctx, tx, specPolicy)
 				if err != nil {
 					return ctxerr.Wrap(ctx, err, "exec policies update labels")
 				}

@@ -22,6 +22,33 @@ func loadLabelsFromNames(ctx context.Context, ds fleet.Datastore, labelNames []s
 	return labelsMap, nil
 }
 
+func verifyHostsToAssociate(ctx context.Context, ds fleet.Datastore, hostIDs []uint) error {
+	if len(hostIDs) == 0 {
+		return nil
+	}
+
+	seen := make(map[uint]struct{})
+	uniqueHostIDs := make([]uint, 0, len(hostIDs))
+	for _, id := range hostIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueHostIDs = append(uniqueHostIDs, id)
+	}
+
+	hosts, err := ds.ListHostsLiteByIDs(ctx, uniqueHostIDs)
+	if err != nil {
+		return ctxerr.Wrap(ctx, err, "list hosts by ids")
+	}
+
+	if len(hosts) != len(uniqueHostIDs) {
+		return ctxerr.Wrap(ctx, badRequest("one or more hosts specified in hosts_include_any do not exist"))
+	}
+
+	return nil
+}
+
 func verifyLabelsToAssociate(ctx context.Context, ds fleet.Datastore, entityTeamID *uint, labelNames []string, user *fleet.User) error {
 	if len(labelNames) == 0 {
 		return nil

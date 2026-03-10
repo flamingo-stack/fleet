@@ -785,3 +785,163 @@ func (svc *Service) AutofillPolicySql(ctx context.Context, sql string) (descript
 	}
 	return descriptionTrimmed, resolutionTrimmed, nil
 }
+
+/////////////////////////////////////////////////////////////////////////////////
+// Add/Remove hosts for a policy (openframe mode)
+/////////////////////////////////////////////////////////////////////////////////
+
+type addPolicyHostsRequest struct {
+	PolicyID uint   `url:"policy_id"`
+	HostIDs  []uint `json:"host_ids"`
+}
+
+type addPolicyHostsResponse struct {
+	Added uint  `json:"added"`
+	Err   error `json:"error,omitempty"`
+}
+
+func (r addPolicyHostsResponse) Error() error { return r.Err }
+
+func addPolicyHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*addPolicyHostsRequest)
+	n, err := svc.AddPolicyHosts(ctx, req.PolicyID, req.HostIDs)
+	if err != nil {
+		return addPolicyHostsResponse{Err: err}, nil
+	}
+	return addPolicyHostsResponse{Added: n}, nil
+}
+
+func (svc *Service) AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	if !fleet.IsOpenframeMode() {
+		return 0, &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	policy, err := svc.ds.Policy(ctx, policyID)
+	if err != nil {
+		return 0, err
+	}
+	if err := svc.authz.Authorize(ctx, policy, fleet.ActionWrite); err != nil {
+		return 0, err
+	}
+
+	if err := verifyHostsToAssociate(ctx, svc.ds, hostIDs); err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "verify hosts to add")
+	}
+
+	return svc.ds.AddPolicyHosts(ctx, policyID, hostIDs)
+}
+
+type removePolicyHostsRequest struct {
+	PolicyID uint   `url:"policy_id"`
+	HostIDs  []uint `json:"host_ids"`
+}
+
+type removePolicyHostsResponse struct {
+	Removed uint  `json:"removed"`
+	Err     error `json:"error,omitempty"`
+}
+
+func (r removePolicyHostsResponse) Error() error { return r.Err }
+
+func removePolicyHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*removePolicyHostsRequest)
+	n, err := svc.RemovePolicyHosts(ctx, req.PolicyID, req.HostIDs)
+	if err != nil {
+		return removePolicyHostsResponse{Err: err}, nil
+	}
+	return removePolicyHostsResponse{Removed: n}, nil
+}
+
+func (svc *Service) RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
+	if !fleet.IsOpenframeMode() {
+		return 0, &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	policy, err := svc.ds.Policy(ctx, policyID)
+	if err != nil {
+		return 0, err
+	}
+	if err := svc.authz.Authorize(ctx, policy, fleet.ActionWrite); err != nil {
+		return 0, err
+	}
+
+	return svc.ds.RemovePolicyHosts(ctx, policyID, hostIDs)
+}
+
+type replacePolicyHostsRequest struct {
+	PolicyID uint   `url:"policy_id"`
+	HostIDs  []uint `json:"host_ids"`
+}
+
+type replacePolicyHostsResponse struct {
+	Err error `json:"error,omitempty"`
+}
+
+func (r replacePolicyHostsResponse) Error() error { return r.Err }
+
+func replacePolicyHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*replacePolicyHostsRequest)
+	err := svc.ReplacePolicyHosts(ctx, req.PolicyID, req.HostIDs)
+	if err != nil {
+		return replacePolicyHostsResponse{Err: err}, nil
+	}
+	return replacePolicyHostsResponse{}, nil
+}
+
+func (svc *Service) ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error {
+	if !fleet.IsOpenframeMode() {
+		return &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	policy, err := svc.ds.Policy(ctx, policyID)
+	if err != nil {
+		return err
+	}
+	if err := svc.authz.Authorize(ctx, policy, fleet.ActionWrite); err != nil {
+		return err
+	}
+
+	if err := verifyHostsToAssociate(ctx, svc.ds, hostIDs); err != nil {
+		return ctxerr.Wrap(ctx, err, "verify hosts to replace")
+	}
+
+	return svc.ds.ReplacePolicyHosts(ctx, policyID, hostIDs)
+}
+
+type listPolicyHostsRequest struct {
+	PolicyID uint              `url:"policy_id"`
+	Opts     fleet.ListOptions `url:"list_options"`
+}
+
+type listPolicyHostsResponse struct {
+	Hosts []fleet.HostIdent        `json:"hosts"`
+	Meta  *fleet.PaginationMetadata `json:"meta,omitempty"`
+	Err   error                     `json:"error,omitempty"`
+}
+
+func (r listPolicyHostsResponse) Error() error { return r.Err }
+
+func listPolicyHostsEndpoint(ctx context.Context, request interface{}, svc fleet.Service) (fleet.Errorer, error) {
+	req := request.(*listPolicyHostsRequest)
+	hosts, meta, err := svc.ListPolicyHosts(ctx, req.PolicyID, req.Opts)
+	if err != nil {
+		return listPolicyHostsResponse{Err: err}, nil
+	}
+	return listPolicyHostsResponse{Hosts: hosts, Meta: meta}, nil
+}
+
+func (svc *Service) ListPolicyHosts(ctx context.Context, policyID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	if !fleet.IsOpenframeMode() {
+		return nil, nil, &fleet.BadRequestError{Message: "openframe mode is not enabled"}
+	}
+
+	policy, err := svc.ds.Policy(ctx, policyID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := svc.authz.Authorize(ctx, policy, fleet.ActionRead); err != nil {
+		return nil, nil, err
+	}
+
+	return svc.ds.ListPolicyHosts(ctx, policyID, opts)
+}
