@@ -271,7 +271,6 @@ jobs:
 
           ## Helm Chart
           - \`oci://${{ env.REGISTRY }}/${{ github.repository }}/helm-charts/fleet:${VERSION}\`
-          ---
           EOF
 
       - name: Delete existing latest release
