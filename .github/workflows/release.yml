@@ -226,8 +226,9 @@ jobs:
 
   release:
     name: "Create Release"
-    needs: [build, build_client, build_helm]
+    needs: [changes, build, build_client, build_helm]
     runs-on: ubuntu-latest
+    if: ${{ !failure() && !cancelled() }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
