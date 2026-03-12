@@ -226,7 +226,7 @@ jobs:
 
   release:
     name: "Create Release"
-    needs: [build, build_client]
+    needs: [build, build_client, build_helm]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
