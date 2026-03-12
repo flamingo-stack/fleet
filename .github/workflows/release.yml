@@ -216,7 +216,7 @@ jobs:
         uses: appany/helm-oci-chart-releaser@v0.5.0
         with:
           name: fleet
-          repository: ${{ github.repository }}/charts
+          repository: ${{ github.repository }}/helm-charts
           tag: ${{ inputs.version || '9.9.9' }}
           path: ./charts/fleet
           registry: ${{ env.REGISTRY }}
