@@ -267,6 +267,10 @@ jobs:
           ## Fleet Clients
           - **macOS** (Universal): \`fleet-macos-universal.tar.gz\`
           - **Windows** (amd64): \`fleet-windows-amd64.zip\`
+
+          ## Helm Chart
+          - \`oci://${{ env.REGISTRY }}/${{ github.repository }}/helm-charts/fleet:${VERSION}\`
+          ---
           EOF
 
       - name: Delete existing latest release
