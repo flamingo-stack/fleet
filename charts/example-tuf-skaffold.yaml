@@ -29,3 +29,4 @@ deploy:
         ingress.hosts[0].host: tuf.example.com
         ingress.tls[0].secretName: tuf-web-tls
         ingress.tls[0].hosts: ["tuf.example.com"]
+
