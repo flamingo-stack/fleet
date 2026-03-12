@@ -198,6 +198,32 @@ jobs:
         run: goreleaser release --clean
 
 
+  build_helm:
+    name: "Build Helm Chart"
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.helm == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.version != '')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Push Chart
+        uses: appany/helm-oci-chart-releaser@v0.5.0
+        with:
+          name: fleet
+          repository: ${{ github.repository }}/charts
+          tag: ${{ inputs.version || '9.9.9' }}
+          path: ./charts/fleet
+          registry: ${{ env.REGISTRY }}
+          registry_username: ${{ github.actor }}
+          registry_password: ${{ secrets.GITHUB_TOKEN }}
+
+
   release:
     name: "Create Release"
     needs: [build, build_client]
