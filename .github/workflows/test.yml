@@ -171,9 +171,31 @@ jobs:
         run: goreleaser release --snapshot --clean --skip=publish
 
 
+  test_helm:
+    name: "Test Helm Chart"
+    needs: [changes]
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      needs.changes.outputs.helm == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm Lint
+        run: helm lint charts/fleet
+
+      - name: Helm Template
+        run: helm template fleet charts/fleet
+
+
   all-checks:
     name: "All Checks"
-    needs: [changes, test_client, test]
+    needs: [changes, test_client, test, test_helm]
     runs-on: ubuntu-latest
     if: always()
     steps:
