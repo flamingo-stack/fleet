@@ -10,20 +10,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// OpenFrameMachineIdProvider reads the shared machine ID from OpenFrame's location.
-// The machine ID is written by openframe-client and read by all integrated tools.
-//
-// File locations:
-//   - Windows: %ProgramData%\OpenFrame\machine_id
-//   - macOS: /Library/Application Support/OpenFrame/machine_id
-//   - Linux: /var/lib/openframe/machine_id
 type OpenFrameMachineIdProvider struct {
 	machineId   string
 	initialized bool
 	mu          sync.RWMutex
 }
 
-// NewOpenFrameMachineIdProvider creates a new OpenFrameMachineIdProvider instance
 func NewOpenFrameMachineIdProvider() *OpenFrameMachineIdProvider {
 	return &OpenFrameMachineIdProvider{}
 }
@@ -41,7 +33,6 @@ func (p *OpenFrameMachineIdProvider) GetMachineId() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Double-check after acquiring write lock
 	if p.initialized {
 		return p.machineId
 	}
