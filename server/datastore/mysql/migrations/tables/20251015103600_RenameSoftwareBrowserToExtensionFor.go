@@ -12,20 +12,24 @@ func init() {
 
 func Up_20251015103600(tx *sql.Tx) error {
 	// Idempotent migration.
-	_, err := tx.Exec(`
+	if columnExists(tx, "software", "browser") {
+		_, err := tx.Exec(`
 ALTER TABLE software
     RENAME COLUMN browser TO extension_for
 `)
-	if err != nil {
-		return errors.Wrapf(err, "software table: rename browser to extension_for")
+		if err != nil {
+			return errors.Wrapf(err, "software table: rename browser to extension_for")
+		}
 	}
 
-	_, err = tx.Exec(`
+	if columnExists(tx, "software_titles", "browser") {
+		_, err := tx.Exec(`
 ALTER TABLE software_titles
     RENAME COLUMN browser TO extension_for
 `)
-	if err != nil {
-		return errors.Wrapf(err, "software_titles table: rename browser to extension_for")
+		if err != nil {
+			return errors.Wrapf(err, "software_titles table: rename browser to extension_for")
+		}
 	}
 
 	return nil

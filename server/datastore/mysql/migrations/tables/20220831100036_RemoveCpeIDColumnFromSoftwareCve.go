@@ -58,11 +58,13 @@ ALTER TABLE software_cve DROP INDEX unique_cpe_cve, ALGORITHM=INPLACE, LOCK=NONE
 		}
 	}
 
-	const removeColStmt = `
+	if columnExists(tx, "software_cve", "cpe_id") {
+		const removeColStmt = `
 ALTER TABLE software_cve DROP COLUMN cpe_id, ALGORITHM=INPLACE, LOCK=NONE;
 `
-	if _, err := tx.Exec(removeColStmt); err != nil {
-		return errors.Wrapf(err, "removing cpe_id column from software_cve")
+		if _, err := tx.Exec(removeColStmt); err != nil {
+			return errors.Wrapf(err, "removing cpe_id column from software_cve")
+		}
 	}
 
 	return nil
