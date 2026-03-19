@@ -7,8 +7,9 @@ func init() {
 }
 
 func Up_20170108191242(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
-		"CREATE TABLE `decorators` ( " +
+		"CREATE TABLE IF NOT EXISTS `decorators` ( " +
 			"`id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT, " +
 			"`created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
 			"`updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +

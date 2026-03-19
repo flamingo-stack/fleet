@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20231212095734(tx *sql.Tx) error {
+	// Idempotent migration.
 	softwareTitlesHostCountsTable := `
     CREATE TABLE IF NOT EXISTS software_titles_host_counts (
       software_title_id  int(10) unsigned NOT NULL,

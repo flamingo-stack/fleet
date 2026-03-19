@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20210806135609(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

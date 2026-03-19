@@ -11,10 +11,15 @@ func init() {
 }
 
 func Up_20230503101418(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "jobs", "not_before") {
+		if _, err := tx.Exec(`
 ALTER TABLE jobs ADD COLUMN not_before TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
-`)
-	return errors.Wrap(err, "add not_before")
+`); err != nil {
+			return errors.Wrap(err, "add not_before")
+		}
+	}
+	return nil
 }
 
 func Down_20230503101418(tx *sql.Tx) error {

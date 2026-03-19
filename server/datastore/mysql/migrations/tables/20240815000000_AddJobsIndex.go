@@ -10,8 +10,11 @@ func init() {
 }
 
 func Up_20240815000000(tx *sql.Tx) error {
-	if _, err := tx.Exec(`CREATE INDEX idx_jobs_state_not_before_updated_at ON jobs (state, not_before, updated_at);`); err != nil {
-		return fmt.Errorf("creating jobs index: %w", err)
+	// Idempotent migration.
+	if !indexExistsTx(tx, "jobs", "idx_jobs_state_not_before_updated_at") {
+		if _, err := tx.Exec(`CREATE INDEX idx_jobs_state_not_before_updated_at ON jobs (state, not_before, updated_at);`); err != nil {
+			return fmt.Errorf("creating jobs index: %w", err)
+		}
 	}
 	return nil
 }

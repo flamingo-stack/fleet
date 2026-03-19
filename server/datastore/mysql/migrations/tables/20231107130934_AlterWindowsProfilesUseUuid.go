@@ -10,47 +10,58 @@ func init() {
 }
 
 func Up_20231107130934(tx *sql.Tx) error {
+	// Idempotent migration.
+	// Check if the primary key already includes profile_uuid on both tables (target state)
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mdm_windows_configuration_profiles' AND INDEX_NAME = 'PRIMARY' AND COLUMN_NAME = 'profile_uuid'`).Scan(&count); err == nil && count > 0 {
+		var count2 int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'host_mdm_windows_profiles' AND INDEX_NAME = 'PRIMARY' AND COLUMN_NAME = 'profile_uuid'`).Scan(&count2); err == nil && count2 > 0 {
+			return nil // already migrated
+		}
+	}
+
 	// add the profile_uuid column to the profiles table, keeping the old id.
 	// Note that we cannot set the default to uuid() as functions cannot be used
 	// as defaults in mysql 5.7. It will have to be generated in code when
 	// inserting. Cannot be set as primary key yet as it may have duplicates until
 	// we generate the uuids.
-	_, err := tx.Exec(`
+	if columnExists(tx, "mdm_windows_configuration_profiles", "profile_id") && !columnExists(tx, "mdm_windows_configuration_profiles", "profile_uuid") {
+		_, err := tx.Exec(`
 ALTER TABLE mdm_windows_configuration_profiles
 	-- required to remove AUTO_INCREMENT because it must be a primary key
 	CHANGE COLUMN profile_id profile_id INT(10) UNSIGNED NOT NULL,
 	DROP PRIMARY KEY,
 	ADD COLUMN profile_uuid VARCHAR(36) NOT NULL DEFAULT ''
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter mdm_windows_configuration_profiles table: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("failed to alter mdm_windows_configuration_profiles table: %w", err)
+		}
 
-	// add the profile_uuid column to the host profiles table, keeping the old
-	// id. Cannot be set as primary key yet as it may have duplicates until we
-	// generate the uuids.
-	_, err = tx.Exec(`
+		// add the profile_uuid column to the host profiles table, keeping the old
+		// id. Cannot be set as primary key yet as it may have duplicates until we
+		// generate the uuids.
+		_, err = tx.Exec(`
 ALTER TABLE host_mdm_windows_profiles
 	DROP PRIMARY KEY,
 	ADD COLUMN profile_uuid VARCHAR(36) NOT NULL DEFAULT ''
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter host_mdm_windows_profiles table: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("failed to alter host_mdm_windows_profiles table: %w", err)
+		}
 
-	// generate the uuids for the profiles table
-	_, err = tx.Exec(`
+		// generate the uuids for the profiles table
+		_, err = tx.Exec(`
 UPDATE
 	mdm_windows_configuration_profiles
 SET
 	profile_uuid = uuid()
 `)
-	if err != nil {
-		return fmt.Errorf("failed to update mdm_windows_configuration_profiles table: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("failed to update mdm_windows_configuration_profiles table: %w", err)
+		}
 
-	// update the host profiles table's profile_uuid based on its profile_id
-	_, err = tx.Exec(`
+		// update the host profiles table's profile_uuid based on its profile_id
+		_, err = tx.Exec(`
 UPDATE
 	host_mdm_windows_profiles
 SET
@@ -63,22 +74,23 @@ SET
 			host_mdm_windows_profiles.profile_id = mwcp.profile_id
 	), uuid())
 `)
-	if err != nil {
-		return fmt.Errorf("failed to update host_mdm_windows_profiles table: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("failed to update host_mdm_windows_profiles table: %w", err)
+		}
 
-	// drop the now unused profile_id column from both tables
-	_, err = tx.Exec(`ALTER TABLE mdm_windows_configuration_profiles
+		// drop the now unused profile_id column from both tables
+		_, err = tx.Exec(`ALTER TABLE mdm_windows_configuration_profiles
 		ADD PRIMARY KEY (profile_uuid),
 		DROP COLUMN profile_id`)
-	if err != nil {
-		return fmt.Errorf("failed to drop column from mdm_windows_configuration_profiles table: %w", err)
-	}
-	_, err = tx.Exec(`ALTER TABLE host_mdm_windows_profiles
+		if err != nil {
+			return fmt.Errorf("failed to drop column from mdm_windows_configuration_profiles table: %w", err)
+		}
+		_, err = tx.Exec(`ALTER TABLE host_mdm_windows_profiles
 		ADD PRIMARY KEY (host_uuid, profile_uuid),
 		DROP COLUMN profile_id`)
-	if err != nil {
-		return fmt.Errorf("failed to drop column from host_mdm_windows_profiles table: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to drop column from host_mdm_windows_profiles table: %w", err)
+		}
 	}
 
 	return nil

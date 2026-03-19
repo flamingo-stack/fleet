@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20250214205657(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE software_cve ADD INDEX idx_software_cve_cve (cve);`)
-	if err != nil {
-		return fmt.Errorf("failed to add index to software_cve.cve: %w", err)
+	// Idempotent migration.
+	if !indexExistsTx(tx, "software_cve", "idx_software_cve_cve") {
+		_, err := tx.Exec(`ALTER TABLE software_cve ADD INDEX idx_software_cve_cve (cve);`)
+		if err != nil {
+			return fmt.Errorf("failed to add index to software_cve.cve: %w", err)
+		}
 	}
 	return nil
 }

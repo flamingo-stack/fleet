@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20230330100011(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 	DELETE hdek
 		FROM host_disk_encryption_keys hdek

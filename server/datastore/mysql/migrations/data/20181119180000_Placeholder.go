@@ -14,6 +14,7 @@ func init() {
 }
 
 func Up_20181119180000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Intentional noop
 	return nil
 }

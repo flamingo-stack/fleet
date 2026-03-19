@@ -11,15 +11,20 @@ func init() {
 }
 
 func Up20191010155147(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Update hosts_search fulltext index to allow search by UUID
-	sql := `ALTER TABLE hosts DROP INDEX hosts_search`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "drop old index")
+	if indexExistsTx(tx, "hosts", "hosts_search") {
+		sql := `ALTER TABLE hosts DROP INDEX hosts_search`
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "drop old index")
+		}
 	}
 
-	sql = `CREATE FULLTEXT INDEX hosts_search ON hosts(host_name, uuid)`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add updated index")
+	if !indexExistsTx(tx, "hosts", "hosts_search") {
+		sql := `CREATE FULLTEXT INDEX hosts_search ON hosts(host_name, uuid)`
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add updated index")
+		}
 	}
 
 	return nil

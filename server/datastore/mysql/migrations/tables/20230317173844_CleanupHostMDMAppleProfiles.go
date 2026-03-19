@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20230317173844(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 DELETE FROM host_mdm_apple_profiles
 WHERE operation_type = 'remove'

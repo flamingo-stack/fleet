@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20220428140039(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
       DELETE FROM
         host_emails

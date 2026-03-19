@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20240826160025(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnExists(tx, "host_software_installs", "removed") {
 		if _, err := tx.Exec("ALTER TABLE host_software_installs ADD COLUMN removed TINYINT NOT NULL DEFAULT 0"); err != nil {
 			return fmt.Errorf("failed to add removed to host_software_installs: %w", err)

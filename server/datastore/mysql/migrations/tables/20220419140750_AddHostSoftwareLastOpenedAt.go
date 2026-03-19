@@ -10,11 +10,13 @@ func init() {
 }
 
 func Up_20220419140750(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `host_software` ADD COLUMN `last_opened_at` timestamp NULL",
-	)
-	if err != nil {
-		return fmt.Errorf("add last_opened_at column: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "host_software", "last_opened_at") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `host_software` ADD COLUMN `last_opened_at` timestamp NULL",
+		); err != nil {
+			return fmt.Errorf("add last_opened_at column: %w", err)
+		}
 	}
 
 	return nil

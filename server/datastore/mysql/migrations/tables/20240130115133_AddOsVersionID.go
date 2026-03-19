@@ -10,6 +10,11 @@ func init() {
 }
 
 func Up_20240130115133(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "operating_systems", "os_version_id") {
+		return nil
+	}
+
 	stmt := `
 		ALTER TABLE operating_systems
 		ADD COLUMN os_version_id INT UNSIGNED DEFAULT NULL

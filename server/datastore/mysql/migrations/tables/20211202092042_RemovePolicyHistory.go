@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20211202092042(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec("DROP VIEW IF EXISTS policy_membership")
 	if err != nil {
 		return errors.Wrap(err, "drop view policy_membership")
@@ -27,8 +28,10 @@ func Up_20211202092042(tx *sql.Tx) error {
 		return errors.Wrap(err, "getting references to policies and hosts table")
 	}
 	for _, ct := range constraints {
-		if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE policy_membership_history DROP FOREIGN KEY %s;`, ct)); err != nil {
-			return errors.Wrapf(err, "dropping policy_membership_history foreign keys: %s", ct)
+		if fkExists(tx, "policy_membership_history", ct) {
+			if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE policy_membership_history DROP FOREIGN KEY %s;`, ct)); err != nil {
+				return errors.Wrapf(err, "dropping policy_membership_history foreign keys: %s", ct)
+			}
 		}
 	}
 

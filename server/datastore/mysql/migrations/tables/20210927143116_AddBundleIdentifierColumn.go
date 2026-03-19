@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20210927143116(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnExists(tx, "software", "bundle_identifier") {
 		return nil
 	}

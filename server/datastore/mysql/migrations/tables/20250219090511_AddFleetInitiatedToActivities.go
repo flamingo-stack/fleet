@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20250219090511(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE activities ADD COLUMN fleet_initiated tinyint(1) NOT NULL DEFAULT '0'`)
-	if err != nil {
-		return fmt.Errorf("failed to add fleet_initiated to activities: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "activities", "fleet_initiated") {
+		_, err := tx.Exec(`ALTER TABLE activities ADD COLUMN fleet_initiated tinyint(1) NOT NULL DEFAULT '0'`)
+		if err != nil {
+			return fmt.Errorf("failed to add fleet_initiated to activities: %w", err)
+		}
 	}
 	return nil
 }

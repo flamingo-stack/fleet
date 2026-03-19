@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20211013133706(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnExists(tx, "policies", "resolution") {
 		return nil
 	}

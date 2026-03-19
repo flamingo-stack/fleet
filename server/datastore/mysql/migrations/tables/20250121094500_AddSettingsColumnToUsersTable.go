@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20250121094500(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE users ADD COLUMN settings json NOT NULL DEFAULT (JSON_OBJECT())`)
-	if err != nil {
-		return fmt.Errorf("failed to add settings to users: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "users", "settings") {
+		_, err := tx.Exec(`ALTER TABLE users ADD COLUMN settings json NOT NULL DEFAULT (JSON_OBJECT())`)
+		if err != nil {
+			return fmt.Errorf("failed to add settings to users: %w", err)
+		}
 	}
 	return nil
 }

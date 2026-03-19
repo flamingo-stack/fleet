@@ -10,14 +10,19 @@ func init() {
 }
 
 func Up_20250731122715(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Update subject_country column from varchar(2) to varchar(32)
-	if _, err := tx.Exec(`ALTER TABLE host_certificates MODIFY COLUMN subject_country varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL`); err != nil {
-		return fmt.Errorf("failed to modify subject_country column: %w", err)
+	if columnExists(tx, "host_certificates", "subject_country") {
+		if _, err := tx.Exec(`ALTER TABLE host_certificates MODIFY COLUMN subject_country varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL`); err != nil {
+			return fmt.Errorf("failed to modify subject_country column: %w", err)
+		}
 	}
 
 	// Update issuer_country column from varchar(2) to varchar(32)
-	if _, err := tx.Exec(`ALTER TABLE host_certificates MODIFY COLUMN issuer_country varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL`); err != nil {
-		return fmt.Errorf("failed to modify issuer_country column: %w", err)
+	if columnExists(tx, "host_certificates", "issuer_country") {
+		if _, err := tx.Exec(`ALTER TABLE host_certificates MODIFY COLUMN issuer_country varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL`); err != nil {
+			return fmt.Errorf("failed to modify issuer_country column: %w", err)
+		}
 	}
 
 	return nil

@@ -2,7 +2,7 @@
  * as-is with the table names prefixed with `nano_` (because of table name collisions with Fleet tables).
  */
 
-CREATE TABLE nano_devices (
+CREATE TABLE IF NOT EXISTS nano_devices (
     id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 
     identity_cert TEXT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE nano_devices (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
-CREATE TABLE nano_users (
+CREATE TABLE IF NOT EXISTS nano_users (
     id        VARCHAR(255) NOT NULL,
     device_id VARCHAR(255) NOT NULL,
 
@@ -79,12 +79,13 @@ CREATE TABLE nano_users (
     CHECK (user_authenticate_digest IS NULL OR user_authenticate_digest != '')
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE nano_users ADD CONSTRAINT idx_unique_id UNIQUE (id);
+-- NOTE: The ADD CONSTRAINT below was moved to the Go migration file for idempotency.
+-- ALTER TABLE nano_users ADD CONSTRAINT idx_unique_id UNIQUE (id);
 
 /* This table represents enrollments which are an amalgamation of
  * both device and user enrollments.
  */
-CREATE TABLE nano_enrollments (
+CREATE TABLE IF NOT EXISTS nano_enrollments (
     -- The enrollment ID of this enrollment
     id        VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     -- The "device" enrollment ID of this enrollment. This will be
@@ -137,7 +138,7 @@ CREATE TABLE nano_enrollments (
  * a device, a result (response), etc. Joining other tables is required
  * for more context.
  */
-CREATE TABLE nano_commands (
+CREATE TABLE IF NOT EXISTS nano_commands (
     command_uuid VARCHAR(127) NOT NULL,
     request_type VARCHAR(63)  NOT NULL,
     -- Raw command Plist
@@ -165,7 +166,7 @@ CREATE TABLE nano_commands (
  * means we lose insight into when NotNows happen once a command is
  * Acknowledged.
  */
-CREATE TABLE nano_command_results (
+CREATE TABLE IF NOT EXISTS nano_command_results (
     id           VARCHAR(255) NOT NULL,
     command_uuid VARCHAR(127) NOT NULL,
     status       VARCHAR(31)  NOT NULL,
@@ -195,7 +196,7 @@ CREATE TABLE nano_command_results (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
-CREATE TABLE nano_enrollment_queue (
+CREATE TABLE IF NOT EXISTS nano_enrollment_queue (
     id           VARCHAR(255) NOT NULL,
     command_uuid VARCHAR(127) NOT NULL,
 
@@ -246,7 +247,7 @@ ORDER BY
     q.created_at;
 
 
-CREATE TABLE nano_push_certs (
+CREATE TABLE IF NOT EXISTS nano_push_certs (
     topic VARCHAR(255) NOT NULL,
 
     cert_pem TEXT NOT NULL,
@@ -271,7 +272,7 @@ CREATE TABLE nano_push_certs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
-CREATE TABLE nano_cert_auth_associations (
+CREATE TABLE IF NOT EXISTS nano_cert_auth_associations (
     id     VARCHAR(255) NOT NULL,
     sha256 CHAR(64)     NOT NULL,
 

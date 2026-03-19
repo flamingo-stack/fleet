@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20231106144110(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 ALTER TABLE mdm_apple_delivery_status RENAME TO mdm_delivery_status;
 `)
@@ -26,7 +27,7 @@ ALTER TABLE mdm_apple_operation_types RENAME TO mdm_operation_types;
 	_, err = tx.Exec(`
 -- track the team/no-team profiles - those represent the desired state of
 -- profiles per teams.
-CREATE TABLE mdm_windows_configuration_profiles (
+CREATE TABLE IF NOT EXISTS mdm_windows_configuration_profiles (
   -- this is typically called just id but this is consistent with the apple
   -- profiles table.
   profile_id   INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -50,7 +51,7 @@ CREATE TABLE mdm_windows_configuration_profiles (
 
 	_, err = tx.Exec(`
 -- track the current status of each profile for each host.
-CREATE TABLE host_mdm_windows_profiles (
+CREATE TABLE IF NOT EXISTS host_mdm_windows_profiles (
   -- this is consistent with the apple profiles table, there is no FK on the
   -- profiles because hosts may have profiles that don't exist anymore in that
   -- table.

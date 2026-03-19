@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240723102712(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 -- This table is the VPP equivalent of the "software_installers" table.
 -- This table is also used as a cache of the response from the "Get Assets"
@@ -17,7 +18,7 @@ func Up_20240723102712(tx *sql.Tx) error {
 -- the app metadata.
 -- If an asset has an entry here and an entry in vpp_apps_teams, then it has
 -- been added to Fleet.
-CREATE TABLE vpp_apps (
+CREATE TABLE IF NOT EXISTS vpp_apps (
 	adam_id VARCHAR(16) NOT NULL,
 
 	-- FK to the "software title" this app matches
@@ -40,11 +41,11 @@ CREATE TABLE vpp_apps (
 	  ON UPDATE CASCADE
 ) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci`)
 	if err != nil {
-		return fmt.Errorf("failed to create table vpp_apps: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS vpp_apps: %w", err)
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE vpp_apps_teams (
+CREATE TABLE IF NOT EXISTS vpp_apps_teams (
 	id int(10) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
 	adam_id VARCHAR(16) NOT NULL,
 	-- team_id NULL is for no team (cannot use 0 with foreign key)
@@ -60,13 +61,13 @@ CREATE TABLE vpp_apps_teams (
 	UNIQUE KEY idx_global_or_team_id_adam_id (global_or_team_id, adam_id)
 ) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci`)
 	if err != nil {
-		return fmt.Errorf("failed to create table vpp_apps_teams: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS vpp_apps_teams: %w", err)
 	}
 
 	_, err = tx.Exec(`
 -- This table is the VPP equivalent of the host_software_installs table.
 -- It tracks the installation of VPP software on particular hosts.
-CREATE TABLE host_vpp_software_installs (
+CREATE TABLE IF NOT EXISTS host_vpp_software_installs (
 	id int(10) unsigned NOT NULL AUTO_INCREMENT,
 	host_id INT(10) UNSIGNED NOT NULL,
 
@@ -93,7 +94,7 @@ CREATE TABLE host_vpp_software_installs (
 	UNIQUE INDEX idx_host_vpp_software_installs_command_uuid (command_uuid)
 ) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci`)
 	if err != nil {
-		return fmt.Errorf("failed to create table host_vpp_software_installs: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS host_vpp_software_installs: %w", err)
 	}
 
 	return nil

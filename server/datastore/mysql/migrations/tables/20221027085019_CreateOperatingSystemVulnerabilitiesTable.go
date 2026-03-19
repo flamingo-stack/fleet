@@ -11,10 +11,11 @@ func init() {
 }
 
 func Up_20221027085019(tx *sql.Tx) error {
+	// Idempotent migration.
 	logger.Info.Println("Creating table operating_system_vulnerabilities...")
 
 	_, err := tx.Exec(`
-		CREATE TABLE operating_system_vulnerabilities
+		CREATE TABLE IF NOT EXISTS operating_system_vulnerabilities
 		(
 			id                  INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			host_id             INT UNSIGNED NOT NULL,

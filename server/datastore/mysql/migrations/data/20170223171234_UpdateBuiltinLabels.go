@@ -46,6 +46,7 @@ func Labels2() []fleet.Label {
 }
 
 func Up_20170223171234(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Remove the old labels
 	if err := Down_20161229171615(tx); err != nil {
 		return err
@@ -53,7 +54,7 @@ func Up_20170223171234(tx *sql.Tx) error {
 
 	// Insert the new labels
 	sql := `
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

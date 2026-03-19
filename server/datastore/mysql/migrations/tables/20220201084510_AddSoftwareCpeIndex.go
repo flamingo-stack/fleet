@@ -11,8 +11,11 @@ func init() {
 }
 
 func Up_20220201084510(tx *sql.Tx) error {
-	if _, err := tx.Exec(`CREATE INDEX software_cpe_cpe_idx ON software_cpe(cpe);`); err != nil {
-		return errors.Wrap(err, "creating software_cpe index")
+	// Idempotent migration.
+	if !indexExistsTx(tx, "software_cpe", "software_cpe_cpe_idx") {
+		if _, err := tx.Exec(`CREATE INDEX software_cpe_cpe_idx ON software_cpe(cpe);`); err != nil {
+			return errors.Wrap(err, "creating software_cpe index")
+		}
 	}
 	return nil
 }

@@ -15,14 +15,26 @@ func init() {
 }
 
 func Up_20250326161931(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnsExists(tx, "nano_devices", "platform", "enroll_team_id") {
+		_, err := tx.Exec(`
 ALTER TABLE nano_devices
 	ADD COLUMN platform VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-	ADD COLUMN enroll_team_id INT UNSIGNED DEFAULT NULL,
+	ADD COLUMN enroll_team_id INT UNSIGNED DEFAULT NULL
+`)
+		if err != nil {
+			return fmt.Errorf("failed to alter nano_devices: %w", err)
+		}
+	}
+
+	if !constraintExists(tx, "nano_devices", "fk_nano_devices_team_id") {
+		_, err := tx.Exec(`
+ALTER TABLE nano_devices
 	ADD CONSTRAINT fk_nano_devices_team_id FOREIGN KEY (enroll_team_id) REFERENCES teams (id) ON DELETE SET NULL
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter nano_devices: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to add FK fk_nano_devices_team_id: %w", err)
+		}
 	}
 
 	// parse the authenticate field of existing nano_devices that don't have a

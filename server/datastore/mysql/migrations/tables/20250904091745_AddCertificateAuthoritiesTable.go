@@ -49,6 +49,7 @@ type dbCertificateAuthority struct {
 }
 
 func Up_20250904091745(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 	stmt := `
 	CREATE TABLE IF NOT EXISTS certificate_authorities (
@@ -91,9 +92,10 @@ func Up_20250904091745(tx *sql.Tx) error {
 
 	// Create unique indexes on name and type(i.e. can't have more than 1 CA of a given type with a
 	// given name)
-	_, err = txx.Exec(`CREATE UNIQUE INDEX idx_ca_type_name ON certificate_authorities (type, name)`)
-	if err != nil {
-		return fmt.Errorf("failed to create unique index on certificate_authorities: %w", err)
+	if !indexExistsTx(tx, "certificate_authorities", "idx_ca_type_name") {
+		if _, err = txx.Exec(`CREATE UNIQUE INDEX idx_ca_type_name ON certificate_authorities (type, name)`); err != nil {
+			return fmt.Errorf("failed to create unique index on certificate_authorities: %w", err)
+		}
 	}
 
 	// Populate the table with existing data from app_config_json
@@ -194,7 +196,7 @@ FROM
 
 	for _, ca := range casToInsert {
 		insertStmt := `
-INSERT INTO certificate_authorities (
+INSERT IGNORE INTO certificate_authorities (
 	type,
 	name,
 	url,

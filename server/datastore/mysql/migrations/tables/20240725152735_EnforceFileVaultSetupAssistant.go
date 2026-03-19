@@ -45,6 +45,7 @@ func setKeyInPayloadContent(original []byte, destType, key string, value any) ([
 }
 
 func Up_20240725152735(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	fvProfiles := []struct {

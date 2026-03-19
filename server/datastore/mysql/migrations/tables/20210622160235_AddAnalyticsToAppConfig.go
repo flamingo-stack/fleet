@@ -11,14 +11,17 @@ func init() {
 }
 
 func Up_20210622160235(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Analytics default to off when migrating an existing installation. New
 	// installations will have this set to on during the setup process.
-	sql := `
+	if !columnExists(tx, "app_configs", "enable_analytics") {
+		sql := `
 		ALTER TABLE app_configs
 		ADD COLUMN enable_analytics tinyint(1) NOT NULL DEFAULT 0
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add analytics")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add analytics")
+		}
 	}
 	return nil
 }

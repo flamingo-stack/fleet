@@ -11,15 +11,20 @@ func init() {
 }
 
 func Up_20221220195935(tx *sql.Tx) error {
-	if _, err := tx.Exec(
-		"ALTER TABLE `activities` ADD COLUMN `streamed` TINYINT(1) NOT NULL DEFAULT FALSE;",
-	); err != nil {
-		return errors.Wrap(err, "adding streamed column to activities")
+	// Idempotent migration.
+	if !columnExists(tx, "activities", "streamed") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `activities` ADD COLUMN `streamed` TINYINT(1) NOT NULL DEFAULT FALSE;",
+		); err != nil {
+			return errors.Wrap(err, "adding streamed column to activities")
+		}
 	}
-	if _, err := tx.Exec(
-		"CREATE INDEX activities_streamed_idx ON activities (streamed);",
-	); err != nil {
-		return errors.Wrap(err, "create activities_streamed_idx")
+	if !indexExistsTx(tx, "activities", "activities_streamed_idx") {
+		if _, err := tx.Exec(
+			"CREATE INDEX activities_streamed_idx ON activities (streamed);",
+		); err != nil {
+			return errors.Wrap(err, "create activities_streamed_idx")
+		}
 	}
 	return nil
 }

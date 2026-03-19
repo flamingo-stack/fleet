@@ -10,13 +10,16 @@ func init() {
 }
 
 func Up_20230918132351(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "software_cve", "resolved_in_version") {
+		stmt := `
 		ALTER TABLE software_cve
 		ADD COLUMN resolved_in_version VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL;
 	`
 
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add resolved_in_version column to software_cve: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add resolved_in_version column to software_cve: %w", err)
+		}
 	}
 
 	return nil

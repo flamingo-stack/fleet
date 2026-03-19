@@ -15,6 +15,7 @@ func init() {
 }
 
 func Up_20240802113716(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	type row struct {

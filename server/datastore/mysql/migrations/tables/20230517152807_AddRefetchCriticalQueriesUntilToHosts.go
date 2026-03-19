@@ -11,10 +11,15 @@ func init() {
 }
 
 func Up_20230517152807(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "hosts", "refetch_critical_queries_until") {
+		if _, err := tx.Exec(`
 ALTER TABLE hosts ADD COLUMN refetch_critical_queries_until TIMESTAMP NULL;
-`)
-	return errors.Wrap(err, "add refetch_critical_queries_until")
+`); err != nil {
+			return errors.Wrap(err, "add refetch_critical_queries_until")
+		}
+	}
+	return nil
 }
 
 func Down_20230517152807(tx *sql.Tx) error {

@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20220307104655(tx *sql.Tx) error {
+	// Idempotent migration.
 	hostDeviceAuthTable := `
     CREATE TABLE IF NOT EXISTS host_device_auth (
         host_id int(10) UNSIGNED NOT NULL,

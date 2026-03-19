@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20230911163618(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "host_mdm_apple_profiles", "retries") {
+		stmt := `
 ALTER TABLE host_mdm_apple_profiles
 	ADD COLUMN retries TINYINT(3) UNSIGNED NOT NULL DEFAULT 0`
 
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add retries to host_mdm_apple_profiles: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add retries to host_mdm_apple_profiles: %w", err)
+		}
 	}
 	return nil
 }

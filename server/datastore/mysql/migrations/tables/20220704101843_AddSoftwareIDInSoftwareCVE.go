@@ -64,11 +64,13 @@ WHERE cve.software_id IS NULL AND cve.id >= ? AND cve.id < ?;`
 		}
 	}
 
-	const indexStmt = `
+	// Idempotent migration.
+	if !indexExistsTx(tx, "software_cve", "software_cve_software_id") {
+		const indexStmt = `
 ALTER TABLE software_cve ADD INDEX software_cve_software_id (software_id), ALGORITHM=INPLACE, LOCK=NONE;`
-	_, err := tx.Exec(indexStmt)
-	if err != nil {
-		return errors.Wrapf(err, "adding index to software_id on software_cve table")
+		if _, err := tx.Exec(indexStmt); err != nil {
+			return errors.Wrapf(err, "adding index to software_id on software_cve table")
+		}
 	}
 
 	return nil

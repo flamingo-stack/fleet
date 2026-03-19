@@ -11,13 +11,16 @@ func init() {
 }
 
 func Up_20210818182258(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if !columnsExists(tx, "hosts", "gigs_disk_space_available", "percent_disk_space_available") {
+		sql := `
 		ALTER TABLE hosts
 		ADD COLUMN gigs_disk_space_available FLOAT NOT NULL DEFAULT 0,
         ADD COLUMN percent_disk_space_available FLOAT NOT NULL DEFAULT 0
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add columns for disk_space")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add columns for disk_space")
+		}
 	}
 	return nil
 }

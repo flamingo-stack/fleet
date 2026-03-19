@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20161118212641(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
-		"CREATE TABLE `password_reset_requests` (" +
+		"CREATE TABLE IF NOT EXISTS `password_reset_requests` (" +
 			"`id` int(10) unsigned NOT NULL AUTO_INCREMENT," +
 			"`expires_at` timestamp NOT NULL," +
 			"`created_at` timestamp DEFAULT CURRENT_TIMESTAMP," +

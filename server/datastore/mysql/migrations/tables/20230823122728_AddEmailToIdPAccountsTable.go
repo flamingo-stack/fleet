@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20230823122728(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "mdm_idp_accounts", "email") {
+		stmt := `
           ALTER TABLE mdm_idp_accounts
           ADD COLUMN email varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT ''
  	 `
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add email to mdm_idp_accounts: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add email to mdm_idp_accounts: %w", err)
+		}
 	}
 	return nil
 }

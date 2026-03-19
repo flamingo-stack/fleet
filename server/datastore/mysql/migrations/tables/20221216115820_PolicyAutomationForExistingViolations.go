@@ -10,20 +10,22 @@ func init() {
 }
 
 func Up_20221216115820(tx *sql.Tx) error {
-	for name, query := range map[string]string{
-		"create table": `
-			CREATE TABLE policy_automation_iterations (
+	// Idempotent migration.
+	if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS policy_automation_iterations (
 				policy_id INT UNSIGNED NOT NULL PRIMARY KEY,
 				iteration INT NOT NULL,
 				FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE
 			);
-		`,
-		"alter table": `
+		`); err != nil {
+		return errors.Wrap(err, "create table")
+	}
+
+	if !columnExists(tx, "policy_membership", "automation_iteration") {
+		if _, err := tx.Exec(`
 			ALTER TABLE policy_membership ADD COLUMN automation_iteration INT NULL;
-		`,
-	} {
-		if _, err := tx.Exec(query); err != nil {
-			return errors.Wrap(err, name)
+		`); err != nil {
+			return errors.Wrap(err, "alter table")
 		}
 	}
 	return nil

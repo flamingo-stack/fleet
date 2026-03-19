@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20201021104586(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS carve_metadata (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

@@ -11,12 +11,15 @@ func init() {
 }
 
 func Up_20251028140400(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if columnExists(tx, "in_house_apps", "name") {
+		_, err := tx.Exec(`
 ALTER TABLE in_house_apps
     RENAME COLUMN name TO filename
 `)
-	if err != nil {
-		return errors.Wrapf(err, "in_house_apps table: rename name to filename")
+		if err != nil {
+			return errors.Wrapf(err, "in_house_apps table: rename name to filename")
+		}
 	}
 	return nil
 }

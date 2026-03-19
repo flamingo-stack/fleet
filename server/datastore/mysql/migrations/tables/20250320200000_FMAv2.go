@@ -13,18 +13,25 @@ func init() {
 }
 
 func Up_20250320200000(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if columnExists(tx, "software_installers", "fleet_library_app_id") {
+		_, err := tx.Exec(`
 ALTER TABLE software_installers
 	CHANGE COLUMN fleet_library_app_id fleet_maintained_app_id INT unsigned DEFAULT NULL
 `)
-	if err != nil {
-		return fmt.Errorf("failed to rename fleet_library_app_id column: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to rename fleet_library_app_id column: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`RENAME TABLE fleet_library_apps TO fleet_maintained_apps`)
-	if err != nil {
-		return fmt.Errorf("failed to rename fleet_library_apps: %w", err)
+	if tableExists(tx, "fleet_library_apps") {
+		_, err := tx.Exec(`RENAME TABLE fleet_library_apps TO fleet_maintained_apps`)
+		if err != nil {
+			return fmt.Errorf("failed to rename fleet_library_apps: %w", err)
+		}
 	}
+
+	var err error
 
 	_, err = tx.Exec(`UPDATE software_installers si
 		JOIN fleet_maintained_apps fma ON fma.id = si.fleet_maintained_app_id
@@ -35,16 +42,22 @@ ALTER TABLE software_installers
 		return fmt.Errorf("failed to unlink diverged Fleet-maintained apps: %w", err)
 	}
 
-	_, err = tx.Exec(`
-ALTER TABLE fleet_maintained_apps
-    DROP CONSTRAINT fk_fleet_library_apps_install_script_content,
-    DROP CONSTRAINT fk_fleet_library_apps_uninstall_script_content
-`)
-	if err != nil {
-		return fmt.Errorf("failed to drop obsolete indexed from fleet_maintained_apps: %w", err)
+	if constraintExists(tx, "fleet_maintained_apps", "fk_fleet_library_apps_install_script_content") {
+		_, err = tx.Exec(`ALTER TABLE fleet_maintained_apps DROP CONSTRAINT fk_fleet_library_apps_install_script_content`)
+		if err != nil {
+			return fmt.Errorf("failed to drop fk_fleet_library_apps_install_script_content: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`
+	if constraintExists(tx, "fleet_maintained_apps", "fk_fleet_library_apps_uninstall_script_content") {
+		_, err = tx.Exec(`ALTER TABLE fleet_maintained_apps DROP CONSTRAINT fk_fleet_library_apps_uninstall_script_content`)
+		if err != nil {
+			return fmt.Errorf("failed to drop fk_fleet_library_apps_uninstall_script_content: %w", err)
+		}
+	}
+
+	if columnExists(tx, "fleet_maintained_apps", "version") {
+		_, err = tx.Exec(`
 ALTER TABLE fleet_maintained_apps
 	DROP COLUMN version,
 	DROP COLUMN installer_url,
@@ -54,8 +67,9 @@ ALTER TABLE fleet_maintained_apps
 	CHANGE COLUMN bundle_identifier unique_identifier VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
  	CHANGE COLUMN token slug VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter fleet_maintained_apps: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter fleet_maintained_apps: %w", err)
+		}
 	}
 
 	// Clean up scripts that were only associated with FMAs

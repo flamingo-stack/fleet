@@ -11,8 +11,11 @@ func init() {
 }
 
 func Up_20251217000000(tx *sql.Tx) error {
-	if _, err := tx.Exec("ALTER TABLE `host_certificate_templates` ADD COLUMN `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL"); err != nil {
-		return errors.Wrap(err, "adding name column to host_certificate_templates")
+	// Idempotent migration.
+	if !columnExists(tx, "host_certificate_templates", "name") {
+		if _, err := tx.Exec("ALTER TABLE `host_certificate_templates` ADD COLUMN `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL"); err != nil {
+			return errors.Wrap(err, "adding name column to host_certificate_templates")
+		}
 	}
 
 	// Populate name from certificate_templates for existing rows

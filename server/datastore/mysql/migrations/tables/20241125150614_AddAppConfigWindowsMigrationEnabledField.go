@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20241125150614(tx *sql.Tx) error {
+	// Idempotent migration.
 	var raw json.RawMessage
 	var id uint
 	row := tx.QueryRow(`SELECT id, json_value FROM app_config_json LIMIT 1;`)

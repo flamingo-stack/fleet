@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20221014084130(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-    CREATE TABLE host_orbit_info (
+    CREATE TABLE IF NOT EXISTS host_orbit_info (
         host_id				INT(10) UNSIGNED NOT NULL,
         version				VARCHAR(50) NOT NULL,
 

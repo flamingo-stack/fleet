@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240905105135(tx *sql.Tx) error {
+	// Idempotent migration.
 	// The AUTO_INCREMENT columns are used to determine if a row was updated by an INSERT ... ON DUPLICATE KEY UPDATE statement.
 	// This is needed because we are currently using CLIENT_FOUND_ROWS option to determine if a row was found.
 	// And in order to find if the row was updated, we need to check LAST_INSERT_ID().

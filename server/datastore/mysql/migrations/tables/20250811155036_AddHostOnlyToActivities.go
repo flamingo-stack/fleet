@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20250811155036(tx *sql.Tx) error {
-	stmt := `ALTER TABLE activities ADD COLUMN host_only BOOLEAN NOT NULL DEFAULT false`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("adding host_only column to activities table: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "activities", "host_only") {
+		stmt := `ALTER TABLE activities ADD COLUMN host_only BOOLEAN NOT NULL DEFAULT false`
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("adding host_only column to activities table: %w", err)
+		}
 	}
 	return nil
 }

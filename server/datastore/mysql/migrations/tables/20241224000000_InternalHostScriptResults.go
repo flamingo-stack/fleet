@@ -10,11 +10,14 @@ func init() {
 }
 
 func Up_20241224000000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// alter the host_script_results table to add an is_internal flag (for scripts that still execute
 	// when scripts are disabled globally)
-	_, err := tx.Exec(`ALTER TABLE host_script_results ADD COLUMN is_internal BOOLEAN DEFAULT FALSE`)
-	if err != nil {
-		return fmt.Errorf("add is_internal to host_script_results: %w", err)
+	if !columnExists(tx, "host_script_results", "is_internal") {
+		_, err := tx.Exec(`ALTER TABLE host_script_results ADD COLUMN is_internal BOOLEAN DEFAULT FALSE`)
+		if err != nil {
+			return fmt.Errorf("add is_internal to host_script_results: %w", err)
+		}
 	}
 
 	return nil

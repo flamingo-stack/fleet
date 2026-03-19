@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20240327115530(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE mdm_apple_declarations (
+CREATE TABLE IF NOT EXISTS mdm_apple_declarations (
     -- declaration_uuid is used as the primary key of the declaration
     declaration_uuid varchar(37) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 
@@ -43,7 +44,7 @@ CREATE TABLE mdm_apple_declarations (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE mdm_declaration_labels (
+CREATE TABLE IF NOT EXISTS mdm_declaration_labels (
     -- id is used as the primary key of this table
     id int(10) unsigned NOT NULL AUTO_INCREMENT,
 
@@ -74,7 +75,7 @@ CREATE TABLE mdm_declaration_labels (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE mdm_apple_declaration_activation_references (
+CREATE TABLE IF NOT EXISTS mdm_apple_declaration_activation_references (
     -- declaration_uuid is the declaration that contains the references
     declaration_uuid varchar(37) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 
@@ -91,7 +92,7 @@ CREATE TABLE mdm_apple_declaration_activation_references (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE host_mdm_apple_declarations (
+CREATE TABLE IF NOT EXISTS host_mdm_apple_declarations (
     -- host_uuid references a host in the hosts table
     host_uuid varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 

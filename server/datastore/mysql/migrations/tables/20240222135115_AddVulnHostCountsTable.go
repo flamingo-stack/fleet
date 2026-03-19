@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20240222135115(tx *sql.Tx) error {
+	// Idempotent migration.
 	createStmt := `
 		CREATE TABLE IF NOT EXISTS vulnerability_host_counts (
 			cve VARCHAR(20) NOT NULL,

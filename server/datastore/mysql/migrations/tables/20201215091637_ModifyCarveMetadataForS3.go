@@ -11,13 +11,16 @@ func init() {
 }
 
 func Up_20201215091637(tx *sql.Tx) error {
-	query := `
+	// Idempotent migration.
+	if !columnExists(tx, "carve_metadata", "max_block") {
+		query := `
 		ALTER TABLE carve_metadata
 		ADD max_block INT DEFAULT -1,
 		MODIFY session_id VARCHAR(255) NOT NULL;
 	`
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrap(err, "alter carve session_id size")
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrap(err, "alter carve session_id size")
+		}
 	}
 
 	return nil

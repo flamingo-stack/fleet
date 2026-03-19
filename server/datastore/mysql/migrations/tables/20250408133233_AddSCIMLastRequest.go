@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250408133233(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 	CREATE TABLE IF NOT EXISTS scim_last_request (
 	    -- dummy column as a hint that this table should only have one row

@@ -11,7 +11,8 @@ func init() {
 }
 
 func Up_20230530122103(tx *sql.Tx) error {
-	_, err := tx.Exec(`INSERT INTO mdm_apple_delivery_status (status) VALUES(?)`, "verified")
+	// Idempotent migration.
+	_, err := tx.Exec(`INSERT IGNORE INTO mdm_apple_delivery_status (status) VALUES(?)`, "verified")
 	if err != nil {
 		return errors.Wrap(err, "insert verified mdm_apple_delivery_status")
 	}

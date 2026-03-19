@@ -63,6 +63,7 @@ type testAppConfig struct {
 }
 
 func Up_20210818151828(tx *sql.Tx) error {
+	// Idempotent migration.
 	sql := `
 		CREATE TABLE IF NOT EXISTS app_config_json (
 			id int(10) unsigned NOT NULL UNIQUE default 1,

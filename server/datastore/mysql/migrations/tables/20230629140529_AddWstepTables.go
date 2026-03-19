@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20230629140529(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE wstep_serials (
+CREATE TABLE IF NOT EXISTS wstep_serials (
 	serial         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 	created_at     timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -28,7 +29,7 @@ ALTER TABLE wstep_serials AUTO_INCREMENT = 2;`)
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE wstep_certificates (
+CREATE TABLE IF NOT EXISTS wstep_certificates (
 	serial             BIGINT(20) UNSIGNED NOT NULL,
 	name               VARCHAR(1024) NOT NULL,
 	not_valid_before   DATETIME NOT NULL,
@@ -46,7 +47,7 @@ CREATE TABLE wstep_certificates (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE wstep_cert_auth_associations (
+CREATE TABLE IF NOT EXISTS wstep_cert_auth_associations (
 	id             VARCHAR(255) NOT NULL,
 	sha256		   CHAR(64) NOT NULL,
 	created_at     timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,

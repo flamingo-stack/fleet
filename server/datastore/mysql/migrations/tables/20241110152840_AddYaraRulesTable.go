@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20241110152840(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE yara_rules (
+CREATE TABLE IF NOT EXISTS yara_rules (
 	id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
 	name VARCHAR(255) NOT NULL,
 	contents MEDIUMTEXT NOT NULL,

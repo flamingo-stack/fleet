@@ -11,11 +11,14 @@ func init() {
 }
 
 func Up20200407120000(tx *sql.Tx) error {
-	if _, err := tx.Exec(
-		"ALTER TABLE `labels` " +
-			"ADD COLUMN `label_membership_type` int(10) unsigned NOT NULL default '0'",
-	); err != nil {
-		return errors.Wrap(err, "add label_membership_type column ")
+	// Idempotent migration.
+	if !columnExists(tx, "labels", "label_membership_type") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `labels` " +
+				"ADD COLUMN `label_membership_type` int(10) unsigned NOT NULL default '0'",
+		); err != nil {
+			return errors.Wrap(err, "add label_membership_type column ")
+		}
 	}
 
 	// All hosts should now be the only "manual" label

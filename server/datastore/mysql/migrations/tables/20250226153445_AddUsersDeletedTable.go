@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250226153445(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS users_deleted (
 		    -- matches users.id, which is an auto-incrementing primary key
@@ -24,12 +25,13 @@ func Up_20250226153445(tx *sql.Tx) error {
 		return fmt.Errorf("create users_deleted table: %w", err)
 	}
 
-	_, err = tx.Exec(`
-		ALTER TABLE android_enterprises
-		-- user that created the enterprise
-		ADD COLUMN user_id int unsigned NOT NULL DEFAULT 0`)
-	if err != nil {
-		return fmt.Errorf("add user_id to android_enterprise table: %w", err)
+	if !columnExists(tx, "android_enterprises", "user_id") {
+		_, err = tx.Exec(`
+			ALTER TABLE android_enterprises
+			ADD COLUMN user_id int unsigned NOT NULL DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("add user_id to android_enterprise table: %w", err)
+		}
 	}
 
 	return nil

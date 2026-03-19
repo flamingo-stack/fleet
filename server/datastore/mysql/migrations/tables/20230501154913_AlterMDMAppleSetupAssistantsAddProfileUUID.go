@@ -11,10 +11,15 @@ func init() {
 }
 
 func Up_20230501154913(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "mdm_apple_setup_assistants", "profile_uuid") {
+		if _, err := tx.Exec(`
 ALTER TABLE mdm_apple_setup_assistants ADD COLUMN profile_uuid VARCHAR(255) NOT NULL DEFAULT '';
-`)
-	return errors.Wrap(err, "add profile_uuid")
+`); err != nil {
+			return errors.Wrap(err, "add profile_uuid")
+		}
+	}
+	return nil
 }
 
 func Down_20230501154913(tx *sql.Tx) error {

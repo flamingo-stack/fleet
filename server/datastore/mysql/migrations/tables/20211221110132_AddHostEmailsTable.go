@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20211221110132(tx *sql.Tx) error {
+	// Idempotent migration.
 	hostEmailsTable := `
 		CREATE TABLE IF NOT EXISTS host_emails (
 			id         int(10) unsigned NOT NULL AUTO_INCREMENT,

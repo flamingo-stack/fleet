@@ -51,6 +51,7 @@ func setBypassAttemptsToFileVaultProfile(original []byte) ([]byte, error) {
 }
 
 func Up_20230711144622(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	fvProfiles := []struct {

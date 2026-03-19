@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20220323152301(tx *sql.Tx) error {
+	// Idempotent migration.
 	var hostRefs = []string{
 		"host_seen_times",
 		"host_software",

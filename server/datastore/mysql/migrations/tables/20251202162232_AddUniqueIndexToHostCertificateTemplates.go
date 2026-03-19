@@ -9,14 +9,19 @@ func init() {
 }
 
 func Up_20251202162232(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add a unique index to:
 	// 1. Ensure data integrity: no duplicate records for the same host and certificate template
 	// 2. Improve query performance for lookups by these columns
-	_, err := tx.Exec(`
+	if !indexExistsTx(tx, "host_certificate_templates", "idx_host_certificate_templates_host_template") {
+		if _, err := tx.Exec(`
 		ALTER TABLE host_certificate_templates
 		ADD UNIQUE INDEX idx_host_certificate_templates_host_template (host_uuid, certificate_template_id)
-	`)
-	return err
+	`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20251202162232(tx *sql.Tx) error {

@@ -35,16 +35,18 @@ FROM software_cpe sc
 }
 
 func _20230329161600_add_unq_constraint(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	if !constraintExists(tx, "software_cpe", "unq_software_id") {
+		if _, err := tx.Exec(`
 	ALTER TABLE software_cpe ADD CONSTRAINT unq_software_id UNIQUE (software_id), ALGORITHM=INPLACE, LOCK=NONE;
-`)
-	if err != nil {
-		return errors.Wrapf(err, "adding unique constraint to software_id on software_cpe")
+`); err != nil {
+			return errors.Wrapf(err, "adding unique constraint to software_id on software_cpe")
+		}
 	}
 	return nil
 }
 
 func Up_20230330134823(tx *sql.Tx) error {
+	// Idempotent migration.
 	if err := _20230329161600_remove_duplicates(tx); err != nil {
 		return err
 	}

@@ -9,10 +9,13 @@ func init() {
 }
 
 func Up_20230525151159(tx *sql.Tx) error {
-	if _, err := tx.Exec(
-		"CREATE INDEX activities_created_at_idx ON activities (created_at);",
-	); err != nil {
-		return err
+	// Idempotent migration.
+	if !indexExistsTx(tx, "activities", "activities_created_at_idx") {
+		if _, err := tx.Exec(
+			"CREATE INDEX activities_created_at_idx ON activities (created_at);",
+		); err != nil {
+			return err
+		}
 	}
 
 	return nil

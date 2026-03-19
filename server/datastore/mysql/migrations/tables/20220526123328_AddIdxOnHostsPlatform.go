@@ -11,10 +11,13 @@ func init() {
 }
 
 func Up_20220510110838(tx *sql.Tx) error {
-	stm := "CREATE INDEX hosts_platform_idx ON hosts (platform);"
+	// Idempotent migration.
+	if !indexExistsTx(tx, "hosts", "hosts_platform_idx") {
+		stm := "CREATE INDEX hosts_platform_idx ON hosts (platform);"
 
-	if _, err := tx.Exec(stm); err != nil {
-		return errors.Wrap(err, "creating hosts index")
+		if _, err := tx.Exec(stm); err != nil {
+			return errors.Wrap(err, "creating hosts index")
+		}
 	}
 
 	return nil
