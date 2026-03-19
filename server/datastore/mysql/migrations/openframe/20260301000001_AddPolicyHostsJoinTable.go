@@ -6,10 +6,10 @@ import (
 )
 
 func init() {
-	MigrationClient.AddMigration(Up_00001, Down_00001)
+	MigrationClient.AddMigration(Up_20260301000001, Down_20260301000001)
 }
 
-func Up_00001(tx *sql.Tx) error {
+func Up_20260301000001(tx *sql.Tx) error {
 	// Idempotent migration.
 	_, err := tx.Exec(`
 CREATE TABLE IF NOT EXISTS policy_hosts (
@@ -29,6 +29,6 @@ CREATE TABLE IF NOT EXISTS policy_hosts (
 	return nil
 }
 
-func Down_00001(tx *sql.Tx) error {
+func Down_20260301000001(tx *sql.Tx) error {
 	return nil
 }

@@ -51,9 +51,9 @@ var MigrationClient = goose.New("migration_status_openframe", goose.MySqlDialect
 Each openframe migration registers itself against `MigrationClient`:
 
 ```go
-// server/datastore/mysql/migrations/openframe/00001_AddPolicyHostsJoinTable.go
+// server/datastore/mysql/migrations/openframe/20260301000001_AddPolicyHostsJoinTable.go
 func init() {
-    MigrationClient.AddMigration(Up_00001, Down_00001)
+    MigrationClient.AddMigration(Up_20260301000001, Down_20260301000001)
 }
 ```
 
@@ -83,15 +83,21 @@ The three migration clients run **sequentially**. By the time `MigrateOpenframe`
 
 ### Naming
 
-Use simple sequential numbering with zero-padded 5-digit IDs:
+Use date-based timestamps matching the Fleet convention — `YYYYMMDDHHMMSS`:
 
 ```
-00001_AddPolicyHostsJoinTable.go
-00002_AddQueryHostsJoinTable.go
-00003_YourNextMigration.go
+20260301000001_AddPolicyHostsJoinTable.go
+20260301000002_AddQueryHostsJoinTable.go
+20260301000003_YourNextMigration.go
 ```
 
-No date-based timestamps needed — our version space is completely independent from upstream.
+This is required because the goose `parseNameAndDate` function expects an 8+ digit date prefix. Function names inside the file must match:
+
+```go
+func init() {
+    MigrationClient.AddMigration(Up_20260301000003, Down_20260301000003)
+}
+```
 
 ### Template
 
@@ -104,10 +110,10 @@ import (
 )
 
 func init() {
-    MigrationClient.AddMigration(Up_00003, Down_00003)
+    MigrationClient.AddMigration(Up_20260301000003, Down_20260301000003)
 }
 
-func Up_00003(tx *sql.Tx) error {
+func Up_20260301000003(tx *sql.Tx) error {
     _, err := tx.Exec(`
         -- Your DDL here.
         -- Use CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS
@@ -119,7 +125,7 @@ func Up_00003(tx *sql.Tx) error {
     return nil
 }
 
-func Down_00003(tx *sql.Tx) error {
+func Down_20260301000003(tx *sql.Tx) error {
     return nil
 }
 ```
@@ -146,13 +152,13 @@ Each table has the standard goose schema:
 
 ```sql
 SELECT * FROM migration_status_openframe;
-+----+------------+------------+---------------------+
-| id | version_id | is_applied | tstamp              |
-+----+------------+------------+---------------------+
-|  1 |          0 |          1 | 2026-02-23 00:00:00 |  -- bootstrap
-|  2 |          1 |          1 | 2026-02-23 00:00:01 |  -- policy_hosts
-|  3 |          2 |          1 | 2026-02-23 00:00:02 |  -- query_hosts
-+----+------------+------------+---------------------+
++----+----------------+------------+---------------------+
+| id | version_id     | is_applied | tstamp              |
++----+----------------+------------+---------------------+
+|  1 |              0 |          1 | 2026-03-01 00:00:00 |  -- bootstrap
+|  2 | 20260301000001 |          1 | 2026-03-01 00:00:01 |  -- policy_hosts
+|  3 | 20260301000002 |          1 | 2026-03-01 00:00:02 |  -- query_hosts
++----+----------------+------------+---------------------+
 ```
 
 ## Rebase workflow
@@ -162,3 +168,7 @@ When rebasing onto a newer upstream release:
 1. **No migration changes needed.** Our migrations live in `migrations/openframe/` and use independent numbering — upstream changes to `migrations/tables/` don't affect us.
 2. Resolve any conflicts in Go source files (datastore methods, service handlers, etc.) as usual.
 3. Run `fleet prepare db` on a test database to verify all three migration pipelines complete successfully.
+
+## Known issue: `prepare db` early return (fixed)
+
+Previously, `cmd/fleet/prepare.go` had an early `return` when `MigrationStatus()` reported `AllMigrationsCompleted`. Since `MigrationStatus()` only checks `tables` and `data` migrations, this caused `MigrateOpenframe()` to be skipped on databases where upstream migrations were already applied. The fix removes the early return so that openframe migrations always execute.

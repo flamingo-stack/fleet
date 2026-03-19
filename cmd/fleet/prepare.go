@@ -72,8 +72,7 @@ To setup Fleet infrastructure, use one of the available commands.
 			case fleet.NoMigrationsCompleted:
 				// OK
 			case fleet.AllMigrationsCompleted:
-				fmt.Println("Migrations already completed. Nothing to do.")
-				return
+				// Continue to run OpenFrame migrations even if tables/data are complete
 			case fleet.SomeMigrationsCompleted:
 				if !noPrompt {
 					printMissingMigrationsPrompt(status.MissingTable, status.MissingData)

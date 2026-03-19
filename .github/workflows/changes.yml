@@ -7,6 +7,8 @@ on:
         value: ${{ jobs.changes.outputs.server }}
       client:
         value: ${{ jobs.changes.outputs.client }}
+      helm:
+        value: ${{ jobs.changes.outputs.helm }}
 
 jobs:
   changes:
@@ -17,6 +19,7 @@ jobs:
     outputs:
       server: ${{ steps.filter.outputs.server }}
       client: ${{ steps.filter.outputs.client }}
+      helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,3 +40,5 @@ jobs:
               - 'orbit/**'
               - 'go.mod'
               - 'go.sum'
+            helm:
+              - 'charts/**'
