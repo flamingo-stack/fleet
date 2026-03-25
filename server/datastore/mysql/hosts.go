@@ -3528,13 +3528,8 @@ func (ds *Datastore) ListPoliciesForHost(ctx context.Context, host *fleet.Host) 
 
 	if fleet.IsOpenframeMode() {
 		baseQuery += `
-	AND (
-		NOT EXISTS (
-			SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id
-		)
-		OR EXISTS (
-			SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id AND ph.host_id = ?
-		)
+	AND EXISTS (
+		SELECT 1 FROM policy_hosts ph WHERE ph.policy_id = p.id AND ph.host_id = ?
 	)`
 		args = append(args, host.ID)
 	}
