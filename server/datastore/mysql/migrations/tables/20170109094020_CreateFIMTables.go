@@ -7,8 +7,9 @@ func init() {
 }
 
 func Up_20170109094020(tx *sql.Tx) error {
+	// Idempotent migration.
 	sqlStatement :=
-		"CREATE TABLE `file_integrity_monitorings` ( " +
+		"CREATE TABLE IF NOT EXISTS `file_integrity_monitorings` ( " +
 			"  `id` int(10) NOT NULL AUTO_INCREMENT, " +
 			"  `section_name` varchar(255) NOT NULL DEFAULT '', " +
 			"  `description` varchar(255) NOT NULL DEFAULT ''," +
@@ -20,7 +21,7 @@ func Up_20170109094020(tx *sql.Tx) error {
 		return err
 	}
 	sqlStatement =
-		"CREATE TABLE `file_integrity_monitoring_files` (" +
+		"CREATE TABLE IF NOT EXISTS `file_integrity_monitoring_files` (" +
 			"  `id` int(10) NOT NULL AUTO_INCREMENT," +
 			"  `file` varchar(255) NOT NULL DEFAULT ''," +
 			"  `file_integrity_monitoring_id` int(10) NOT NULL DEFAULT '0'," +

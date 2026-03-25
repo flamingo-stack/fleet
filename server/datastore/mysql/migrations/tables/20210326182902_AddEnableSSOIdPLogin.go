@@ -11,11 +11,14 @@ func init() {
 }
 
 func Up_20210326182902(tx *sql.Tx) error {
-	if _, err := tx.Exec(
-		"ALTER TABLE `app_configs` " +
-			"ADD COLUMN `enable_sso_idp_login` tinyint(1) NOT NULL DEFAULT '0'",
-	); err != nil {
-		return errors.Wrap(err, "add enable_sso_idp_login")
+	// Idempotent migration.
+	if !columnExists(tx, "app_configs", "enable_sso_idp_login") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `app_configs` " +
+				"ADD COLUMN `enable_sso_idp_login` tinyint(1) NOT NULL DEFAULT '0'",
+		); err != nil {
+			return errors.Wrap(err, "add enable_sso_idp_login")
+		}
 	}
 
 	return nil

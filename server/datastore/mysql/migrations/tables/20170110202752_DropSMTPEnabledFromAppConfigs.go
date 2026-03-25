@@ -7,11 +7,16 @@ func init() {
 }
 
 func Up_20170110202752(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `app_configs` " +
-			"DROP COLUMN `smtp_enabled`;",
-	)
-	return err
+	// Idempotent migration.
+	if columnExists(tx, "app_configs", "smtp_enabled") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `app_configs` " +
+				"DROP COLUMN `smtp_enabled`;",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170110202752(tx *sql.Tx) error {

@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20220107155700(tx *sql.Tx) error {
+	// Idempotent migration.
 	tables := []string{
 		"host_additional",
 		"host_users",
@@ -35,8 +36,10 @@ func removeHostIDFK(tx *sql.Tx, table string) error {
 		return errors.Wrap(err, "getting references to hosts table")
 	}
 	for _, ct := range constraints {
-		if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE %s DROP FOREIGN KEY %s;`, table, ct)); err != nil {
-			return errors.Wrapf(err, "dropping %s foreign keys: %s", table, ct)
+		if fkExists(tx, table, ct) {
+			if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE %s DROP FOREIGN KEY %s;`, table, ct)); err != nil {
+				return errors.Wrapf(err, "dropping %s foreign keys: %s", table, ct)
+			}
 		}
 	}
 	return nil

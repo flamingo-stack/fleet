@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20250424153059(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
-CREATE TABLE batch_script_executions (
+CREATE TABLE IF NOT EXISTS batch_script_executions (
   id int unsigned NOT NULL AUTO_INCREMENT,
   script_id int unsigned NOT NULL,
   execution_id varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -23,7 +24,7 @@ CREATE TABLE batch_script_executions (
   CONSTRAINT batch_script_executions_script_id FOREIGN KEY (script_id) REFERENCES scripts (id) ON DELETE CASCADE
 );
 
-CREATE TABLE batch_script_execution_host_results (
+CREATE TABLE IF NOT EXISTS batch_script_execution_host_results (
   id int unsigned NOT NULL AUTO_INCREMENT,
   batch_execution_id varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   host_id int unsigned NOT NULL,

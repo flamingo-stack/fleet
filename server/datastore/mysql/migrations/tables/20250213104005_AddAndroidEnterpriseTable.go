@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250213104005(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS android_enterprises (
     		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     		signup_name VARCHAR(63) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',

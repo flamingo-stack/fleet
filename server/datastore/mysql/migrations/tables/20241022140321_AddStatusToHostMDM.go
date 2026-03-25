@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20241022140321(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnsExists(tx, "host_mdm", "enrollment_status", "created_at", "updated_at") {
 		if _, err := tx.Exec(`
 ALTER TABLE host_mdm

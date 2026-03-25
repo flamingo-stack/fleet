@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250613103810(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnExists(tx, "mdm_apple_configuration_profiles", "scope") {
 		_, err := tx.Exec(`
 		ALTER TABLE mdm_apple_configuration_profiles

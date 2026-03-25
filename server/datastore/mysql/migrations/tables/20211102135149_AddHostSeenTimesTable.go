@@ -3,7 +3,6 @@ package tables
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -13,6 +12,7 @@ func init() {
 }
 
 func Up_20211102135149(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Detach seen_times from hosts to allow for bulk updates without locking the hosts table
 	// See https://github.com/fleetdm/fleet/issues/2776
 	hostSeenTimesTable := `
@@ -31,8 +31,10 @@ func Up_20211102135149(tx *sql.Tx) error {
 		return errors.Wrap(err, "migrating host seen_times")
 	}
 
-	if _, err := tx.Exec(`ALTER TABLE hosts DROP COLUMN seen_time`); err != nil {
-		return errors.Wrap(err, "dropping host seen_times")
+	if columnExists(tx, "hosts", "seen_time") {
+		if _, err := tx.Exec(`ALTER TABLE hosts DROP COLUMN seen_time`); err != nil {
+			return errors.Wrap(err, "dropping host seen_times")
+		}
 	}
 
 	referencedTables := map[string]struct{}{"hosts": {}, "software": {}}
@@ -44,9 +46,9 @@ func Up_20211102135149(tx *sql.Tx) error {
 	}
 
 	for _, constraint := range constraints {
-		_, err = tx.Exec(fmt.Sprintf(`ALTER TABLE host_software DROP FOREIGN KEY %s;`, constraint))
-		if err != nil {
-			if !strings.Contains(err.Error(), "check that column/key exists") {
+		if fkExists(tx, "host_software", constraint) {
+			_, err = tx.Exec(fmt.Sprintf(`ALTER TABLE host_software DROP FOREIGN KEY %s;`, constraint))
+			if err != nil {
 				return errors.Wrapf(err, "dropping fk %s", constraint)
 			}
 		}

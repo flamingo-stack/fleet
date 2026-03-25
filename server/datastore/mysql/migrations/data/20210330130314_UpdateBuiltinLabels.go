@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20210330130314(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Update labels to set platform to empty. Previously the platform meant
 	// that if a host changed platform (say by installing a new OS and still
 	// having the same hardware UUID) the old label query would never run again
@@ -23,7 +24,7 @@ func Up_20210330130314(tx *sql.Tx) error {
 
 	// Insert Red Hat label
 	sql = `
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

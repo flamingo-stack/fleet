@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20251015103800(tx *sql.Tx) error {
+	// Idempotent migration.
 	//
 	// NOTE: This migration was copied from server/datastore/mysql/migrations/data/20210330130314_UpdateBuiltinLabels.go.
 	// We are now running this on the "tables" migration, because the "data" migrations (deprecated) run after

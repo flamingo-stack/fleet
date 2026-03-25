@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20161118212621(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
-		"CREATE TABLE `pack_targets` (" +
+		"CREATE TABLE IF NOT EXISTS `pack_targets` (" +
 			"`id` int(10) unsigned NOT NULL AUTO_INCREMENT," +
 			"`pack_id` int(10) unsigned DEFAULT NULL," +
 			"`type` int(11) DEFAULT NULL," +

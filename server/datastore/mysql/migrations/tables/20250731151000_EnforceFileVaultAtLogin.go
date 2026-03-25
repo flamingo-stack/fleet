@@ -51,6 +51,7 @@ func enforceFileVaultAtLogin(original []byte) ([]byte, error) {
 }
 
 func Up_20250723111413(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	// legacy_host_filevault_profiles contains all hosts that had the filevault profile applied before it was updated below.
@@ -79,7 +80,7 @@ CREATE TABLE IF NOT EXISTS legacy_host_filevault_profiles (
 	}
 
 	_, err = txx.Exec(`
-		INSERT INTO legacy_host_filevault_profiles 
+		INSERT IGNORE INTO legacy_host_filevault_profiles
 			(host_uuid, status, operation_type, profile_uuid, detail, command_uuid, scope, created_at, updated_at)
 		SELECT 
 			host_uuid, 

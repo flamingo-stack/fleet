@@ -9,7 +9,8 @@ func init() {
 }
 
 func Up_20170131232841(tx *sql.Tx) error {
-	create := "CREATE TABLE `public_keys` ( " +
+	// Idempotent migration.
+	create := "CREATE TABLE IF NOT EXISTS `public_keys` ( " +
 		"`hash` char(64) NOT NULL DEFAULT '', " +
 		"`key` text NOT NULL, " +
 		"PRIMARY KEY (`hash`) " +

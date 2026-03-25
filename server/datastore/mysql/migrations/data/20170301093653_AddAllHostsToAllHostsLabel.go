@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20170301093653(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Insert any host not currently in 'All Hosts' label into the label
 	_, err := tx.Exec(`
 		INSERT IGNORE INTO label_membership (

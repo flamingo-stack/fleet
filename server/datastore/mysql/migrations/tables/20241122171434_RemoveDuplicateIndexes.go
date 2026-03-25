@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20241122171434(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Duplicate indexes identified after running pt-duplicate-key-checker
 	// https://docs.percona.com/percona-toolkit/pt-duplicate-key-checker.html
 
@@ -98,17 +99,42 @@ func Up_20241122171434(tx *sql.Tx) error {
 	// # To remove this duplicate index, execute:
 	// ALTER TABLE `fleet`.`software_cve` DROP INDEX `software_cve_software_id`;
 
-	_, err := tx.Exec(
-		"ALTER TABLE `app_config_json` DROP INDEX `id`;" +
-			"ALTER TABLE `host_users` DROP INDEX `idx_uid_username`;" +
-			"ALTER TABLE `migration_status_tables` DROP INDEX `id`;" +
-			"ALTER TABLE `policy_membership` DROP INDEX `idx_policy_membership_policy_id`;" +
-			"ALTER TABLE `software` DROP INDEX `software_listing_idx`, ADD INDEX `software_listing_idx` (`name`);" +
-			"ALTER TABLE `software_cve` DROP INDEX `software_cve_software_id`;",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to remove duplicate indexes: %w", err)
+	if indexExistsTx(tx, "app_config_json", "id") {
+		if _, err := tx.Exec("ALTER TABLE `app_config_json` DROP INDEX `id`"); err != nil {
+			return fmt.Errorf("failed to drop duplicate index id on app_config_json: %w", err)
+		}
 	}
+
+	if indexExistsTx(tx, "host_users", "idx_uid_username") {
+		if _, err := tx.Exec("ALTER TABLE `host_users` DROP INDEX `idx_uid_username`"); err != nil {
+			return fmt.Errorf("failed to drop duplicate index idx_uid_username on host_users: %w", err)
+		}
+	}
+
+	if indexExistsTx(tx, "migration_status_tables", "id") {
+		if _, err := tx.Exec("ALTER TABLE `migration_status_tables` DROP INDEX `id`"); err != nil {
+			return fmt.Errorf("failed to drop duplicate index id on migration_status_tables: %w", err)
+		}
+	}
+
+	if indexExistsTx(tx, "policy_membership", "idx_policy_membership_policy_id") {
+		if _, err := tx.Exec("ALTER TABLE `policy_membership` DROP INDEX `idx_policy_membership_policy_id`"); err != nil {
+			return fmt.Errorf("failed to drop duplicate index idx_policy_membership_policy_id on policy_membership: %w", err)
+		}
+	}
+
+	if indexExistsTx(tx, "software", "software_listing_idx") {
+		if _, err := tx.Exec("ALTER TABLE `software` DROP INDEX `software_listing_idx`, ADD INDEX `software_listing_idx` (`name`)"); err != nil {
+			return fmt.Errorf("failed to replace software_listing_idx on software: %w", err)
+		}
+	}
+
+	if indexExistsTx(tx, "software_cve", "software_cve_software_id") {
+		if _, err := tx.Exec("ALTER TABLE `software_cve` DROP INDEX `software_cve_software_id`"); err != nil {
+			return fmt.Errorf("failed to drop duplicate index software_cve_software_id on software_cve: %w", err)
+		}
+	}
+
 	return nil
 }
 

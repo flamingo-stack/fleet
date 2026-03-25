@@ -14,9 +14,11 @@ func init() {
 }
 
 func Up_20250701155654(tx *sql.Tx) error {
-	_, err := tx.Exec("ALTER TABLE eulas ADD COLUMN sha256 binary(32)")
-	if err != nil {
-		return fmt.Errorf("adding sha256 to eulas table: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "eulas", "sha256") {
+		if _, err := tx.Exec("ALTER TABLE eulas ADD COLUMN sha256 binary(32)"); err != nil {
+			return fmt.Errorf("adding sha256 to eulas table: %w", err)
+		}
 	}
 
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
@@ -27,8 +29,7 @@ func Up_20250701155654(tx *sql.Tx) error {
 	}
 
 	var eulas []eula
-	err = txx.Select(&eulas, "SELECT id, bytes FROM eulas")
-	if err != nil {
+	if err := txx.Select(&eulas, "SELECT id, bytes FROM eulas"); err != nil {
 		return fmt.Errorf("selecting existing eulas: %w", err)
 	}
 
@@ -36,8 +37,7 @@ func Up_20250701155654(tx *sql.Tx) error {
 		hash := sha256.New()
 		_, _ = hash.Write(e.Bytes)
 		sha256Hash := hash.Sum(nil)
-		_, err = txx.Exec("UPDATE eulas SET sha256 = ? WHERE id = ?", sha256Hash, e.ID)
-		if err != nil {
+		if _, err := txx.Exec("UPDATE eulas SET sha256 = ? WHERE id = ?", sha256Hash, e.ID); err != nil {
 			return fmt.Errorf("updating eula %d with sha256: %w", e.ID, err)
 		}
 	}

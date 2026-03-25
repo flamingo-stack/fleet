@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250519170000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// microsoft_compliance_partner_integrations stores the Microsoft Compliance Partner integrations.
 	// On the first version this table will only contain one row (one tenant supported for all devices in Fleet).
 	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS microsoft_compliance_partner_integrations (
@@ -45,9 +46,10 @@ func Up_20250519170000(tx *sql.Tx) error {
 	}
 
 	// Adding a new field to policies to enable/disable them for conditional access.
-	_, err := tx.Exec(`ALTER TABLE policies ADD COLUMN conditional_access_enabled TINYINT(1) UNSIGNED NOT NULL DEFAULT '0'`)
-	if err != nil {
-		return fmt.Errorf("failed to add conditional_access_enabled to policies: %w", err)
+	if !columnExists(tx, "policies", "conditional_access_enabled") {
+		if _, err := tx.Exec(`ALTER TABLE policies ADD COLUMN conditional_access_enabled TINYINT(1) UNSIGNED NOT NULL DEFAULT '0'`); err != nil {
+			return fmt.Errorf("failed to add conditional_access_enabled to policies: %w", err)
+		}
 	}
 
 	return nil

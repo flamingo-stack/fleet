@@ -15,8 +15,9 @@ func init() {
 }
 
 func Up_20250225085436(tx *sql.Tx) error {
+	// Idempotent migration.
 	const stmt = `
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

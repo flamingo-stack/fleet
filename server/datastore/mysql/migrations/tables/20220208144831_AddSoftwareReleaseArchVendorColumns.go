@@ -12,17 +12,20 @@ func init() {
 }
 
 func Up_20220208144831(tx *sql.Tx) error {
+	// Idempotent migration.
 	// NOTE(lucas): I'm using short lengths for the new varchar columns
 	// due to constraints on the size of the key added below. Using 255
 	// for the three new fields would fail with:
 	// "Error 1071: Specified key was too long; max key length is 3072 bytes".
 	//
 	// We need to use "NOT NULL" because these new columns are to be included in the KEY.
-	if _, err := tx.Exec("ALTER TABLE software " +
-		"ADD COLUMN `release` VARCHAR(64) NOT NULL DEFAULT '', " +
-		"ADD COLUMN vendor VARCHAR(32) NOT NULL DEFAULT '', " +
-		"ADD COLUMN arch VARCHAR(16) NOT NULL DEFAULT ''"); err != nil {
-		return errors.Wrap(err, "add new software columns")
+	if !columnsExists(tx, "software", "release", "vendor", "arch") {
+		if _, err := tx.Exec("ALTER TABLE software " +
+			"ADD COLUMN `release` VARCHAR(64) NOT NULL DEFAULT '', " +
+			"ADD COLUMN vendor VARCHAR(32) NOT NULL DEFAULT '', " +
+			"ADD COLUMN arch VARCHAR(16) NOT NULL DEFAULT ''"); err != nil {
+			return errors.Wrap(err, "add new software columns")
+		}
 	}
 
 	// Delete current identifier for a software.
@@ -30,8 +33,10 @@ func Up_20220208144831(tx *sql.Tx) error {
 	if err != nil {
 		return errors.Wrap(err, "fetch current software index")
 	}
-	if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE software DROP KEY %s", currIndexName)); err != nil {
-		return errors.Wrap(err, "add new software columns")
+	if indexExistsTx(tx, "software", currIndexName) {
+		if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE software DROP KEY %s", currIndexName)); err != nil {
+			return errors.Wrap(err, "add new software columns")
+		}
 	}
 
 	// A software piece was originally identified by name, version and source.
@@ -40,8 +45,10 @@ func Up_20220208144831(tx *sql.Tx) error {
 	// - release is the version of the OS this software was released on (e.g. "30.el7" for a CentOS package).
 	// - vendor is the supplier of the software (e.g. "CentOS").
 	// - arch is the target architecture of the software (e.g. "x86_64").
-	if _, err := tx.Exec("ALTER TABLE software ADD UNIQUE KEY (name, version, source, `release`, vendor, arch)"); err != nil {
-		return errors.Wrap(err, "add new index")
+	if !indexExistsTx(tx, "software", "name") {
+		if _, err := tx.Exec("ALTER TABLE software ADD UNIQUE KEY (name, version, source, `release`, vendor, arch)"); err != nil {
+			return errors.Wrap(err, "add new index")
+		}
 	}
 
 	// Remove all software with source rpm_packages, as we will be ingesting them with new osquery
@@ -54,8 +61,10 @@ func Up_20220208144831(tx *sql.Tx) error {
 	}
 
 	// Adding index to optimize software listing by source and vendor for vulnerability post-processing.
-	if _, err := tx.Exec("CREATE INDEX software_source_vendor_idx ON software (source, vendor)"); err != nil {
-		return errors.Wrap(err, "creating source+vendor index")
+	if !indexExistsTx(tx, "software", "software_source_vendor_idx") {
+		if _, err := tx.Exec("CREATE INDEX software_source_vendor_idx ON software (source, vendor)"); err != nil {
+			return errors.Wrap(err, "creating source+vendor index")
+		}
 	}
 
 	return nil

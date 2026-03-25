@@ -9,8 +9,13 @@ func init() {
 }
 
 func Up_20230320133602(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE host_disk_encryption_keys ADD COLUMN reset_requested TINYINT(1) NOT NULL DEFAULT 0`)
-	return err
+	// Idempotent migration.
+	if !columnExists(tx, "host_disk_encryption_keys", "reset_requested") {
+		if _, err := tx.Exec(`ALTER TABLE host_disk_encryption_keys ADD COLUMN reset_requested TINYINT(1) NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20230320133602(tx *sql.Tx) error {

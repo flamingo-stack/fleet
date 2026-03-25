@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20210526113559(tx *sql.Tx) error {
+	// Idempotent migration.
 	sql := `
-		CREATE TABLE host_additional (
+		CREATE TABLE IF NOT EXISTS host_additional (
 			host_id int unsigned NOT NULL PRIMARY KEY,
 			additional json DEFAULT NULL,
 			FOREIGN KEY (host_id) REFERENCES hosts (id) ON DELETE CASCADE ON UPDATE CASCADE
@@ -23,19 +24,21 @@ func Up_20210526113559(tx *sql.Tx) error {
 	}
 
 	sql = `
-		INSERT INTO host_additional (host_id, additional)
+		INSERT IGNORE INTO host_additional (host_id, additional)
 		SELECT id, additional FROM hosts
 	`
 	if _, err := tx.Exec(sql); err != nil {
 		return errors.Wrap(err, "migration additional data")
 	}
 
-	sql = `
+	if columnExists(tx, "hosts", "additional") {
+		sql = `
 		ALTER TABLE hosts
 		DROP COLUMN additional
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "migration additional data")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "migration additional data")
+		}
 	}
 
 	return nil

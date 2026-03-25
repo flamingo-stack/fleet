@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20230206163608(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE mdm_apple_configuration_profiles (
+CREATE TABLE IF NOT EXISTS mdm_apple_configuration_profiles (
 	profile_id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
 	team_id INT(10) UNSIGNED NOT NULL DEFAULT 0, 
 	-- team_id is zero for configuration profiles that are not associated with any team

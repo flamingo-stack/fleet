@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250922083056(tx *sql.Tx) error {
+	// Idempotent migration.
 	// The AUTO_INCREMENT columns are used to determine if a row was updated by
 	// an INSERT ... ON DUPLICATE KEY UPDATE statement. This is needed because we
 	// are currently using CLIENT_FOUND_ROWS option to determine if a row was
@@ -21,7 +22,7 @@ func Up_20250922083056(tx *sql.Tx) error {
 	// just yet as we won't support them in Android profiles for now.
 
 	createProfilesTable := `
-CREATE TABLE mdm_android_configuration_profiles (
+CREATE TABLE IF NOT EXISTS mdm_android_configuration_profiles (
   -- profile_uuid is length 37 as it has a single char prefix (of 'g') before the actual uuid
   profile_uuid   VARCHAR(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   -- no FK constraint on teams, the profile is manually deleted when the team is deleted
@@ -50,7 +51,7 @@ CREATE TABLE mdm_android_configuration_profiles (
 	// The table android_policy_requests tracks the API requests made to create
 	// or update the policy to apply to a given host.
 	createRequestsTable := `
-CREATE TABLE android_policy_requests (
+CREATE TABLE IF NOT EXISTS android_policy_requests (
   request_uuid      VARCHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   -- request_name is the policy_name (for patch policy) or device_name (for patch device)
   request_name      VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -90,7 +91,7 @@ CREATE TABLE android_policy_requests (
 	// a specific profile was associated with for a host.
 
 	createHostProfilesTable := `
-CREATE TABLE host_mdm_android_profiles (
+CREATE TABLE IF NOT EXISTS host_mdm_android_profiles (
   host_uuid      VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   status         VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   operation_type VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -122,7 +123,8 @@ CREATE TABLE host_mdm_android_profiles (
 		return fmt.Errorf("create host_mdm_android_profiles table: %w", err)
 	}
 
-	alterProfileLabelsTable := `
+	if !columnExists(tx, "mdm_configuration_profile_labels", "android_profile_uuid") {
+		alterProfileLabelsTable := `
 ALTER TABLE mdm_configuration_profile_labels
   ADD COLUMN android_profile_uuid VARCHAR(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
   ADD FOREIGN KEY (android_profile_uuid) REFERENCES mdm_android_configuration_profiles(profile_uuid) ON DELETE CASCADE,
@@ -131,8 +133,9 @@ ALTER TABLE mdm_configuration_profile_labels
   ADD CONSTRAINT ck_mdm_configuration_profile_labels_profile_uuid
     CHECK (IF(ISNULL(apple_profile_uuid), 0, 1) + IF(ISNULL(windows_profile_uuid), 0, 1) + IF(ISNULL(android_profile_uuid), 0, 1) = 1)
 `
-	if _, err := tx.Exec(alterProfileLabelsTable); err != nil {
-		return fmt.Errorf("alter mdm_configuration_profile_labels table: %w", err)
+		if _, err := tx.Exec(alterProfileLabelsTable); err != nil {
+			return fmt.Errorf("alter mdm_configuration_profile_labels table: %w", err)
+		}
 	}
 
 	// our mysql version at the time this constraint was added did not support CHECK constraints so this may or may not exist for us
@@ -156,13 +159,15 @@ ALTER TABLE mdm_configuration_profile_labels
 		}
 	}
 
-	alterAndroidDevicesTable := `
+	if !columnsExists(tx, "android_devices", "applied_policy_id", "applied_policy_version") {
+		alterAndroidDevicesTable := `
 ALTER TABLE android_devices
 	ADD COLUMN applied_policy_id VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
 	ADD COLUMN applied_policy_version INT DEFAULT NULL
 `
-	if _, err := tx.Exec(alterAndroidDevicesTable); err != nil {
-		return fmt.Errorf("alter android_devices table: %w", err)
+		if _, err := tx.Exec(alterAndroidDevicesTable); err != nil {
+			return fmt.Errorf("alter android_devices table: %w", err)
+		}
 	}
 
 	// migrate android_policy_id to applied_policy_id, before removing the column
@@ -175,12 +180,14 @@ UPDATE android_devices
 		return fmt.Errorf("migrate android_policy_id to applied_policy_id: %w", err)
 	}
 
-	cleanupAndroidDevicesTable := `
+	if columnExists(tx, "android_devices", "android_policy_id") {
+		cleanupAndroidDevicesTable := `
 ALTER TABLE android_devices
 	DROP COLUMN android_policy_id
 `
-	if _, err := tx.Exec(cleanupAndroidDevicesTable); err != nil {
-		return fmt.Errorf("cleanup android_devices table: %w", err)
+		if _, err := tx.Exec(cleanupAndroidDevicesTable); err != nil {
+			return fmt.Errorf("cleanup android_devices table: %w", err)
+		}
 	}
 
 	// backfill the hosts.uuid column for pre-existing Android hosts that may not

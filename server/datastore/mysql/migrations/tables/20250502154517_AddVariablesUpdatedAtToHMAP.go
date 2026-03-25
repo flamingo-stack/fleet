@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250502154517(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnExists(tx, "host_mdm_apple_profiles", "variables_updated_at") {
 		return nil
 	}

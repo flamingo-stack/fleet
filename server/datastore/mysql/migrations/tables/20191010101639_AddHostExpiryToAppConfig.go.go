@@ -9,12 +9,17 @@ func init() {
 }
 
 func Up20191010101639(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `app_configs` " +
-			"ADD COLUMN `host_expiry_enabled` TINYINT(1) NOT NULL DEFAULT FALSE, " +
-			"ADD COLUMN `host_expiry_window` int DEFAULT 0;",
-	)
-	return err
+	// Idempotent migration.
+	if !columnsExists(tx, "app_configs", "host_expiry_enabled", "host_expiry_window") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `app_configs` " +
+				"ADD COLUMN `host_expiry_enabled` TINYINT(1) NOT NULL DEFAULT FALSE, " +
+				"ADD COLUMN `host_expiry_window` int DEFAULT 0;",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down20191010101639(tx *sql.Tx) error {

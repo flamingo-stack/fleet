@@ -9,8 +9,9 @@ func init() {
 }
 
 func Up_20230303135738(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-    CREATE TABLE mdm_idp_accounts (
+    CREATE TABLE IF NOT EXISTS mdm_idp_accounts (
       uuid         varchar(255) NOT NULL,
       username     varchar(255) NOT NULL,
       salt         varchar(255) NOT NULL,

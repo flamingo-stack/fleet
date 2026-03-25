@@ -10,9 +10,10 @@ func init() {
 }
 
 func Up_20230425082126(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 -- macos setup assistant stores at most 1 profile per team/no team
-CREATE TABLE mdm_apple_setup_assistants (
+CREATE TABLE IF NOT EXISTS mdm_apple_setup_assistants (
     id      INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
     -- team_id NULL is for no team (cannot use 0 with foreign key)
     team_id INT(10) UNSIGNED NULL,

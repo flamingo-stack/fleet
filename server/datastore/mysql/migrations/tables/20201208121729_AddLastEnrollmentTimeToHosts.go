@@ -11,17 +11,18 @@ func init() {
 }
 
 func Up_20201208121729(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `hosts` " +
-			"ADD COLUMN `last_enroll_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-	)
-	if err != nil {
-		return errors.Wrap(err, "add last_enroll_time column")
-	}
+	// Idempotent migration.
+	if !columnExists(tx, "hosts", "last_enroll_time") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `hosts` " +
+				"ADD COLUMN `last_enroll_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+		); err != nil {
+			return errors.Wrap(err, "add last_enroll_time column")
+		}
 
-	_, err = tx.Exec("UPDATE hosts SET last_enroll_time = created_at")
-	if err != nil {
-		return errors.Wrap(err, "set last_enroll_time")
+		if _, err := tx.Exec("UPDATE hosts SET last_enroll_time = created_at"); err != nil {
+			return errors.Wrap(err, "set last_enroll_time")
+		}
 	}
 
 	return nil

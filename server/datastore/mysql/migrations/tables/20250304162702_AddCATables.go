@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250304162702(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 	CREATE TABLE IF NOT EXISTS ca_config_assets (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -24,12 +25,14 @@ func Up_20250304162702(tx *sql.Tx) error {
 		return fmt.Errorf("failed to create ca_config_assets table: %s", err)
 	}
 
-	_, err = tx.Exec(`
+	if !columnExists(tx, "host_mdm_managed_certificates", "not_valid_after") {
+		_, err = tx.Exec(`
 	ALTER TABLE host_mdm_managed_certificates
 	ADD COLUMN not_valid_after DATETIME(6) NULL
 	`)
-	if err != nil {
-		return fmt.Errorf("failed to add not_valid_after column to host_mdm_managed_certificates table: %s", err)
+		if err != nil {
+			return fmt.Errorf("failed to add not_valid_after column to host_mdm_managed_certificates table: %s", err)
+		}
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240314085226(tx *sql.Tx) error {
+	// Idempotent migration.
 	// TODO(lucas): Check if we need more indexes.
 
 	if _, err := tx.Exec(`

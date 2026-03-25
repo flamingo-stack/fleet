@@ -10,17 +10,22 @@ func init() {
 }
 
 func Up_20241203130032(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
-	if err != nil {
-		return fmt.Errorf("failed to add mfa_enabled column to users: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "users", "mfa_enabled") {
+		_, err := tx.Exec(`ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
+		if err != nil {
+			return fmt.Errorf("failed to add mfa_enabled column to users: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`ALTER TABLE invites ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
-	if err != nil {
-		return fmt.Errorf("failed to add mfa_enabled column to invites: %w", err)
+	if !columnExists(tx, "invites", "mfa_enabled") {
+		_, err := tx.Exec(`ALTER TABLE invites ADD COLUMN mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE`)
+		if err != nil {
+			return fmt.Errorf("failed to add mfa_enabled column to invites: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`CREATE TABLE verification_tokens (
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS verification_tokens (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NOT NULL,
   token varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,

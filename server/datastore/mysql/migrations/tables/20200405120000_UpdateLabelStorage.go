@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up20200405120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(
-		"CREATE TABLE `label_membership` (" +
+		"CREATE TABLE IF NOT EXISTS `label_membership` (" +
 			"`created_at` timestamp DEFAULT CURRENT_TIMESTAMP," +
 			"`updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
 			"`label_id` int(10) unsigned NOT NULL," +
@@ -44,7 +45,7 @@ func Up20200405120000(tx *sql.Tx) error {
 	}
 
 	if _, err := tx.Exec(
-		"DROP TABLE  `label_query_executions`",
+		"DROP TABLE IF EXISTS  `label_query_executions`",
 	); err != nil {
 		return errors.Wrap(err, "drop label_query_executions")
 	}
@@ -52,11 +53,13 @@ func Up20200405120000(tx *sql.Tx) error {
 	// MySQL is really particular about using zero values or old values for
 	// timestamps, so we set a default value that is plenty far in the past, but
 	// hopefully accepted by most MySQL configurations.
-	if _, err := tx.Exec(
-		"ALTER TABLE  `hosts` " +
-			"ADD COLUMN `label_update_time` timestamp NOT NULL DEFAULT '2000-01-01 00:00:00'",
-	); err != nil {
-		return errors.Wrap(err, "drop label_query_executions")
+	if !columnExists(tx, "hosts", "label_update_time") {
+		if _, err := tx.Exec(
+			"ALTER TABLE  `hosts` " +
+				"ADD COLUMN `label_update_time` timestamp NOT NULL DEFAULT '2000-01-01 00:00:00'",
+		); err != nil {
+			return errors.Wrap(err, "drop label_query_executions")
+		}
 	}
 
 	return nil

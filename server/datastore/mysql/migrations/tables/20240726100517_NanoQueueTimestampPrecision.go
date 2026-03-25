@@ -10,17 +10,20 @@ func init() {
 }
 
 func Up_20240726100517(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE nano_commands
+	// Idempotent migration.
+	if columnExists(tx, "nano_commands", "created_at") {
+		if _, err := tx.Exec(`ALTER TABLE nano_commands
 		MODIFY COLUMN created_at TIMESTAMP(6) NULL DEFAULT CURRENT_TIMESTAMP(6),
-		MODIFY COLUMN updated_at TIMESTAMP(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)`)
-	if err != nil {
-		return fmt.Errorf("failed to modify columns created_at, updated_at in nano_commands table: %w", err)
+		MODIFY COLUMN updated_at TIMESTAMP(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)`); err != nil {
+			return fmt.Errorf("failed to modify columns created_at, updated_at in nano_commands table: %w", err)
+		}
 	}
-	_, err = tx.Exec(`ALTER TABLE nano_enrollment_queue
+	if columnExists(tx, "nano_enrollment_queue", "created_at") {
+		if _, err := tx.Exec(`ALTER TABLE nano_enrollment_queue
 		MODIFY COLUMN created_at TIMESTAMP(6) NULL DEFAULT CURRENT_TIMESTAMP(6),
-		MODIFY COLUMN updated_at TIMESTAMP(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)`)
-	if err != nil {
-		return fmt.Errorf("failed to modify columns created_at, updated_at in nano_enrollment_queue table: %w", err)
+		MODIFY COLUMN updated_at TIMESTAMP(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)`); err != nil {
+			return fmt.Errorf("failed to modify columns created_at, updated_at in nano_enrollment_queue table: %w", err)
+		}
 	}
 	return nil
 }

@@ -309,6 +309,7 @@ func changeCollation(tx *sql.Tx, charset string, collation string) (err error) {
 }
 
 func Up_20230315104937(tx *sql.Tx) error {
+	// Idempotent migration.
 	// while newer versions of MySQL default to utf8mb4_0900_ai_ci, we
 	// still need to support 5.7, so we choose utf8mb4_unicode_ci for more
 	// details on the rationale, see:

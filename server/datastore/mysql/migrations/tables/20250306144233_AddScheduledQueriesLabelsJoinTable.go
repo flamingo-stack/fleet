@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20250306144233(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
-CREATE TABLE query_labels (
+CREATE TABLE IF NOT EXISTS query_labels (
   id int unsigned NOT NULL AUTO_INCREMENT,
   query_id int unsigned NOT NULL,
   label_id int unsigned NOT NULL,

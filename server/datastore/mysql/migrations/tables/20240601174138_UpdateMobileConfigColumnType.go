@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20240601174138(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if columnExists(tx, "mdm_apple_configuration_profiles", "mobileconfig") {
+		stmt := `
 ALTER TABLE mdm_apple_configuration_profiles MODIFY COLUMN mobileconfig MEDIUMBLOB NOT NULL;
 	`
 
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("changing data type for mdm_apple_configuration_profiles.mobileconfig: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("changing data type for mdm_apple_configuration_profiles.mobileconfig: %w", err)
+		}
 	}
 
 	return nil

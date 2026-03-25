@@ -15,7 +15,8 @@ func init() {
 }
 
 func Up_20171116163618(tx *sql.Tx) error {
-	sqlStatement := "CREATE TABLE `osquery_options` (" +
+	// Idempotent migration.
+	sqlStatement := "CREATE TABLE IF NOT EXISTS `osquery_options` (" +
 		"`id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT," +
 		"`override_type` INT(1) NOT NULL, " +
 		"`override_identifier` VARCHAR(255) NOT NULL DEFAULT ''," +
@@ -24,7 +25,7 @@ func Up_20171116163618(tx *sql.Tx) error {
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
 	_, err := tx.Exec(sqlStatement)
 	if err != nil {
-		return errors.Wrap(err, "create table osquery_options")
+		return errors.Wrap(err, "CREATE TABLE IF NOT EXISTS osquery_options")
 	}
 
 	// Check whether there are existing options to migrate, or we should insert
@@ -43,7 +44,7 @@ func Up_20171116163618(tx *sql.Tx) error {
 		}
 	} else {
 		// Insert default options
-		_, err = tx.Exec("INSERT INTO `osquery_options`" +
+		_, err = tx.Exec("INSERT IGNORE INTO `osquery_options`" +
 			"(override_type, override_identifier, options)" +
 			`VALUES (0, '', '{"options": {"logger_plugin": "tls", "pack_delimiter": "/", "logger_tls_period": 10, "distributed_plugin": "tls", "disable_distributed": false, "logger_tls_endpoint": "/api/v1/osquery/log", "distributed_interval": 10, "distributed_tls_max_attempts": 3}, "decorators": {"load": ["SELECT uuid AS host_uuid FROM system_info;", "SELECT hostname AS hostname FROM system_info;"]}}')`,
 		)
@@ -147,7 +148,7 @@ func migrateOptions(tx *sql.Tx) error {
 
 	// Save config JSON
 	query = `
-		INSERT INTO osquery_options (
+		INSERT IGNORE INTO osquery_options (
 			override_type, override_identifier, options
 		) VALUES (?, ?, ?)
 	`

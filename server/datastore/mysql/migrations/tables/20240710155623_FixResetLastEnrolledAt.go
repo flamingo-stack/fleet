@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240710155623(tx *sql.Tx) error {
+	// Idempotent migration.
 	// `hosts.last_enrolled_at` contains the date the osquery agent enrolled.
 	//
 	// A bug in v4.51.0 caused the `last_enrolled_at` column to be set to

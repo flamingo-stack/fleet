@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20251028140100(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Check if there are any SCIM users - if not, skip this migration
 	const checkScimUsersQuery = `SELECT COUNT(*) FROM scim_users`
 	var scimUserCount int

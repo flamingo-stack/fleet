@@ -11,13 +11,15 @@ func init() {
 }
 
 func Up_20210606151329(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if columnExists(tx, "app_configs", "kolide_server_url") {
+		sql := `
         ALTER TABLE app_configs
         CHANGE kolide_server_url server_url varchar(255) NOT NULL DEFAULT ''
     `
-
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "rename server_url")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "rename server_url")
+		}
 	}
 	return nil
 }

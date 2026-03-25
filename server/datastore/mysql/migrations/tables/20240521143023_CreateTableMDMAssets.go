@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20240521143023(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE mdm_config_assets (
+CREATE TABLE IF NOT EXISTS mdm_config_assets (
     id int(10) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY, 
 
     -- name is used for humans to identify what value is stored in this row

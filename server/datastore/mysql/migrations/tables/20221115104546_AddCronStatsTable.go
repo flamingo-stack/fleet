@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20221115104546(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-		CREATE TABLE cron_stats (
+		CREATE TABLE IF NOT EXISTS cron_stats (
 			id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			instance VARCHAR(255) NOT NULL,

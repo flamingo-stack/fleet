@@ -17,6 +17,7 @@ func init() {
 }
 
 func Up_20250502222222(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	// legacy_host_mdm_enroll_refs captures existing enroll refs from the host_mdm table. Going
@@ -70,7 +71,7 @@ CREATE TABLE IF NOT EXISTS host_mdm_idp_accounts (
 
 	// capture legacy enroll refs from host_mdm table
 	_, err = txx.Exec(`
-INSERT INTO legacy_host_mdm_enroll_refs (host_uuid, enroll_ref)
+INSERT IGNORE INTO legacy_host_mdm_enroll_refs (host_uuid, enroll_ref)
 SELECT
 	h.uuid,
 	hmdm.fleet_enroll_ref
@@ -85,7 +86,7 @@ WHERE
 
 	// capture legacy mdm idp accounts from host_emails table
 	_, err = txx.Exec(`
-INSERT INTO legacy_host_mdm_idp_accounts (host_uuid, email, email_id, host_id, email_created_at, email_updated_at, account_uuid)
+INSERT IGNORE INTO legacy_host_mdm_idp_accounts (host_uuid, email, email_id, host_id, email_created_at, email_updated_at, account_uuid)
 SELECT 
 	h.uuid AS host_uuid, 
 	he.email,

@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20240126020642(tx *sql.Tx) error {
+	// Idempotent migration.
 	createStmt := `
     CREATE TABLE IF NOT EXISTS mdm_configuration_profile_labels (
 			id                   INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

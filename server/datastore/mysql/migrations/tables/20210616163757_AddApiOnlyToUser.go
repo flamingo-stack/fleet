@@ -11,12 +11,15 @@ func init() {
 }
 
 func Up_20210616163757(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if !columnExists(tx, "users", "api_only") {
+		sql := `
 		ALTER TABLE users
 		ADD COLUMN api_only TINYINT(1) NOT NULL DEFAULT 0
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add column api_only")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add column api_only")
+		}
 	}
 	return nil
 }

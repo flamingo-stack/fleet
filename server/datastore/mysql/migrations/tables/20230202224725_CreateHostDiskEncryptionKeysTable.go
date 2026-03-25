@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20230202224725(tx *sql.Tx) error {
+	// Idempotent migration.
 	// `decryptable` can be NULL to signal that we have fetched the key but
 	// we don't know yet if we can decrypt it or not, the related index is
 	// to aid querying for this scenario by taking adventage of MySQL's IS

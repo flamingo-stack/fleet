@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20210818151827(tx *sql.Tx) error {
+	// Idempotent migration.
 	referencedTables := map[string]struct{}{"hosts": {}, "scheduled_queries": {}}
 	table := "scheduled_query_stats"
 
@@ -20,14 +21,12 @@ func Up_20210818151827(tx *sql.Tx) error {
 		return err
 	}
 
-	if len(constraints) == 0 {
-		return errors.New("Found no constraints in scheduled_query_stats")
-	}
-
 	for _, constraint := range constraints {
-		_, err = tx.Exec(fmt.Sprintf(`ALTER TABLE scheduled_query_stats DROP FOREIGN KEY %s;`, constraint))
-		if err != nil {
-			return errors.Wrapf(err, "dropping fk %s", constraint)
+		if fkExists(tx, "scheduled_query_stats", constraint) {
+			_, err = tx.Exec(fmt.Sprintf(`ALTER TABLE scheduled_query_stats DROP FOREIGN KEY %s;`, constraint))
+			if err != nil {
+				return errors.Wrapf(err, "dropping fk %s", constraint)
+			}
 		}
 	}
 	return nil

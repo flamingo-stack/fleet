@@ -10,17 +10,19 @@ func init() {
 }
 
 func Up_20250817154557(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add index to optimize kernel vulnerability queries
 	// This index supports efficient joins between software_cve and kernel_host_counts
 	// when filtering by os_version_id and hosts_count > 0
 
-	createIndexStmt := `
+	if !indexExistsTx(tx, "kernel_host_counts", "idx_kernel_host_counts_os_version_software") {
+		createIndexStmt := `
 		CREATE INDEX idx_kernel_host_counts_os_version_software
 		ON kernel_host_counts (os_version_id, software_id, hosts_count)
 	`
-
-	if _, err := tx.Exec(createIndexStmt); err != nil {
-		return fmt.Errorf("failed to create kernel_host_counts index for vulnerability queries: %w", err)
+		if _, err := tx.Exec(createIndexStmt); err != nil {
+			return fmt.Errorf("failed to create kernel_host_counts index for vulnerability queries: %w", err)
+		}
 	}
 
 	return nil

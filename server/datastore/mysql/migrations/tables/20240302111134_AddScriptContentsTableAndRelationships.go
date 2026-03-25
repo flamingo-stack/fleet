@@ -16,6 +16,7 @@ func init() {
 }
 
 func Up_20240302111134(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := &sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	// at the time of this migration, we have two tables that deal with scripts:
@@ -45,7 +46,7 @@ func Up_20240302111134(tx *sql.Tx) error {
 	//   - it's same as what we use elsewhere in the DB, e.g. mdm apple profiles
 	// Note: MEDIUMTEXT can handle up to ~16 million bytes, so it should be plenty for our use case.
 	createScriptContentsStmt := `
-CREATE TABLE script_contents (
+CREATE TABLE IF NOT EXISTS script_contents (
 	id            INT(10) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 	md5_checksum  BINARY(16) NOT NULL,
 	contents      MEDIUMTEXT COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -54,7 +55,7 @@ CREATE TABLE script_contents (
 	UNIQUE KEY idx_script_contents_md5_checksum (md5_checksum)
 )`
 	if _, err := txx.Exec(createScriptContentsStmt); err != nil {
-		return fmt.Errorf("create table script_contents: %w", err)
+		return fmt.Errorf("CREATE TABLE IF NOT EXISTS script_contents: %w", err)
 	}
 
 	// map tracking the script_contents id for a given md5 checksum
@@ -89,20 +90,24 @@ CREATE TABLE script_contents (
 		return err
 	}
 
-	alterAddHostScriptsStmt := `
+	if !columnExists(tx, "host_script_results", "script_content_id") {
+		alterAddHostScriptsStmt := `
 ALTER TABLE host_script_results
 	ADD COLUMN script_content_id INT(10) UNSIGNED NULL,
 	ADD FOREIGN KEY (script_content_id) REFERENCES script_contents (id) ON DELETE CASCADE`
-	if _, err := tx.Exec(alterAddHostScriptsStmt); err != nil {
-		return fmt.Errorf("alter add column to table host_script_results: %w", err)
+		if _, err := tx.Exec(alterAddHostScriptsStmt); err != nil {
+			return fmt.Errorf("alter add column to table host_script_results: %w", err)
+		}
 	}
 
-	alterAddScriptsStmt := `
+	if !columnExists(tx, "scripts", "script_content_id") {
+		alterAddScriptsStmt := `
 ALTER TABLE scripts
 	ADD COLUMN script_content_id INT(10) UNSIGNED NULL,
 	ADD FOREIGN KEY (script_content_id) REFERENCES script_contents (id) ON DELETE CASCADE`
-	if _, err := tx.Exec(alterAddScriptsStmt); err != nil {
-		return fmt.Errorf("alter add column to table scripts: %w", err)
+		if _, err := tx.Exec(alterAddScriptsStmt); err != nil {
+			return fmt.Errorf("alter add column to table scripts: %w", err)
+		}
 	}
 
 	updateHostScriptsStmt := `

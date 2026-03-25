@@ -10,14 +10,16 @@ func init() {
 }
 
 func Up_20240408085837(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		`ALTER TABLE host_orbit_info ADD COLUMN (
+	// Idempotent migration.
+	if !columnsExists(tx, "host_orbit_info", "desktop_version", "scripts_enabled") {
+		if _, err := tx.Exec(
+			`ALTER TABLE host_orbit_info ADD COLUMN (
 		desktop_version VARCHAR(50) DEFAULT NULL,
 		scripts_enabled TINYINT(1) DEFAULT NULL
 	)`,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add desktop_version and scripts_enabled to host_orbit_info: %w", err)
+		); err != nil {
+			return fmt.Errorf("failed to add desktop_version and scripts_enabled to host_orbit_info: %w", err)
+		}
 	}
 	return nil
 }

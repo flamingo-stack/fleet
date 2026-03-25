@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20240126020643(tx *sql.Tx) error {
+	// Idempotent migration.
 	// add user_id to host_script_results so that we can display the "actor" in
 	// the upcoming activities for a host (who requested the script execution).
 	// Unlike for activities, we don't copy over all the user's information,
@@ -23,14 +24,24 @@ func Up_20240126020643(tx *sql.Tx) error {
 	// sync_request indicates if the script execution was requested via the
 	// synchronous API. We need this information to generate the proper activity
 	// details later on when the results are received.
-	const alterStmt = `
+	if !columnsExists(tx, "host_script_results", "user_id", "sync_request") {
+		const alterStmt = `
 		ALTER TABLE host_script_results
 		ADD COLUMN user_id INT(10) UNSIGNED DEFAULT NULL,
-		ADD COLUMN sync_request TINYINT(1) NOT NULL DEFAULT '0',
-		ADD CONSTRAINT fk_host_script_results_user_id FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL;
+		ADD COLUMN sync_request TINYINT(1) NOT NULL DEFAULT '0'
 	`
-	if _, err := tx.Exec(alterStmt); err != nil {
-		return fmt.Errorf("add user_id to host_script_results: %w", err)
+		if _, err := tx.Exec(alterStmt); err != nil {
+			return fmt.Errorf("add user_id to host_script_results: %w", err)
+		}
+	}
+
+	if !constraintExists(tx, "host_script_results", "fk_host_script_results_user_id") {
+		if _, err := tx.Exec(`
+		ALTER TABLE host_script_results
+		ADD CONSTRAINT fk_host_script_results_user_id FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+	`); err != nil {
+			return fmt.Errorf("add FK fk_host_script_results_user_id: %w", err)
+		}
 	}
 
 	// Note that we don't create FKs to hosts for performance reasons (ingestion

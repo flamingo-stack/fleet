@@ -13,17 +13,39 @@ func init() {
 func Up_20240829165930(tx *sql.Tx) error {
 	// mdm_apple_default_setup_assistants will now track profile_uuids per team
 	// AND ABM token.
-	const alterDefaultStmt = `
+	// Idempotent migration.
+	if !columnExists(tx, "mdm_apple_default_setup_assistants", "abm_token_id") {
+		const alterDefaultStmt = `
 	ALTER TABLE mdm_apple_default_setup_assistants
 		ADD COLUMN abm_token_id int unsigned DEFAULT NULL,
 		DROP KEY idx_mdm_default_setup_assistant_global_or_team_id,
 		ADD CONSTRAINT idx_mdm_default_setup_assistant_global_or_team_id_abm_token_id
-			UNIQUE (global_or_team_id, abm_token_id),
+			UNIQUE (global_or_team_id, abm_token_id)
+`
+		if _, err := tx.Exec(alterDefaultStmt); err != nil {
+			return fmt.Errorf("alter mdm_apple_default_setup_assistants to track per ABM token: %w", err)
+		}
+	} else {
+		if indexExistsTx(tx, "mdm_apple_default_setup_assistants", "idx_mdm_default_setup_assistant_global_or_team_id") {
+			if _, err := tx.Exec(`ALTER TABLE mdm_apple_default_setup_assistants DROP KEY idx_mdm_default_setup_assistant_global_or_team_id`); err != nil {
+				return fmt.Errorf("dropping idx_mdm_default_setup_assistant_global_or_team_id: %w", err)
+			}
+		}
+		if !indexExistsTx(tx, "mdm_apple_default_setup_assistants", "idx_mdm_default_setup_assistant_global_or_team_id_abm_token_id") {
+			if _, err := tx.Exec(`ALTER TABLE mdm_apple_default_setup_assistants ADD CONSTRAINT idx_mdm_default_setup_assistant_global_or_team_id_abm_token_id UNIQUE (global_or_team_id, abm_token_id)`); err != nil {
+				return fmt.Errorf("adding idx_mdm_default_setup_assistant_global_or_team_id_abm_token_id: %w", err)
+			}
+		}
+	}
+
+	if !constraintExists(tx, "mdm_apple_default_setup_assistants", "fk_mdm_default_setup_assistant_abm_token_id") {
+		if _, err := tx.Exec(`
+	ALTER TABLE mdm_apple_default_setup_assistants
 		ADD CONSTRAINT fk_mdm_default_setup_assistant_abm_token_id
 			FOREIGN KEY (abm_token_id) REFERENCES abm_tokens(id) ON DELETE CASCADE
-`
-	if _, err := tx.Exec(alterDefaultStmt); err != nil {
-		return fmt.Errorf("alter mdm_apple_default_setup_assistants to track per ABM token: %w", err)
+`); err != nil {
+			return fmt.Errorf("add FK fk_mdm_default_setup_assistant_abm_token_id: %w", err)
+		}
 	}
 
 	var abmTokenID uint
@@ -50,7 +72,7 @@ func Up_20240829165930(tx *sql.Tx) error {
 	// make the column NOT NULL?
 
 	const createCustomStmt = `
-CREATE TABLE mdm_apple_setup_assistant_profiles (
+CREATE TABLE IF NOT EXISTS mdm_apple_setup_assistant_profiles (
 	id int unsigned NOT NULL AUTO_INCREMENT,
 
 	-- the corresponding custom setup assistant in mdm_apple_setup_assistants,
@@ -82,7 +104,7 @@ CREATE TABLE mdm_apple_setup_assistant_profiles (
 	if abmTokenID > 0 {
 		// migrate any existing profile_uuid to the new table
 		const insertCustomStmt = `
-		INSERT INTO mdm_apple_setup_assistant_profiles (
+		INSERT IGNORE INTO mdm_apple_setup_assistant_profiles (
 			setup_assistant_id,
 			abm_token_id,
 			profile_uuid,
@@ -101,12 +123,14 @@ CREATE TABLE mdm_apple_setup_assistant_profiles (
 		}
 	}
 
-	const alterCustomStmt = `
+	if columnExists(tx, "mdm_apple_setup_assistants", "profile_uuid") {
+		const alterCustomStmt = `
 	ALTER TABLE mdm_apple_setup_assistants
 		DROP COLUMN profile_uuid
 `
-	if _, err := tx.Exec(alterCustomStmt); err != nil {
-		return fmt.Errorf("alter mdm_apple_setup_assistants to drop profile_uuid: %w", err)
+		if _, err := tx.Exec(alterCustomStmt); err != nil {
+			return fmt.Errorf("alter mdm_apple_setup_assistants to drop profile_uuid: %w", err)
+		}
 	}
 
 	return nil

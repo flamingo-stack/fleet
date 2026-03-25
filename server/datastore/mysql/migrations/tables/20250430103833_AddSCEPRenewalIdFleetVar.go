@@ -13,8 +13,9 @@ func init() {
 }
 
 func Up_20250430103833(tx *sql.Tx) error {
+	// Idempotent migration.
 	insStmt := `
-	INSERT INTO fleet_variables (
+	INSERT IGNORE INTO fleet_variables (
 		name, is_prefix, created_at
 	) VALUES
 		('FLEET_VAR_SCEP_RENEWAL_ID', 0, :created_at)

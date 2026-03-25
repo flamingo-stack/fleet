@@ -1,6 +1,6 @@
 /* The following is the schema for the DEP storage. From https://github.com/micromdm/nanodep/pull/5 */
 
-CREATE TABLE nano_dep_names (
+CREATE TABLE IF NOT EXISTS nano_dep_names (
     name VARCHAR(255) NOT NULL,
 
     -- OAuth1 Tokens

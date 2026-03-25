@@ -10,10 +10,13 @@ func init() {
 }
 
 func Up_20250813205039(tx *sql.Tx) error {
-	if _, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "software_titles", "is_kernel") {
+		if _, err := tx.Exec(`
 ALTER TABLE software_titles
 	ADD COLUMN is_kernel TINYINT(1) NOT NULL DEFAULT '0'`); err != nil {
-		return fmt.Errorf("failed to add software_titles.is_kernel column: %w", err)
+			return fmt.Errorf("failed to add software_titles.is_kernel column: %w", err)
+		}
 	}
 
 	// Backfill existing software titles
@@ -38,7 +41,7 @@ WHERE source IN ('rpm_packages', 'deb_packages')
 	}
 
 	if _, err := tx.Exec(`
-CREATE TABLE kernel_host_counts (
+CREATE TABLE IF NOT EXISTS kernel_host_counts (
   id int unsigned NOT NULL AUTO_INCREMENT,
   software_title_id int unsigned DEFAULT NULL,
   software_id int unsigned DEFAULT NULL,

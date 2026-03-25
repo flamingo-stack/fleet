@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20161118212613(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
 		"CREATE TABLE IF NOT EXISTS `scheduled_queries` (" +
 			"`id` int(10) unsigned NOT NULL AUTO_INCREMENT," +

@@ -7,10 +7,15 @@ func init() {
 }
 
 func Up_20170119234632(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `queries` MODIFY `description` TEXT NOT NULL;",
-	)
-	return err
+	// Idempotent migration.
+	if columnExists(tx, "queries", "description") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `queries` MODIFY `description` TEXT NOT NULL;",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down_20170119234632(tx *sql.Tx) error {

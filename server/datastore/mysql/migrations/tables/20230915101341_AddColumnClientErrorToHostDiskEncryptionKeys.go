@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20230915101341(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "host_disk_encryption_keys", "client_error") {
+		stmt := `
           ALTER TABLE host_disk_encryption_keys
           ADD COLUMN client_error varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT ''
  	 `
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add client_error to host_disk_encryption_keys: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add client_error to host_disk_encryption_keys: %w", err)
+		}
 	}
 	return nil
 }

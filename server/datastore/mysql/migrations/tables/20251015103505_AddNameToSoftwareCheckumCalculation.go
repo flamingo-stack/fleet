@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20251015103505(tx *sql.Tx) error {
+	// Idempotent migration.
 	softwareStmt := `
 		UPDATE software SET
 			checksum = UNHEX(

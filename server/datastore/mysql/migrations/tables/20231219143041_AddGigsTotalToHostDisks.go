@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20231219143041(tx *sql.Tx) error {
-	stmt := `
+	// Idempotent migration.
+	if !columnExists(tx, "host_disks", "gigs_total_disk_space") {
+		stmt := `
 		ALTER TABLE host_disks
 		ADD COLUMN gigs_total_disk_space decimal(10,2) NOT NULL DEFAULT '0.00';
 	`
-	if _, err := tx.Exec(stmt); err != nil {
-		return fmt.Errorf("add gigs_total_disk_space to host_disks: %w", err)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("add gigs_total_disk_space to host_disks: %w", err)
+		}
 	}
 
 	return nil

@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20240209110212(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
 		UPDATE scheduled_query_stats
 		SET wall_time = wall_time * 1000

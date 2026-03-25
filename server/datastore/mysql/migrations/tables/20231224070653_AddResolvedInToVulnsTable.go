@@ -10,13 +10,15 @@ func init() {
 }
 
 func Up_20231224070653(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnsExists(tx, "operating_system_vulnerabilities", "resolved_in_version", "updated_at") {
+		if _, err := tx.Exec(`
 		ALTER TABLE operating_system_vulnerabilities
 		ADD COLUMN resolved_in_version VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
 		ADD COLUMN updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
-	`)
-	if err != nil {
-		return fmt.Errorf("adding operating_system_vulnerabilities columns: %w", err)
+	`); err != nil {
+			return fmt.Errorf("adding operating_system_vulnerabilities columns: %w", err)
+		}
 	}
 
 	return nil

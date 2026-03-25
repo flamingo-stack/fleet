@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20230906152143(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE scripts (
+CREATE TABLE IF NOT EXISTS scripts (
     id                 INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
 
     -- team_id NULL is for no team (cannot use 0 with foreign key)
@@ -47,13 +48,14 @@ CREATE TABLE scripts (
 	// like an "anonymous" script execution (a one-off, same as those via fleetctl
 	// run-script) and stop showing up in the list of scripts executions in the
 	// host's page).
-	_, err = tx.Exec(`
+	if !columnExists(tx, "host_script_results", "script_id") {
+		if _, err = tx.Exec(`
 ALTER TABLE host_script_results
 ADD COLUMN script_id INT(10) UNSIGNED NULL DEFAULT NULL,
 ADD CONSTRAINT fk_host_script_results_script_id FOREIGN KEY (script_id) REFERENCES scripts (id) ON DELETE SET NULL
-`)
-	if err != nil {
-		return fmt.Errorf("add script_id to host_script_results: %w", err)
+`); err != nil {
+			return fmt.Errorf("add script_id to host_script_results: %w", err)
+		}
 	}
 
 	return nil

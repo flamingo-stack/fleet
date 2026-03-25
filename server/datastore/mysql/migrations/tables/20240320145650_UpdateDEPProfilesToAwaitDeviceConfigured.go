@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20240320145650(tx *sql.Tx) error {
+	// Idempotent migration.
 	// This migration is to re-generate and re-register with Apple the DEP
 	// enrollment profile(s) so that await_device_configured is set to true.
 	// We do this by doing the equivalent of:
@@ -41,7 +42,7 @@ func Up_20240320145650(tx *sql.Tx) error {
 
 	// hard-coded timestamps are used so that schema.sql is stable
 	const query = `
-INSERT INTO jobs (
+INSERT IGNORE INTO jobs (
     name,
     args,
     state,

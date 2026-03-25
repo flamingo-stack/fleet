@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20251219201524(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 		CREATE TABLE IF NOT EXISTS software_update_schedules (
 			id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -26,11 +27,12 @@ func Up_20251219201524(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`
+	if !columnExists(tx, "hosts", "timezone") {
+		if _, err = tx.Exec(`
 				ALTER TABLE hosts ADD COLUMN timezone VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-	`)
-	if err != nil {
-		return err
+	`); err != nil {
+			return err
+		}
 	}
 	return nil
 }

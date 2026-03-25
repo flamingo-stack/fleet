@@ -17,8 +17,9 @@ func init() {
 }
 
 func Up_20240829165448(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE abm_tokens (
+CREATE TABLE IF NOT EXISTS abm_tokens (
 	id                     int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
 	organization_name      varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 	apple_id               varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -50,17 +51,19 @@ CREATE TABLE abm_tokens (
 		FOREIGN KEY (ipados_default_team_id) REFERENCES teams (id) ON DELETE SET NULL
 )`)
 	if err != nil {
-		return fmt.Errorf("failed to create table abm_tokens: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS abm_tokens: %w", err)
 	}
 
-	_, err = tx.Exec(`
+	if !columnExists(tx, "host_dep_assignments", "abm_token_id") {
+		_, err = tx.Exec(`
 ALTER TABLE host_dep_assignments
 	ADD COLUMN abm_token_id int(10) UNSIGNED NULL,
 	ADD CONSTRAINT fk_host_dep_assignments_abm_token_id
 		FOREIGN KEY (abm_token_id) REFERENCES abm_tokens(id) ON DELETE SET NULL
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter table host_dep_assignments: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter table host_dep_assignments: %w", err)
+		}
 	}
 
 	// migrate the existing ABM token (if any) to the new abm_tokens table
@@ -140,7 +143,7 @@ LIMIT 1
 
 	// insert the token in the new table
 	const insABM = `
-INSERT INTO abm_tokens
+INSERT IGNORE INTO abm_tokens
 	(
 		organization_name,
 		apple_id,

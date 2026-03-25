@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20200512120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
-		"CREATE TABLE `enroll_secrets` (" +
+		"CREATE TABLE IF NOT EXISTS `enroll_secrets` (" +
 			"`name` VARCHAR(255) NOT NULL," +
 			"`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP," +
 			"`secret` VARCHAR(255) NOT NULL," +
@@ -25,27 +26,31 @@ func Up_20200512120000(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(
-		"INSERT INTO `enroll_secrets` (`name`, `secret`, `active`)" +
+		"INSERT IGNORE INTO `enroll_secrets` (`name`, `secret`, `active`)" +
 			"SELECT 'default', `osquery_enroll_secret`, TRUE FROM `app_configs` WHERE osquery_enroll_secret != ''",
 	)
 	if err != nil {
 		return errors.Wrap(err, "copy existing enroll secret")
 	}
 
-	_, err = tx.Exec(
-		"ALTER TABLE `hosts`" +
-			"ADD COLUMN `enroll_secret_name` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT ''",
-	)
-	if err != nil {
-		return errors.Wrap(err, "drop old secret column")
+	if !columnExists(tx, "hosts", "enroll_secret_name") {
+		_, err = tx.Exec(
+			"ALTER TABLE `hosts`" +
+				"ADD COLUMN `enroll_secret_name` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT ''",
+		)
+		if err != nil {
+			return errors.Wrap(err, "drop old secret column")
+		}
 	}
 
-	_, err = tx.Exec(
-		"ALTER TABLE `app_configs`" +
-			"DROP COLUMN `osquery_enroll_secret`",
-	)
-	if err != nil {
-		return errors.Wrap(err, "drop old secret column")
+	if columnExists(tx, "app_configs", "osquery_enroll_secret") {
+		_, err = tx.Exec(
+			"ALTER TABLE `app_configs`" +
+				"DROP COLUMN `osquery_enroll_secret`",
+		)
+		if err != nil {
+			return errors.Wrap(err, "drop old secret column")
+		}
 	}
 
 	return nil

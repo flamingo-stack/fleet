@@ -10,12 +10,15 @@ func init() {
 }
 
 func Up_20210714102108(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if !columnExists(tx, "packs", "pack_type") {
+		sql := `
 		ALTER TABLE packs
 		ADD COLUMN pack_type varchar(255) DEFAULT NULL
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add pack_type")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add pack_type")
+		}
 	}
 	return nil
 }

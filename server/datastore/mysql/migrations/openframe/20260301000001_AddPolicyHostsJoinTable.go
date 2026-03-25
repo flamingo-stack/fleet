@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260301000001(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 CREATE TABLE IF NOT EXISTS policy_hosts (
   id int unsigned NOT NULL AUTO_INCREMENT,

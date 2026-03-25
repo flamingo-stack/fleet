@@ -7,8 +7,9 @@ func init() {
 }
 
 func Up_20170109130438(tx *sql.Tx) error {
+	// Idempotent migration.
 	sqlStatement :=
-		"CREATE TABLE `yara_signatures` ( " +
+		"CREATE TABLE IF NOT EXISTS `yara_signatures` ( " +
 			"  `id` int(11) NOT NULL AUTO_INCREMENT, " +
 			"  `signature_name` varchar(128) NOT NULL DEFAULT '', " +
 			"  PRIMARY KEY (`id`), " +
@@ -19,7 +20,7 @@ func Up_20170109130438(tx *sql.Tx) error {
 	}
 
 	sqlStatement =
-		"CREATE TABLE `yara_file_paths` ( " +
+		"CREATE TABLE IF NOT EXISTS `yara_file_paths` ( " +
 			"  `file_integrity_monitoring_id` int(11) NOT NULL DEFAULT '0', " +
 			"  `yara_signature_id` int(11) NOT NULL DEFAULT '0', " +
 			"  PRIMARY KEY (`file_integrity_monitoring_id`,`yara_signature_id`), " +
@@ -31,7 +32,7 @@ func Up_20170109130438(tx *sql.Tx) error {
 		return err
 	}
 	sqlStatement =
-		"CREATE TABLE `yara_signature_paths` ( " +
+		"CREATE TABLE IF NOT EXISTS `yara_signature_paths` ( " +
 			"  `id` int(11) NOT NULL AUTO_INCREMENT, " +
 			"  `file_path` varchar(255) NOT NULL DEFAULT '', " +
 			"  `yara_signature_id` int(11) NOT NULL DEFAULT '0', " +

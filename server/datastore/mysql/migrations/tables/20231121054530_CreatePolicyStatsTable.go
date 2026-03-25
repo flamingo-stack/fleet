@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20231121054530(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmt := `
-	CREATE TABLE policy_stats (
+	CREATE TABLE IF NOT EXISTS policy_stats (
 		id int(10) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
 		policy_id int(10) unsigned NOT NULL,
 		-- inherited_team_id is used to indicate the row contains inherited 

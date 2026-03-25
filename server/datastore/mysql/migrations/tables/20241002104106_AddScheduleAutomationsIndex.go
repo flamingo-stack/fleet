@@ -10,19 +10,24 @@ func init() {
 }
 
 func Up_20241002104106(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "queries", "is_scheduled") {
+		_, err := tx.Exec(`
 		ALTER TABLE queries
 		ADD COLUMN is_scheduled BOOLEAN GENERATED ALWAYS AS (schedule_interval > 0) STORED NOT NULL
 	`)
-	if err != nil {
-		return fmt.Errorf("error creating generated column is_scheduled: %w", err)
+		if err != nil {
+			return fmt.Errorf("error creating generated column is_scheduled: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`
+	if !indexExistsTx(tx, "queries", "idx_queries_schedule_automations") {
+		_, err := tx.Exec(`
 		CREATE INDEX idx_queries_schedule_automations ON queries (is_scheduled, automations_enabled)
 	`)
-	if err != nil {
-		return fmt.Errorf("error creating index idx_queries_schedule_automations: %w", err)
+		if err != nil {
+			return fmt.Errorf("error creating index idx_queries_schedule_automations: %w", err)
+		}
 	}
 
 	return nil

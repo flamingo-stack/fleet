@@ -15,22 +15,25 @@ func init() {
 }
 
 func Up_20210601000006(tx *sql.Tx) error {
+	// Idempotent migration.
 	existingOptions, err := copyOptions(tx)
 	if err != nil {
 		return errors.Wrap(err, "get existing options")
 	}
 
-	sql := `
+	if !columnExists(tx, "app_configs", "agent_options") {
+		sql := `
 		ALTER TABLE app_configs
 		ADD COLUMN agent_options JSON
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add column agent_options")
-	}
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add column agent_options")
+		}
 
-	sql = `UPDATE app_configs SET agent_options = ?`
-	if _, err := tx.Exec(sql, existingOptions); err != nil {
-		return errors.Wrap(err, "insert existing options")
+		sql = `UPDATE app_configs SET agent_options = ?`
+		if _, err := tx.Exec(sql, existingOptions); err != nil {
+			return errors.Wrap(err, "insert existing options")
+		}
 	}
 
 	return nil

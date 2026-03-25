@@ -41,11 +41,12 @@ where
 }
 
 func addUniqConstraint(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	if !constraintExists(tx, "software_cve", "unq_software_id_cve") {
+		if _, err := tx.Exec(`
 	ALTER TABLE software_cve ADD CONSTRAINT unq_software_id_cve UNIQUE (software_id, cve), ALGORITHM=INPLACE, LOCK=NONE;
-`)
-	if err != nil {
-		return errors.Wrapf(err, "adding unique constraint to software_id on software_cve")
+`); err != nil {
+			return errors.Wrapf(err, "adding unique constraint to software_id on software_cve")
+		}
 	}
 	return nil
 }
@@ -89,6 +90,7 @@ func releaseLock(tx *sql.Tx, identifier string) error {
 }
 
 func Up_20220708095046(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Since we will be adding a uniqueness constrain on (software_id, cve) - we need to remove any
 	// possible duplicates. Also because there's a chance we remove the duplicate rows before adding
 	// the constraint and new duplicates get generated in between, we need to try to acquire the

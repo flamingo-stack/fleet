@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250616193950(tx *sql.Tx) error {
+	// Idempotent migration.
 	// source 2 is OVAL; as of v4.56.0 Fleet switched from (incorrect) RHEL 6 OVAL
 	// as a source for Amazon Linux 2 vuln data to ALAS via goval-dictionary, so
 	// OVAL vulns need to be purged for Amazon Linux packages

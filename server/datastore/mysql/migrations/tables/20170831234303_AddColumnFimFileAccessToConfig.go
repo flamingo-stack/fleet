@@ -9,11 +9,16 @@ func init() {
 }
 
 func Up20170831234303(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		"ALTER TABLE `app_configs` " +
-			"ADD COLUMN `fim_file_accesses` VARCHAR(255) NOT NULL DEFAULT '';",
-	)
-	return err
+	// Idempotent migration.
+	if !columnExists(tx, "app_configs", "fim_file_accesses") {
+		if _, err := tx.Exec(
+			"ALTER TABLE `app_configs` " +
+				"ADD COLUMN `fim_file_accesses` VARCHAR(255) NOT NULL DEFAULT '';",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Down20170831234303(tx *sql.Tx) error {

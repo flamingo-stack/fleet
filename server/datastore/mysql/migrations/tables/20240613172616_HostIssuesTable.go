@@ -10,9 +10,10 @@ func init() {
 }
 
 func Up_20240613172616(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(
 		`
-		CREATE TABLE host_issues (
+		CREATE TABLE IF NOT EXISTS host_issues (
 			host_id INT(10) UNSIGNED NOT NULL PRIMARY KEY,
 			failing_policies_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
 			critical_vulnerabilities_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
@@ -28,7 +29,7 @@ func Up_20240613172616(tx *sql.Tx) error {
 
 	// Now, populate the table with failing_policies_counts
 	_, err = tx.Exec(
-		`INSERT INTO host_issues (host_id, failing_policies_count, total_issues_count)
+		`INSERT IGNORE INTO host_issues (host_id, failing_policies_count, total_issues_count)
 				SELECT pm.host_id, COALESCE(SUM(!pm.passes), 0), COALESCE(SUM(!pm.passes), 0)
 				FROM policy_membership pm
     			WHERE pm.passes = 0

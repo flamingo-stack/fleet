@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20170831234300(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec("DROP TABLE IF EXISTS `licenses`;")
 
 	return err

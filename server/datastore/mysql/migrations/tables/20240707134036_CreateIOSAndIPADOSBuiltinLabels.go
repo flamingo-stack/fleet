@@ -15,6 +15,7 @@ func init() {
 }
 
 func Up_20240707134036(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Create new builtin+manual labels for iOS/iPadOS
 	iOSLabelID, iPadOSLabelID, err := createBuiltinManualIOSAndIPadOSLabels(tx)
 	if err != nil {
@@ -23,7 +24,7 @@ func Up_20240707134036(tx *sql.Tx) error {
 
 	// Add label membership to existing iOS/iPadOS devices.
 	if _, err := tx.Exec(`
-		INSERT INTO label_membership (host_id, label_id)
+		INSERT IGNORE INTO label_membership (host_id, label_id)
 		SELECT id AS host_id, IF(platform = 'ios', ?, ?) AS label_id
 		FROM hosts WHERE platform = 'ios' OR platform = 'ipados';`,
 		iOSLabelID, iPadOSLabelID,
@@ -65,7 +66,7 @@ func createBuiltinManualIOSAndIPadOSLabels(tx *sql.Tx) (iOSLabelID uint, iPadOSL
 		},
 	} {
 		res, err := tx.Exec(`
-		INSERT INTO labels (
+		INSERT IGNORE INTO labels (
 			name,
 			description,
 			query,

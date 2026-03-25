@@ -10,9 +10,10 @@ func init() {
 }
 
 func Up_20230411102858(tx *sql.Tx) error {
+	// Idempotent migration.
 	// create host_mdm_apple_bootstrap_packages table
 	_, err := tx.Exec(`
-          CREATE TABLE host_mdm_apple_bootstrap_packages (
+          CREATE TABLE IF NOT EXISTS host_mdm_apple_bootstrap_packages (
 	        host_uuid    varchar(127) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
             command_uuid varchar(127) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 
@@ -24,12 +25,13 @@ func Up_20230411102858(tx *sql.Tx) error {
 	}
 
 	// add created_at and updated_at columns to mdm_apple_bootstrap_packages
-	_, err = tx.Exec(`
+	if !columnsExists(tx, "mdm_apple_bootstrap_packages", "created_at", "updated_at") {
+		if _, err = tx.Exec(`
 		  ALTER TABLE mdm_apple_bootstrap_packages
 		    ADD COLUMN created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		    ADD COLUMN updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`)
-	if err != nil {
-		return fmt.Errorf("add created_at and updated_at columns to mdm_apple_bootstrap_packages: %w", err)
+		    ADD COLUMN updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`); err != nil {
+			return fmt.Errorf("add created_at and updated_at columns to mdm_apple_bootstrap_packages: %w", err)
+		}
 	}
 
 	return nil

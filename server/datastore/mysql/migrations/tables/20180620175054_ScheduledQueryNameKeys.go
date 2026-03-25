@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20180620175054(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Make sure all names are non-empty
 	query := `
 		UPDATE scheduled_queries
@@ -60,17 +61,38 @@ func Up_20180620175054(tx *sql.Tx) error {
 		}
 	}
 
-	// Enforce not-null, uniqueness and add column defaults
-	query = `
-		ALTER TABLE scheduled_queries
-		MODIFY name varchar(255) NOT NULL,
-		MODIFY description varchar(1023) DEFAULT '',
-		MODIFY platform varchar(255) DEFAULT '',
-		MODIFY version varchar(255) DEFAULT '',
-		ADD UNIQUE KEY unique_names_in_packs (name, pack_id)
-	`
-	if _, err := tx.Exec(query); err != nil {
-		return errors.Wrapf(err, "altering table")
+	// Enforce not-null and add column defaults
+	if columnExists(tx, "scheduled_queries", "name") {
+		query = `ALTER TABLE scheduled_queries MODIFY name varchar(255) NOT NULL`
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrapf(err, "modifying name column")
+		}
+	}
+	if columnExists(tx, "scheduled_queries", "description") {
+		query = `ALTER TABLE scheduled_queries MODIFY description varchar(1023) DEFAULT ''`
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrapf(err, "modifying description column")
+		}
+	}
+	if columnExists(tx, "scheduled_queries", "platform") {
+		query = `ALTER TABLE scheduled_queries MODIFY platform varchar(255) DEFAULT ''`
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrapf(err, "modifying platform column")
+		}
+	}
+	if columnExists(tx, "scheduled_queries", "version") {
+		query = `ALTER TABLE scheduled_queries MODIFY version varchar(255) DEFAULT ''`
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrapf(err, "modifying version column")
+		}
+	}
+
+	// Add uniqueness constraint
+	if !indexExistsTx(tx, "scheduled_queries", "unique_names_in_packs") {
+		query = `ALTER TABLE scheduled_queries ADD UNIQUE KEY unique_names_in_packs (name, pack_id)`
+		if _, err := tx.Exec(query); err != nil {
+			return errors.Wrapf(err, "adding unique key")
+		}
 	}
 
 	return nil

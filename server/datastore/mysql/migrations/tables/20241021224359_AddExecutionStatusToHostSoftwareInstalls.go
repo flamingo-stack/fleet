@@ -10,10 +10,12 @@ func init() {
 }
 
 func Up_20241021224359(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Column is added for "status irrespective of whether removed flag is set", for showing details on a single
 	// (un)install. The normal status column is used for aggregate metrics of "how many hosts have this installed",
 	// so it needs to be reset when installers change.
-	if _, err := tx.Exec(`
+	if !columnExists(tx, "host_software_installs", "execution_status") {
+		if _, err := tx.Exec(`
 ALTER TABLE host_software_installs
 ADD COLUMN execution_status ENUM('pending_install', 'failed_install', 'installed', 'pending_uninstall', 'failed_uninstall')
 GENERATED ALWAYS AS (
@@ -46,7 +48,8 @@ CASE
 	ELSE NULL -- not installed from Fleet installer or successfully uninstalled
 END
 ) VIRTUAL NULL`); err != nil {
-		return fmt.Errorf("failed to add execution_status column to host_software_installs: %w", err)
+			return fmt.Errorf("failed to add execution_status column to host_software_installs: %w", err)
+		}
 	}
 
 	return nil

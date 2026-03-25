@@ -11,12 +11,15 @@ func init() {
 }
 
 func Up_20210601000005(tx *sql.Tx) error {
-	sql := `
+	// Idempotent migration.
+	if !columnExists(tx, "teams", "agent_options") {
+		sql := `
 		ALTER TABLE teams
 		ADD COLUMN agent_options JSON
 	`
-	if _, err := tx.Exec(sql); err != nil {
-		return errors.Wrap(err, "add column agent_options")
+		if _, err := tx.Exec(sql); err != nil {
+			return errors.Wrap(err, "add column agent_options")
+		}
 	}
 
 	return nil

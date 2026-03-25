@@ -10,20 +10,23 @@ func init() {
 }
 
 func Up_20250529102706(tx *sql.Tx) error {
-	_, err := tx.Exec(
-		`ALTER TABLE queries
+	// Idempotent migration.
+	if columnsExists(tx, "queries", "query", "description") {
+		if _, err := tx.Exec(
+			`ALTER TABLE queries
 		MODIFY query MEDIUMTEXT NOT NULL,
 		MODIFY description MEDIUMTEXT NOT NULL;
 `,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to set queries.query and queries.description to mediumtext: %w", err)
+		); err != nil {
+			return fmt.Errorf("failed to set queries.query and queries.description to mediumtext: %w", err)
+		}
 	}
-	_, err = tx.Exec(
-		`ALTER TABLE labels MODIFY query MEDIUMTEXT NOT NULL;`,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to set labels.query to mediumtext: %w", err)
+	if columnExists(tx, "labels", "query") {
+		if _, err := tx.Exec(
+			`ALTER TABLE labels MODIFY query MEDIUMTEXT NOT NULL;`,
+		); err != nil {
+			return fmt.Errorf("failed to set labels.query to mediumtext: %w", err)
+		}
 	}
 	return nil
 }

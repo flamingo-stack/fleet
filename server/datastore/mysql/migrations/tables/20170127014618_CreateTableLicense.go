@@ -9,7 +9,8 @@ func init() {
 }
 
 func Up_20170127014618(tx *sql.Tx) error {
-	sqlStatement := "CREATE TABLE `licenses` ( " +
+	// Idempotent migration.
+	sqlStatement := "CREATE TABLE IF NOT EXISTS `licenses` ( " +
 		"`id` int(10) NOT NULL AUTO_INCREMENT, " +
 		"`updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
 		"`revoked` tinyint(1) unsigned NOT NULL DEFAULT FALSE, " +

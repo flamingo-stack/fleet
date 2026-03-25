@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250421085116(tx *sql.Tx) error {
+	// Idempotent migration.
 	if columnsExists(tx, "host_mdm_managed_certificates", "serial", "not_valid_before") {
 		return nil
 	}

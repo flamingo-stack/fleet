@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20231009094544(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-		CREATE TABLE query_results (
+		CREATE TABLE IF NOT EXISTS query_results (
 			id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 			query_id INT(10) UNSIGNED NOT NULL,
 			host_id INT(10) UNSIGNED NOT NULL,
@@ -23,7 +24,7 @@ func Up_20231009094544(tx *sql.Tx) error {
 		) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
     `)
 	if err != nil {
-		return fmt.Errorf("failed to create table query_results: %w", err)
+		return fmt.Errorf("failed to CREATE TABLE IF NOT EXISTS query_results: %w", err)
 	}
 
 	return nil

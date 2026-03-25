@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20250609102714(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
 CREATE TABLE IF NOT EXISTS host_certificate_sources  (
 	id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS host_certificate_sources  (
 	// if the certificate is soft-deleted, so that we know what source it was
 	// from.
 	_, err = tx.Exec(`
-INSERT INTO host_certificate_sources
+INSERT IGNORE INTO host_certificate_sources
 	(host_certificate_id, source, username)
 	SELECT
 		id,

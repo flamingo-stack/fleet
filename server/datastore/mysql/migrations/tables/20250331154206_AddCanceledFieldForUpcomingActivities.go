@@ -10,23 +10,29 @@ func init() {
 }
 
 func Up_20250331154206(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "host_script_results", "canceled") {
+		_, err := tx.Exec(`
 ALTER TABLE host_script_results
 	ADD COLUMN canceled TINYINT(1) NOT NULL DEFAULT '0'
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter host_script_results: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter host_script_results: %w", err)
+		}
 	}
 
-	_, err = tx.Exec(`
+	if !columnExists(tx, "host_vpp_software_installs", "canceled") {
+		_, err := tx.Exec(`
 ALTER TABLE host_vpp_software_installs
 	ADD COLUMN canceled TINYINT(1) NOT NULL DEFAULT '0'
 `)
-	if err != nil {
-		return fmt.Errorf("failed to alter host_vpp_software_installs: %w", err)
+		if err != nil {
+			return fmt.Errorf("failed to alter host_vpp_software_installs: %w", err)
+		}
 	}
 
-	if _, err := tx.Exec(`
+	if !columnExists(tx, "host_software_installs", "canceled") {
+		if _, err := tx.Exec(`
 ALTER TABLE host_software_installs
 	ADD COLUMN canceled TINYINT(1) NOT NULL DEFAULT '0',
 	CHANGE COLUMN execution_status execution_status 
@@ -105,7 +111,8 @@ CASE
 END
 ) STORED NULL
 `); err != nil {
-		return fmt.Errorf("failed to add canceled column and update statuses generated columns on host_software_installs: %w", err)
+			return fmt.Errorf("failed to add canceled column and update statuses generated columns on host_software_installs: %w", err)
+		}
 	}
 	return nil
 }
