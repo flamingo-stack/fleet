@@ -1060,13 +1060,8 @@ func (ds *Datastore) ListScheduledQueriesForAgents(ctx context.Context, teamID *
 
 		if fleet.IsOpenframeMode() {
 			labelSQL += `
-		AND (
-			NOT EXISTS (
-				SELECT 1 FROM query_hosts qh WHERE qh.query_id = q.id
-			)
-			OR EXISTS (
-				SELECT 1 FROM query_hosts qh WHERE qh.query_id = q.id AND qh.host_id = ?
-			)
+		AND EXISTS (
+			SELECT 1 FROM query_hosts qh WHERE qh.query_id = q.id AND qh.host_id = ?
 		)`
 			args = append(args, hostID)
 		}
