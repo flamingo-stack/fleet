@@ -565,6 +565,9 @@ type Datastore interface {
 	// Used in cleanups_then_aggregation cron to cleanup rows that were inserted immediately
 	// after DiscardData was set to true due to query caching.
 	CleanupDiscardedQueryResults(ctx context.Context) error
+	// CleanupExpiredQueryResults deletes query_results rows where last_fetched
+	// is older than expiredBefore. Uses batch deletion. Returns rows deleted.
+	CleanupExpiredQueryResults(ctx context.Context, expiredBefore time.Time) (int64, error)
 
 	///////////////////////////////////////////////////////////////////////////////
 	// TeamStore

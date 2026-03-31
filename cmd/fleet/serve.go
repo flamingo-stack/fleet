@@ -987,6 +987,16 @@ the way that the Fleet server works.
 				}
 			}
 
+			if config.Server.QueryResultsTTL > 0 {
+				if err := cronSchedules.StartCronSchedule(
+					func() (fleet.CronSchedule, error) {
+						return newQueryResultsTTLCleanupSchedule(ctx, instanceID, ds, &config, logger)
+					},
+				); err != nil {
+					initFatal(err, "failed to register query_results_ttl_cleanup schedule")
+				}
+			}
+
 			if err := cronSchedules.StartCronSchedule(
 				func() (fleet.CronSchedule, error) {
 					commander := apple_mdm.NewMDMAppleCommander(mdmStorage, mdmPushService)

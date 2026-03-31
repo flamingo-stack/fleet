@@ -427,6 +427,8 @@ type OverwriteQueryResultRowsFunc func(ctx context.Context, rows []*fleet.Schedu
 
 type CleanupDiscardedQueryResultsFunc func(ctx context.Context) error
 
+type CleanupExpiredQueryResultsFunc func(ctx context.Context, expiredBefore time.Time) (int64, error)
+
 type NewTeamFunc func(ctx context.Context, team *fleet.Team) (*fleet.Team, error)
 
 type SaveTeamFunc func(ctx context.Context, team *fleet.Team) (*fleet.Team, error)
@@ -2343,6 +2345,9 @@ type DataStore struct {
 
 	CleanupDiscardedQueryResultsFunc        CleanupDiscardedQueryResultsFunc
 	CleanupDiscardedQueryResultsFuncInvoked bool
+
+	CleanupExpiredQueryResultsFunc        CleanupExpiredQueryResultsFunc
+	CleanupExpiredQueryResultsFuncInvoked bool
 
 	NewTeamFunc        NewTeamFunc
 	NewTeamFuncInvoked bool
@@ -5724,6 +5729,13 @@ func (s *DataStore) CleanupDiscardedQueryResults(ctx context.Context) error {
 	s.CleanupDiscardedQueryResultsFuncInvoked = true
 	s.mu.Unlock()
 	return s.CleanupDiscardedQueryResultsFunc(ctx)
+}
+
+func (s *DataStore) CleanupExpiredQueryResults(ctx context.Context, expiredBefore time.Time) (int64, error) {
+	s.mu.Lock()
+	s.CleanupExpiredQueryResultsFuncInvoked = true
+	s.mu.Unlock()
+	return s.CleanupExpiredQueryResultsFunc(ctx, expiredBefore)
 }
 
 func (s *DataStore) NewTeam(ctx context.Context, team *fleet.Team) (*fleet.Team, error) {
