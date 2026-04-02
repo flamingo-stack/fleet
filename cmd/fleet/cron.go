@@ -990,12 +990,12 @@ func newCleanupsAndAggregationSchedule(
 			return ds.RenewMDMManagedCertificates(ctx)
 		}),
 		schedule.WithJob("query_results_cleanup", func(ctx context.Context) error {
-			appConfig, err := ds.AppConfig(ctx)
+			config, err := ds.AppConfig(ctx)
 			if err != nil {
 				return err
 			}
 
-			if appConfig.ServerSettings.QueryReportsDisabled {
+			if config.ServerSettings.QueryReportsDisabled {
 				if err = ds.CleanupGlobalDiscardQueryResults(ctx); err != nil {
 					return err
 				}
@@ -1140,9 +1140,6 @@ func newQueryResultsTTLCleanupSchedule(
 		schedule.WithAltLockID("leader_query_results_ttl_cleanup"),
 		schedule.WithLogger(kitlog.With(logger, "cron", name)),
 		schedule.WithJob("cleanup_expired_query_results", func(ctx context.Context) error {
-			if config.Server.QueryResultsTTL <= 0 {
-				return nil
-			}
 			expiredBefore := time.Now().Add(-config.Server.QueryResultsTTL).UTC()
 			deleted, err := ds.CleanupExpiredQueryResults(ctx, expiredBefore)
 			if err != nil {

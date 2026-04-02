@@ -987,7 +987,7 @@ the way that the Fleet server works.
 				}
 			}
 
-			if config.Server.QueryResultsTTL > 0 {
+			if fleet.IsOpenframeMode() && config.Server.QueryResultsTTL > 0 {
 				if err := cronSchedules.StartCronSchedule(
 					func() (fleet.CronSchedule, error) {
 						return newQueryResultsTTLCleanupSchedule(ctx, instanceID, ds, &config, logger)

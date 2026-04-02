@@ -161,80 +161,19 @@ func (ds *Datastore) CleanupDiscardedQueryResults(ctx context.Context) error {
 	return nil
 }
 
-const (
-	queryResultsTTLBatchSize  int           = 1000
-	queryResultsTTLMinPerRun  uint          = 3000
-	queryResultsTTLPercent    float64       = 0.10
-	queryResultsTTLBatchSleep time.Duration = 100 * time.Millisecond
-)
-
-// CleanupExpiredQueryResults deletes query_results rows where last_fetched is older
-// than expiredBefore. Uses batch deletion to avoid long-running locks.
+// CleanupExpiredQueryResults deletes up to 1000 query_results rows where last_fetched
+// is older than expiredBefore. Called on each cron tick; the schedule interval controls
+// the overall deletion rate. Returns the number of rows deleted.
 func (ds *Datastore) CleanupExpiredQueryResults(ctx context.Context, expiredBefore time.Time) (int64, error) {
-	// Count total eligible rows.
-	var totalEligible uint
-	err := sqlx.GetContext(ctx, ds.reader(ctx), &totalEligible,
-		`SELECT COUNT(*) FROM query_results WHERE last_fetched < ?`, expiredBefore)
+	result, err := ds.writer(ctx).ExecContext(ctx,
+		`DELETE FROM query_results WHERE last_fetched < ? LIMIT 1000`,
+		expiredBefore)
 	if err != nil {
-		return 0, ctxerr.Wrap(ctx, err, "counting expired query results")
+		return 0, ctxerr.Wrap(ctx, err, "deleting expired query results")
 	}
-	if totalEligible == 0 {
-		return 0, nil
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "getting rows affected for expired query results cleanup")
 	}
-
-	// Calculate max to delete: 10% of eligible or minimum 3k, whichever is larger,
-	// but never more than what exists.
-	maxToDelete := uint(float64(totalEligible) * queryResultsTTLPercent)
-	if maxToDelete < queryResultsTTLMinPerRun {
-		maxToDelete = queryResultsTTLMinPerRun
-	}
-	if maxToDelete > totalEligible {
-		maxToDelete = totalEligible
-	}
-
-	var totalDeleted int64
-
-	// Process deletions in batches to avoid locking issues and memory problems.
-	for uint(totalDeleted) < maxToDelete {
-		batchSize := queryResultsTTLBatchSize
-		if remaining := maxToDelete - uint(totalDeleted); remaining < uint(batchSize) { //nolint:gosec // dismiss G115
-			batchSize = int(remaining)
-		}
-
-		var ids []uint
-		err := sqlx.SelectContext(ctx, ds.reader(ctx), &ids,
-			`SELECT id FROM query_results WHERE last_fetched < ? ORDER BY id LIMIT ?`,
-			expiredBefore, batchSize)
-		if err != nil {
-			return totalDeleted, ctxerr.Wrap(ctx, err, "selecting expired query results for cleanup")
-		}
-
-		if len(ids) == 0 {
-			break
-		}
-
-		deleteStmt := `DELETE FROM query_results WHERE id IN (?)`
-		query, args, err := sqlx.In(deleteStmt, ids)
-		if err != nil {
-			return totalDeleted, ctxerr.Wrap(ctx, err, "building delete query for expired query results")
-		}
-
-		result, err := ds.writer(ctx).ExecContext(ctx, query, args...)
-		if err != nil {
-			return totalDeleted, ctxerr.Wrap(ctx, err, "deleting expired query results")
-		}
-
-		deleted, _ := result.RowsAffected()
-		totalDeleted += deleted
-
-		// If we found less than the batch size, we're done (no more rows to delete).
-		if len(ids) < batchSize {
-			break
-		}
-
-		// Sleep briefly between batches to avoid overloading the database.
-		time.Sleep(queryResultsTTLBatchSleep)
-	}
-
-	return totalDeleted, nil
+	return deleted, nil
 }
