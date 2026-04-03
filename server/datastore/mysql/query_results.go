@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	"github.com/fleetdm/fleet/v4/server/fleet"
@@ -158,4 +159,21 @@ func (ds *Datastore) CleanupDiscardedQueryResults(ctx context.Context) error {
 		return ctxerr.Wrap(ctx, err, "cleaning up discarded query results")
 	}
 	return nil
+}
+
+// CleanupExpiredQueryResults deletes up to 1000 query_results rows where last_fetched
+// is older than expiredBefore. Called on each cron tick; the schedule interval controls
+// the overall deletion rate. Returns the number of rows deleted.
+func (ds *Datastore) CleanupExpiredQueryResults(ctx context.Context, expiredBefore time.Time) (int64, error) {
+	result, err := ds.writer(ctx).ExecContext(ctx,
+		`DELETE FROM query_results WHERE last_fetched < ? LIMIT 1000`,
+		expiredBefore)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "deleting expired query results")
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "getting rows affected for expired query results cleanup")
+	}
+	return deleted, nil
 }

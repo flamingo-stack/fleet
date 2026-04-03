@@ -1126,6 +1126,35 @@ func newFrequentCleanupsSchedule(
 	return s, nil
 }
 
+func newQueryResultsTTLCleanupSchedule(
+	ctx context.Context,
+	instanceID string,
+	ds fleet.Datastore,
+	config *config.FleetConfig,
+	logger kitlog.Logger,
+) (*schedule.Schedule, error) {
+	const name = string(fleet.CronQueryResultsTTLCleanup)
+
+	s := schedule.New(
+		ctx, name, instanceID, config.Server.QueryResultsCleanupInterval, ds, ds,
+		schedule.WithAltLockID("leader_query_results_ttl_cleanup"),
+		schedule.WithLogger(kitlog.With(logger, "cron", name)),
+		schedule.WithJob("cleanup_expired_query_results", func(ctx context.Context) error {
+			expiredBefore := time.Now().Add(-config.Server.QueryResultsTTL).UTC()
+			deleted, err := ds.CleanupExpiredQueryResults(ctx, expiredBefore)
+			if err != nil {
+				return err
+			}
+			if deleted > 0 {
+				level.Info(logger).Log("msg", "cleaned up expired query results", "deleted", deleted, "ttl", config.Server.QueryResultsTTL)
+			}
+			return nil
+		}),
+	)
+
+	return s, nil
+}
+
 func verifyDiskEncryptionKeys(
 	ctx context.Context,
 	logger kitlog.Logger,
