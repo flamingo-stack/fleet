@@ -224,16 +224,11 @@ spec:
               {{- end }}
               ## END MYSQL READ REPLICA SECTION
               ## BEGIN REDIS SECTION
-              {{- if .Values.cache.existingConfigMap }}
               - name: FLEET_REDIS_ADDRESS
                 valueFrom:
                   configMapKeyRef:
-                    name: {{ .Values.cache.existingConfigMap }}
+                    name: {{ default .Values.cache.existingConfigMap "fleet" }}
                     key: {{ .Values.cache.existingConfigMapKey }}
-              {{- else }}
-              - name: FLEET_REDIS_ADDRESS
-                value: "{{ .Values.cache.address }}"
-              {{- end }}
               - name: FLEET_REDIS_DATABASE
                 value: "{{ .Values.cache.database }}"
               {{- if .Values.cache.usePassword }}

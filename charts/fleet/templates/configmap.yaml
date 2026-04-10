@@ -1,0 +1,8 @@
+{{}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet
+data:
+  FLEET_REDIS_ADDRESS: "{{ .Values.cache.address }}"
+{{- end }}
