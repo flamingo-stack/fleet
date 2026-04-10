@@ -191,6 +191,21 @@ spec:
                 key: {{ .Values.fleet.license.licenseKey }}
                 name: {{ .Values.fleet.license.secretName }}
           {{- end }}
+          ### Fleet Setup Configuration
+          {{- if .Values.fleet.setup.adminEmail }}
+          - name: FLEET_SETUP_ADMIN_EMAIL
+            value: {{ .Values.fleet.setup.adminEmail | quote }}
+          {{- end }}
+          {{- if .Values.fleet.setup.adminPassword.existingSecret }}
+          - name: FLEET_SETUP_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.fleet.setup.adminPassword.existingSecret }}
+                key: {{ .Values.fleet.setup.adminPassword.existingSecretKey }}
+          {{- else if .Values.fleet.setup.adminPassword.secretKeyValue }}
+          - name: FLEET_SETUP_ADMIN_PASSWORD
+            value: {{ .Values.fleet.setup.adminPassword.secretKeyValue | quote }}
+          {{- end }}
           ## END FLEET SECTION
           ## BEGIN MYSQL SECTION
           - name: FLEET_MYSQL_ADDRESS
@@ -291,8 +306,16 @@ spec:
           {{- end }}
           ## END MYSQL READ REPLICA SECTION
           ## BEGIN REDIS SECTION
+          {{- if .Values.cache.existingConfigMap }}
+          - name: FLEET_REDIS_ADDRESS
+            valueFrom:
+              configMapKeyRef:
+                name: {{ .Values.cache.existingConfigMap }}
+                key: {{ .Values.cache.existingConfigMapKey }}
+          {{- else }}
           - name: FLEET_REDIS_ADDRESS
             value: "{{ .Values.cache.address }}"
+          {{- end }}
           - name: FLEET_REDIS_DATABASE
             value: "{{ .Values.cache.database }}"
           {{- if .Values.cache.usePassword }}

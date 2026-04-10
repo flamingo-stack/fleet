@@ -97,6 +97,13 @@ fleet:
     debug: false
     json: false
     disableBanner: false
+  # Fleet initial setup configuration
+  setup:
+    adminEmail: ""
+    adminPassword:
+      existingSecret: ""  # Name of an existing K8s Secret. If set, secretKeyValue is ignored.
+      existingSecretKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the existing secret to read the value from.
+      secretKeyValue: "fleet"  # Plain text password (for dev/test only). Ignored if existingSecret is set.
   mdm:
     windows:
       wstepIdentityCertKey: ""
@@ -274,6 +281,9 @@ database:
 # All of the connection settings for Redis
 cache:
   address: 127.0.0.1:6379
+  # To read address from an existing ConfigMap instead of using the static value above:
+  existingConfigMap: ""  # Name of an existing K8s ConfigMap. If set, address value is ignored.
+  existingConfigMapKey: "FLEET_REDIS_ADDRESS"  # Key name within the ConfigMap to read the value from.
   database: "0"
   usePassword: false
   secretName: redis
@@ -320,12 +330,7 @@ environments:
 #     secretKeyRef:
 #       name: secret-name
 #       key: secret-key-name
-envsFrom:
-  - name: FLEET_REDIS_ADDRESS
-    valueFrom:
-      configMapKeyRef:
-        name: redis-fleet
-        key: FLEET_REDIS_ADDRESS
+envsFrom: []
 
 mysql:
   enabled: false
