@@ -320,6 +320,12 @@ environments:
 #     secretKeyRef:
 #       name: secret-name
 #       key: secret-key-name
+envsFrom:
+  - name: FLEET_REDIS_ADDRESS
+    valueFrom:
+      configMapKeyRef:
+        name: redis-fleet
+        key: FLEET_REDIS_ADDRESS
 
 mysql:
   enabled: false
