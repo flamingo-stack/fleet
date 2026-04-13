@@ -100,6 +100,7 @@ fleet:
   # Fleet initial setup configuration
   setup:
     adminEmail: ""
+    openframeMode: "0"
     adminPassword:
       existingSecret: ""  # Name of an existing K8s Secret. If set, secretKeyValue is ignored.
       existingSecretKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the existing secret to read the value from.
@@ -233,9 +234,20 @@ osquery:
 database:
   # Name of the Secret resource containing MySQL password and TLS secrets
   secretName: mysql
-  address: 127.0.0.1:3306
+  # To read connection details from an existing ConfigMap instead of using static values below:
+  existingConfigMap: ""  # Name of an existing K8s ConfigMap. If set, host/port/database/username values are ignored.
+  existingConfigMapHostKey: "MYSQL_HOST"
+  existingConfigMapPortKey: "MYSQL_PORT"
+  existingConfigMapDatabaseKey: "MYSQL_DATABASE"
+  existingConfigMapUsernameKey: "MYSQL_USER"
+  # To read password from an existing Secret instead of the chart-created one:
+  existingSecret: ""  # Name of an existing K8s Secret. If set, secretName is ignored for password.
+  existingSecretKey: "MYSQL_PASSWORD"
+  host: 127.0.0.1
+  port: "3306"
   database: fleet
   username: fleet
+  password: fleet  # Plain text password. Used only when existingSecret is not set.
   passwordKey: mysql-password
   maxOpenConns: 50
   maxIdleConns: 50
