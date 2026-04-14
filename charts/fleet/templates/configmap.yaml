@@ -1,4 +1,4 @@
-{{- if not .Values.cache.existingConfigMap }}
+{{- if not .Values.cache.configMap }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,7 +9,7 @@ data:
   FLEET_REDIS_ADDRESS: "{{ .Values.cache.address }}"
 {{- end }}
 ---
-{{- if not .Values.database.existingConfigMap }}
+{{- if not .Values.database.configMap }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
