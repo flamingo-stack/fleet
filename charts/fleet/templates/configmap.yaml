@@ -17,8 +17,8 @@ metadata:
   labels:
     {{- include "fleet.labels" . | nindent 4 }}
 data:
-  MYSQL_HOST: "{{ .Values.database.host }}"
-  MYSQL_PORT: "{{ .Values.database.port }}"
+  FLEET_MYSQL_HOST: "{{ .Values.database.host }}"
+  FLEET_MYSQL_PORT: "{{ .Values.database.port }}"
   MYSQL_DATABASE: "{{ .Values.database.database }}"
   MYSQL_USER: "{{ .Values.database.username }}"
 {{- end }}

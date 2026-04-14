@@ -236,8 +236,8 @@ database:
   secretName: mysql
   # To read connection details from an existing ConfigMap instead of using static values below:
   existingConfigMap: ""  # Name of an existing K8s ConfigMap. If set, host/port/database/username values are ignored.
-  existingConfigMapHostKey: "MYSQL_HOST"
-  existingConfigMapPortKey: "MYSQL_PORT"
+  existingConfigMapHostKey: "FLEET_MYSQL_HOST"
+  existingConfigMapPortKey: "FLEET_MYSQL_PORT"
   existingConfigMapDatabaseKey: "MYSQL_DATABASE"
   existingConfigMapUsernameKey: "MYSQL_USER"
   # To read password from an existing Secret instead of the chart-created one:
