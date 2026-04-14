@@ -196,16 +196,11 @@ spec:
           - name: FLEET_SETUP_ADMIN_EMAIL
             value: {{ .Values.fleet.setup.adminEmail | quote }}
           {{- end }}
-          {{- if .Values.fleet.setup.adminPassword.existingSecret }}
           - name: FLEET_SETUP_ADMIN_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: {{ .Values.fleet.setup.adminPassword.existingSecret }}
-                key: {{ .Values.fleet.setup.adminPassword.existingSecretKey }}
-          {{- else if .Values.fleet.setup.adminPassword.secretKeyValue }}
-          - name: FLEET_SETUP_ADMIN_PASSWORD
-            value: {{ .Values.fleet.setup.adminPassword.secretKeyValue | quote }}
-          {{- end }}
+                name: {{ default "fleet-setup" .Values.fleet.setup.adminPassword.existingSecret }}
+                key: {{ .Values.fleet.setup.adminPassword.secretKeyKey }}
           - name: FLEET_OPENFRAME_MODE
             value: {{ .Values.fleet.setup.openframeMode | quote }}
           ## END FLEET SECTION
@@ -214,24 +209,24 @@ spec:
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapHostKey }}
+                key: {{ .Values.database.hostKey }}
           - name: FLEET_MYSQL_PORT
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapPortKey }}
+                key: {{ .Values.database.portKey }}
           - name: FLEET_MYSQL_ADDRESS
             value: "$(FLEET_MYSQL_HOST):$(FLEET_MYSQL_PORT)"
           - name: FLEET_MYSQL_DATABASE
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapDatabaseKey }}
+                key: {{ .Values.database.databaseKey }}
           - name: FLEET_MYSQL_USERNAME
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapUsernameKey }}
+                key: {{ .Values.database.usernameKey }}
           - name: FLEET_MYSQL_PASSWORD
             valueFrom:
               secretKeyRef:
@@ -328,7 +323,7 @@ spec:
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
-                key: {{ .Values.cache.existingConfigMapKey }}
+                key: {{ .Values.cache.addressKey }}
           - name: FLEET_REDIS_DATABASE
             value: "{{ .Values.cache.database }}"
           {{- if .Values.cache.usePassword }}

@@ -103,7 +103,7 @@ fleet:
     openframeMode: "0"
     adminPassword:
       existingSecret: ""  # Name of an existing K8s Secret. If set, secretKeyValue is ignored.
-      existingSecretKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the existing secret to read the value from.
+      secretKeyKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the secret to read the value from.
       secretKeyValue: "fleet"  # Plain text password (for dev/test only). Ignored if existingSecret is set.
   mdm:
     windows:
@@ -236,10 +236,10 @@ database:
   secretName: mysql
   # To read connection details from an existing ConfigMap instead of using static values below:
   existingConfigMap: ""  # Name of an existing K8s ConfigMap. If set, host/port/database/username values are ignored.
-  existingConfigMapHostKey: "FLEET_MYSQL_HOST"
-  existingConfigMapPortKey: "FLEET_MYSQL_PORT"
-  existingConfigMapDatabaseKey: "MYSQL_DATABASE"
-  existingConfigMapUsernameKey: "MYSQL_USER"
+  hostKey: "FLEET_MYSQL_HOST"
+  portKey: "FLEET_MYSQL_PORT"
+  databaseKey: "MYSQL_DATABASE"
+  usernameKey: "MYSQL_USER"
   # To read password from an existing Secret instead of the chart-created one:
   existingSecret: ""  # Name of an existing K8s Secret. If set, secretName is ignored for password.
   existingSecretKey: "MYSQL_PASSWORD"
@@ -295,7 +295,7 @@ cache:
   address: 127.0.0.1:6379
   # To read address from an existing ConfigMap instead of using the static value above:
   existingConfigMap: ""  # Name of an existing K8s ConfigMap. If set, address value is ignored.
-  existingConfigMapKey: "FLEET_REDIS_ADDRESS"  # Key name within the ConfigMap to read the value from.
+  addressKey: "FLEET_REDIS_ADDRESS"  # Key name within the ConfigMap to read the value from.
   database: "0"
   usePassword: false
   secretName: redis

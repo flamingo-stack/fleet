@@ -88,24 +88,24 @@ spec:
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapHostKey }}
+                key: {{ .Values.database.hostKey }}
           - name: FLEET_MYSQL_PORT
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapPortKey }}
+                key: {{ .Values.database.portKey }}
           - name: FLEET_MYSQL_ADDRESS
             value: "$(FLEET_MYSQL_HOST):$(FLEET_MYSQL_PORT)"
           - name: FLEET_MYSQL_DATABASE
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapDatabaseKey }}
+                key: {{ .Values.database.databaseKey }}
           - name: FLEET_MYSQL_USERNAME
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
-                key: {{ .Values.database.existingConfigMapUsernameKey }}
+                key: {{ .Values.database.usernameKey }}
           - name: FLEET_MYSQL_PASSWORD
             valueFrom:
               secretKeyRef:
