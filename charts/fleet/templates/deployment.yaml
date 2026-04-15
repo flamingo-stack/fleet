@@ -199,7 +199,7 @@ spec:
           - name: FLEET_SETUP_ADMIN_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: {{ default "fleet-setup" .Values.fleet.setup.adminPassword.secret }}
+                name: {{ default "fleet-setup" .Values.fleet.setup.adminPassword.existingSecret }}
                 key: {{ .Values.fleet.setup.adminPassword.secretKeyKey }}
           - name: FLEET_OPENFRAME_MODE
             value: {{ .Values.fleet.setup.openframeMode | quote }}
@@ -231,7 +231,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingSecret }}
-                key: {{ default .Values.database.passwordKey  }}
+                key: {{ .Values.database.passwordKey }}
           - name: FLEET_MYSQL_MAX_OPEN_CONNS
             value: "{{ .Values.database.maxOpenConns }}"
           - name: FLEET_MYSQL_MAX_IDLE_CONNS
@@ -587,7 +587,7 @@ spec:
         {{- if .Values.database.tls.enabled }}
         - name: mysql-tls
           secret:
-            secretName: "{{ .Values.database.existingSecretName }}"
+            secretName: "{{ .Values.database.secretName }}"
         {{- end }}
         {{- if or (eq .Values.osquery.logging.statusPlugin "filesystem") (eq .Values.osquery.logging.resultPlugin "filesystem") }}
         - name: osquery-logs

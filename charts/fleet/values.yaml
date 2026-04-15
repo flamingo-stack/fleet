@@ -102,7 +102,7 @@ fleet:
     adminEmail: ""
     openframeMode: "0"
     adminPassword:
-      secret: ""  # Name of a K8s Secret. If set, secretKeyValue is ignored.
+      existingSecret: ""  # Name of a K8s Secret. If set, secretKeyValue is ignored.
       secretKeyKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the secret to read the value from.
       secretKeyValue: "fleet"  # Plain text password (for dev/test only). Ignored if secret is set.
   mdm:
