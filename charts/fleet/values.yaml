@@ -97,6 +97,14 @@ fleet:
     debug: false
     json: false
     disableBanner: false
+  # Fleet initial setup configuration
+  setup:
+    adminEmail: ""
+    openframeMode: "0"
+    adminPassword:
+      existingSecret: ""  # Name of a K8s Secret. If set, secretKeyValue is ignored.
+      secretKeyKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the secret to read the value from.
+      secretKeyValue: "fleet"  # Plain text password (for dev/test only). Ignored if secret is set.
   mdm:
     windows:
       wstepIdentityCertKey: ""
@@ -226,9 +234,20 @@ osquery:
 database:
   # Name of the Secret resource containing MySQL password and TLS secrets
   secretName: mysql
-  address: 127.0.0.1:3306
+  # To read connection details from a ConfigMap instead of using static values below:
+  existingConfigMap: ""  # Name of a K8s ConfigMap. If set, host/port/database/username values are ignored.
+  hostKey: "FLEET_MYSQL_HOST"
+  portKey: "FLEET_MYSQL_PORT"
+  databaseKey: "MYSQL_DATABASE"
+  usernameKey: "MYSQL_USER"
+  # To read password from a Secret instead of the chart-created one:
+  existingSecret: ""  # Name of a K8s Secret. If set, secretName is ignored for password.
+  secretKey: "MYSQL_PASSWORD"
+  host: 127.0.0.1
+  port: "3306"
   database: fleet
   username: fleet
+  password: fleet  # Plain text password. Used only when secret is not set.
   passwordKey: mysql-password
   maxOpenConns: 50
   maxIdleConns: 50
@@ -274,6 +293,9 @@ database:
 # All of the connection settings for Redis
 cache:
   address: 127.0.0.1:6379
+  # To read address from a ConfigMap instead of using the static value above:
+  existingConfigMap: ""  # Name of a K8s ConfigMap. If set, address value is ignored.
+  addressKey: "FLEET_REDIS_ADDRESS"  # Key name within the ConfigMap to read the value from.
   database: "0"
   usePassword: false
   secretName: redis
@@ -320,6 +342,7 @@ environments:
 #     secretKeyRef:
 #       name: secret-name
 #       key: secret-key-name
+envsFrom: []
 
 mysql:
   enabled: false

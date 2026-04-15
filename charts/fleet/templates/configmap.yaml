@@ -1,0 +1,24 @@
+{{- if not .Values.cache.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-cache
+  labels:
+    {{- include "fleet.labels" . | nindent 4 }}
+data:
+  {{ .Values.cache.addressKey }}: {{ .Values.cache.address | quote }}
+{{- end }}
+---
+{{- if not .Values.database.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-database
+  labels:
+    {{- include "fleet.labels" . | nindent 4 }}
+data:
+  {{ .Values.database.hostKey }}: {{ .Values.database.host | quote }}
+  {{ .Values.database.portKey }}: {{ .Values.database.port | quote }}
+  {{ .Values.database.databaseKey }}: {{ .Values.database.database | quote }}
+  {{ .Values.database.usernameKey }}: {{ .Values.database.username | quote }}
+{{- end }}

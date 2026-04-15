@@ -84,16 +84,32 @@ spec:
           {{- end }}
           ## END FLEET SECTION
           ## BEGIN MYSQL SECTION
+          - name: FLEET_MYSQL_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.hostKey }}
+          - name: FLEET_MYSQL_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.portKey }}
           - name: FLEET_MYSQL_ADDRESS
-            value: "{{ .Values.database.address }}"
+            value: "$(FLEET_MYSQL_HOST):$(FLEET_MYSQL_PORT)"
           - name: FLEET_MYSQL_DATABASE
-            value: "{{ .Values.database.database }}"
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.databaseKey }}
           - name: FLEET_MYSQL_USERNAME
-            value: "{{ .Values.database.username }}"
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.usernameKey }}
           - name: FLEET_MYSQL_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: {{ .Values.database.secretName }}
+                name: {{ default "fleet-database" .Values.database.existingSecret }}
                 key: {{ .Values.database.passwordKey }}
           - name: FLEET_MYSQL_MAX_OPEN_CONNS
             value: "{{ .Values.database.maxOpenConns }}"

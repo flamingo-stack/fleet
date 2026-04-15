@@ -191,18 +191,46 @@ spec:
                 key: {{ .Values.fleet.license.licenseKey }}
                 name: {{ .Values.fleet.license.secretName }}
           {{- end }}
+          ### Fleet Setup Configuration
+          {{- if .Values.fleet.setup.adminEmail }}
+          - name: FLEET_SETUP_ADMIN_EMAIL
+            value: {{ .Values.fleet.setup.adminEmail | quote }}
+          {{- end }}
+          - name: FLEET_SETUP_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ default "fleet-setup" .Values.fleet.setup.adminPassword.existingSecret }}
+                key: {{ .Values.fleet.setup.adminPassword.secretKeyKey }}
+          - name: FLEET_OPENFRAME_MODE
+            value: {{ .Values.fleet.setup.openframeMode | quote }}
           ## END FLEET SECTION
           ## BEGIN MYSQL SECTION
+          - name: FLEET_MYSQL_HOST
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.hostKey }}
+          - name: FLEET_MYSQL_PORT
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.portKey }}
           - name: FLEET_MYSQL_ADDRESS
-            value: "{{ .Values.database.address }}"
+            value: "$(FLEET_MYSQL_HOST):$(FLEET_MYSQL_PORT)"
           - name: FLEET_MYSQL_DATABASE
-            value: "{{ .Values.database.database }}"
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.databaseKey }}
           - name: FLEET_MYSQL_USERNAME
-            value: "{{ .Values.database.username }}"
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.usernameKey }}
           - name: FLEET_MYSQL_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: {{ .Values.database.secretName }}
+                name: {{ default "fleet-database" .Values.database.existingSecret }}
                 key: {{ .Values.database.passwordKey }}
           - name: FLEET_MYSQL_MAX_OPEN_CONNS
             value: "{{ .Values.database.maxOpenConns }}"
@@ -292,7 +320,10 @@ spec:
           ## END MYSQL READ REPLICA SECTION
           ## BEGIN REDIS SECTION
           - name: FLEET_REDIS_ADDRESS
-            value: "{{ .Values.cache.address }}"
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
+                key: {{ .Values.cache.addressKey }}
           - name: FLEET_REDIS_DATABASE
             value: "{{ .Values.cache.database }}"
           {{- if .Values.cache.usePassword }}
