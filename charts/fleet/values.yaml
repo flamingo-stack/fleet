@@ -235,13 +235,13 @@ database:
   # Name of the Secret resource containing MySQL password and TLS secrets
   secretName: mysql
   # To read connection details from a ConfigMap instead of using static values below:
-  configMap: ""  # Name of a K8s ConfigMap. If set, host/port/database/username values are ignored.
+  existingConfigMap: ""  # Name of a K8s ConfigMap. If set, host/port/database/username values are ignored.
   hostKey: "FLEET_MYSQL_HOST"
   portKey: "FLEET_MYSQL_PORT"
   databaseKey: "MYSQL_DATABASE"
   usernameKey: "MYSQL_USER"
   # To read password from a Secret instead of the chart-created one:
-  secret: ""  # Name of a K8s Secret. If set, secretName is ignored for password.
+  existingSecret: ""  # Name of a K8s Secret. If set, secretName is ignored for password.
   secretKey: "MYSQL_PASSWORD"
   host: 127.0.0.1
   port: "3306"
@@ -294,7 +294,7 @@ database:
 cache:
   address: 127.0.0.1:6379
   # To read address from a ConfigMap instead of using the static value above:
-  configMap: ""  # Name of a K8s ConfigMap. If set, address value is ignored.
+  existingConfigMap: ""  # Name of a K8s ConfigMap. If set, address value is ignored.
   addressKey: "FLEET_REDIS_ADDRESS"  # Key name within the ConfigMap to read the value from.
   database: "0"
   usePassword: false

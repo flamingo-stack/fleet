@@ -1,4 +1,4 @@
-{{- if not .Values.cache.configMap }}
+{{- if not .Values.cache.existingConfigMap }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,10 +6,10 @@ metadata:
   labels:
     {{- include "fleet.labels" . | nindent 4 }}
 data:
-  FLEET_REDIS_ADDRESS: "{{ .Values.cache.address }}"
+  {{ .Values.cache.addressKey }}: {{ .Values.cache.address | quote }}
 {{- end }}
 ---
-{{- if not .Values.database.configMap }}
+{{- if not .Values.database.existingConfigMap }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,8 +17,8 @@ metadata:
   labels:
     {{- include "fleet.labels" . | nindent 4 }}
 data:
-  FLEET_MYSQL_HOST: "{{ .Values.database.host }}"
-  FLEET_MYSQL_PORT: "{{ .Values.database.port }}"
-  MYSQL_DATABASE: "{{ .Values.database.database }}"
-  MYSQL_USER: "{{ .Values.database.username }}"
+  {{ .Values.database.hostKey }}: {{ .Values.database.host | quote }}
+  {{ .Values.database.portKey }}: {{ .Values.database.port | quote }}
+  {{ .Values.database.databaseKey }}: {{ .Values.database.database | quote }}
+  {{ .Values.database.usernameKey }}: {{ .Values.database.username | quote }}
 {{- end }}
