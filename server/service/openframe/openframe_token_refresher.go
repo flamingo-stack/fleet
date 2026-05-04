@@ -61,8 +61,13 @@ func (tr *OpenframeTokenRefresher) refreshToken() {
 	}
 	tr.extractErrCount = 0
 
+	if token == "" {
+		log.Warn().Msg("Openframe token refresh: extracted token is empty")
+		return
+	}
+
 	if tr.authorizationManager.GetToken() == token {
-        log.Debug().Msg("Openframe token is the same, skipping refresh")
+		log.Debug().Msg("Openframe token is the same, skipping refresh")
 		return
 	}
 
