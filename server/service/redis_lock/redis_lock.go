@@ -29,6 +29,14 @@ func NewLock(pool fleet.RedisPool) fleet.Lock {
 	return fleet.Lock(lock)
 }
 
+// k composes the fully-qualified Redis key for a lock: pool-level KeyPrefix
+// (per-tenant namespace) + testPrefix (intra-test isolation) + caller key.
+// All read/write methods route key construction through this helper so that
+// the prefix layering stays consistent.
+func (r *redisLock) k(key string) string {
+	return r.pool.KeyPrefix() + r.testPrefix + key
+}
+
 func (r *redisLock) SetIfNotExist(ctx context.Context, key string, value string, expireMs uint64) (ok bool, err error) {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
@@ -39,7 +47,7 @@ func (r *redisLock) SetIfNotExist(ctx context.Context, key string, value string,
 
 	// Reference: https://redis.io/docs/latest/commands/set/
 	// NX -- Only set the key if it does not already exist.
-	result, err := redigo.String(conn.Do("SET", r.testPrefix+key, value, "NX", "PX", expireMs))
+	result, err := redigo.String(conn.Do("SET", r.k(key), value, "NX", "PX", expireMs))
 	if err != nil && !errors.Is(err, redigo.ErrNil) {
 		return false, ctxerr.Wrap(ctx, err, "redis acquire lock")
 	}
@@ -60,7 +68,7 @@ func (r *redisLock) ReleaseLock(ctx context.Context, key string, value string) (
 
 	// Reference: https://redis.io/docs/latest/commands/set/
 	// Only release the lock if the value matches.
-	res, err := redigo.Int64(conn.Do("EVAL", unlockScript, 1, r.testPrefix+key, value))
+	res, err := redigo.Int64(conn.Do("EVAL", unlockScript, 1, r.k(key), value))
 	if err != nil && !errors.Is(err, redigo.ErrNil) {
 		return false, ctxerr.Wrap(ctx, err, "redis release lock")
 	}
@@ -72,7 +80,7 @@ func (r *redisLock) AddToSet(ctx context.Context, key string, value string) erro
 	defer conn.Close()
 
 	// Reference: https://redis.io/docs/latest/commands/sadd/
-	_, err := conn.Do("SADD", r.testPrefix+key, value)
+	_, err := conn.Do("SADD", r.k(key), value)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "redis add to set")
 	}
@@ -84,7 +92,7 @@ func (r *redisLock) RemoveFromSet(ctx context.Context, key string, value string)
 	defer conn.Close()
 
 	// Reference: https://redis.io/docs/latest/commands/srem/
-	_, err := conn.Do("SREM", r.testPrefix+key, value)
+	_, err := conn.Do("SREM", r.k(key), value)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "redis add to set")
 	}
@@ -96,7 +104,7 @@ func (r *redisLock) GetSet(ctx context.Context, key string) ([]string, error) {
 	defer conn.Close()
 
 	// Reference: https://redis.io/docs/latest/commands/smembers/
-	members, err := redigo.Strings(conn.Do("SMEMBERS", r.testPrefix+key))
+	members, err := redigo.Strings(conn.Do("SMEMBERS", r.k(key)))
 	if err != nil && !errors.Is(err, redigo.ErrNil) {
 		return nil, ctxerr.Wrap(ctx, err, "redis get set members")
 	}
@@ -107,7 +115,7 @@ func (r *redisLock) Get(ctx context.Context, key string) (*string, error) {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	res, err := redigo.String(conn.Do("GET", r.testPrefix+key))
+	res, err := redigo.String(conn.Do("GET", r.k(key)))
 	if errors.Is(err, redigo.ErrNil) {
 		return nil, nil
 	}
@@ -123,7 +131,7 @@ func (r *redisLock) GetAndDelete(ctx context.Context, key string) (*string, erro
 
 	// Note: In Redis 6.2.0, this can be accomplished with a single command: GETDEL.
 
-	res, err := redigo.String(conn.Do("GET", r.testPrefix+key))
+	res, err := redigo.String(conn.Do("GET", r.k(key)))
 	if errors.Is(err, redigo.ErrNil) {
 		return nil, nil
 	}
@@ -131,7 +139,7 @@ func (r *redisLock) GetAndDelete(ctx context.Context, key string) (*string, erro
 		return nil, ctxerr.Wrap(ctx, err, "redis GET")
 	}
 
-	_, err = conn.Do("DEL", r.testPrefix+key)
+	_, err = conn.Do("DEL", r.k(key))
 	if err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "redis DEL")
 	}

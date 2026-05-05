@@ -16,11 +16,28 @@ import (
 )
 
 const (
-	labelMembershipActiveHostIDsKey = "label_membership:active_host_ids"
-	labelMembershipHostKey          = "label_membership:{%d}"
-	labelMembershipReportedKey      = "label_membership_reported:{%d}"
-	labelMembershipKeysMinTTL       = 7 * 24 * time.Hour // 1 week
+	labelMembershipKeysMinTTL = 7 * 24 * time.Hour // 1 week
 )
+
+// Redis-key builders for label-membership async batches. They were package-level
+// constants of the form "label_membership:..." and "label_membership:{%d}";
+// the functions below preserve the original literal shapes (including the
+// {hostID} cluster hash tag) but additionally prepend the pool's configured
+// KeyPrefix so that label-membership data does not collide between tenants on
+// a shared Redis. The hash tag stays inside the braces, ensuring the
+// host-keyed pair (set + reported timestamp) still co-locates on the same
+// Redis Cluster slot.
+func labelMembershipActiveHostIDsKey(pool fleet.RedisPool) string {
+	return pool.KeyPrefix() + "label_membership:active_host_ids"
+}
+
+func labelMembershipHostKey(pool fleet.RedisPool, hostID uint) string {
+	return fmt.Sprintf("%slabel_membership:{%d}", pool.KeyPrefix(), hostID)
+}
+
+func labelMembershipReportedKey(pool fleet.RedisPool, hostID uint) string {
+	return fmt.Sprintf("%slabel_membership_reported:{%d}", pool.KeyPrefix(), hostID)
+}
 
 func (t *Task) RecordLabelQueryExecutions(ctx context.Context, host *fleet.Host, results map[uint]*bool, ts time.Time, deferred bool) error {
 	cfg := t.taskConfigs[config.AsyncTaskLabelMembership]
@@ -29,8 +46,8 @@ func (t *Task) RecordLabelQueryExecutions(ctx context.Context, host *fleet.Host,
 		return t.datastore.RecordLabelQueryExecutions(ctx, host, results, ts, deferred)
 	}
 
-	keySet := fmt.Sprintf(labelMembershipHostKey, host.ID)
-	keyTs := fmt.Sprintf(labelMembershipReportedKey, host.ID)
+	keySet := labelMembershipHostKey(t.pool, host.ID)
+	keyTs := labelMembershipReportedKey(t.pool, host.ID)
 
 	// set an expiration on both keys (set and ts), ensuring that a deleted host
 	// (eventually) does not use any redis space. Ensure that TTL is reasonably
@@ -84,7 +101,7 @@ func (t *Task) RecordLabelQueryExecutions(ctx context.Context, host *fleet.Host,
 	// outside of the redis script because in Redis Cluster mode the key may not
 	// live on the same node as the host's keys. At the same time, purge any
 	// entry in the set that is older than now - TTL.
-	if _, err := storePurgeActiveHostID(t.pool, labelMembershipActiveHostIDsKey, host.ID, ts, ts.Add(-ttl)); err != nil {
+	if _, err := storePurgeActiveHostID(t.pool, labelMembershipActiveHostIDsKey(t.pool), host.ID, ts, ts.Add(-ttl)); err != nil {
 		return ctxerr.Wrap(ctx, err, "store active host id")
 	}
 	return nil
@@ -105,14 +122,14 @@ func (t *Task) collectLabelQueryExecutions(ctx context.Context, ds fleet.Datasto
 
 	cfg := t.taskConfigs[config.AsyncTaskLabelMembership]
 
-	hosts, err := loadActiveHostIDs(pool, labelMembershipActiveHostIDsKey, cfg.RedisScanKeysCount)
+	hosts, err := loadActiveHostIDs(pool, labelMembershipActiveHostIDsKey(pool), cfg.RedisScanKeysCount)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "load active host ids")
 	}
 	stats.Keys = len(hosts)
 
 	getKeyTuples := func(hostID uint) (inserts, deletes [][2]uint, err error) {
-		keySet := fmt.Sprintf(labelMembershipHostKey, hostID)
+		keySet := labelMembershipHostKey(pool, hostID)
 		conn := redis.ConfigureDoer(pool, pool.Get())
 		defer conn.Close()
 
@@ -236,7 +253,7 @@ func (t *Task) collectLabelQueryExecutions(ctx context.Context, ds fleet.Datasto
 		// the initial value, so that the active set does not keep all (potentially
 		// 100K+) host IDs to process at all times - only those with reported
 		// results to process.
-		if _, err := removeProcessedHostIDs(pool, labelMembershipActiveHostIDsKey, hosts); err != nil {
+		if _, err := removeProcessedHostIDs(pool, labelMembershipActiveHostIDsKey(pool), hosts); err != nil {
 			return ctxerr.Wrap(ctx, err, "remove processed host ids")
 		}
 	}
@@ -251,7 +268,7 @@ func (t *Task) GetHostLabelReportedAt(ctx context.Context, host *fleet.Host) tim
 		conn := redis.ConfigureDoer(t.pool, t.pool.Get())
 		defer conn.Close()
 
-		key := fmt.Sprintf(labelMembershipReportedKey, host.ID)
+		key := labelMembershipReportedKey(t.pool, host.ID)
 		epoch, err := redigo.Int64(conn.Do("GET", key))
 		if err == nil {
 			if reported := time.Unix(epoch, 0); reported.After(host.LabelUpdatedAt) {

@@ -33,8 +33,16 @@ func NewRedisQueryResults(pool fleet.RedisPool, duplicateResults bool, logger lo
 	}
 }
 
-func pubSubForID(id uint) string {
-	return fmt.Sprintf("results_%d", id)
+// pubSubForID returns the pub/sub channel name for the given campaign ID.
+// It is a method on the result store so that the pool's configured
+// KeyPrefix is prepended uniformly — both the WriteResult (publisher) and
+// ReadChannel (subscriber) paths route through this helper, ensuring that
+// publishers and subscribers using the same pool always agree on the
+// channel name. Channels are not slot-routed in Redis Cluster, but
+// prefixing is still required to prevent cross-tenant pub/sub leakage on
+// a shared Redis.
+func (r *redisQueryResults) pubSubForID(id uint) string {
+	return r.pool.KeyPrefix() + fmt.Sprintf("results_%d", id)
 }
 
 // Pool returns the redisc connection pool (used in tests).
@@ -47,7 +55,7 @@ func (r *redisQueryResults) WriteResult(result fleet.DistributedQueryResult) err
 	conn := redis.ReadOnlyConn(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	channelName := pubSubForID(result.DistributedQueryCampaignID)
+	channelName := r.pubSubForID(result.DistributedQueryCampaignID)
 
 	jsonVal, err := json.Marshal(&result)
 	if err != nil {
@@ -127,7 +135,7 @@ func (r *redisQueryResults) ReadChannel(ctx context.Context, query fleet.Distrib
 	// pub-sub can publish and listen on any node in the cluster
 	conn := redis.ReadOnlyConn(r.pool, r.pool.Get())
 	psc := &redigo.PubSubConn{Conn: conn}
-	pubSubName := pubSubForID(query.ID)
+	pubSubName := r.pubSubForID(query.ID)
 	if err := psc.Subscribe(pubSubName); err != nil {
 		// Explicit conn.Close() here because we can't defer it until in the goroutine
 		_ = conn.Close()

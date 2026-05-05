@@ -90,8 +90,11 @@ func runHandler(ctx context.Context, eh *Handler) {
 // from Redis on return.
 func (h *Handler) Retrieve(flush bool) ([]*ctxerr.StoredError, error) {
 	// scanning only the error:*:json keys as json and count are both tagged keys
-	// and should hash to the same Redis slot
-	errorKeys, err := redis.ScanKeys(h.pool, "error:*:json", 100)
+	// and should hash to the same Redis slot. ScanPrefixedKeys auto-prefixes
+	// the pattern with the pool's configured KeyPrefix (e.g. "fleet:t1:") so
+	// the scan is scoped to this Fleet instance's namespace when shared Redis
+	// is in use.
+	errorKeys, err := redis.ScanPrefixedKeys(h.pool, "error:*:json", 100)
 	if err != nil {
 		return nil, err
 	}
@@ -222,8 +225,11 @@ func (h *Handler) storeError(ctx context.Context, err error) {
 	conn := h.pool.Get()
 	defer conn.Close()
 
-	jsonKey := fmt.Sprintf("error:{%s}:json", errorHash)
-	countKey := fmt.Sprintf("error:{%s}:count", errorHash)
+	// PrefixHashTagKey ensures the pool's KeyPrefix lands BEFORE the {HASH}
+	// hash tag so that the json/count pair still hashes to the same Redis
+	// Cluster slot regardless of any per-tenant prefix.
+	jsonKey := redis.PrefixHashTagKey(h.pool, "error:", errorHash, ":json")
+	countKey := redis.PrefixHashTagKey(h.pool, "error:", errorHash, ":count")
 
 	conn.Send("SET", jsonKey, errorJson) //nolint:errcheck
 	conn.Send("INCR", countKey)          //nolint:errcheck

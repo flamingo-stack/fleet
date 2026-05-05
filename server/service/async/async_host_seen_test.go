@@ -118,7 +118,7 @@ func testCollectHostsLastSeen(t *testing.T, ds *mysql.Datastore, pool fleet.Redi
 		wantStats.RedisCmds = 1
 
 		if len(ids) > 0 {
-			args := redigo.Args{hostSeenRecordedHostIDsKey}
+			args := redigo.Args{hostSeenRecordedHostIDsKey(pool)}
 			args = args.AddFlat(ids)
 			_, err := conn.Do("SADD", args...)
 			require.NoError(t, err)
@@ -196,13 +196,13 @@ func testRecordHostLastSeenSync(t *testing.T, ds *mock.Store, pool fleet.RedisPo
 
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
-	defer conn.Do("DEL", hostSeenRecordedHostIDsKey, hostSeenProcessingHostIDsKey) //nolint:errcheck
+	defer conn.Do("DEL", hostSeenRecordedHostIDsKey(pool), hostSeenProcessingHostIDsKey(pool)) //nolint:errcheck
 
-	n, err := redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey))
+	n, err := redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 }
@@ -238,13 +238,13 @@ func testRecordHostLastSeenAsync(t *testing.T, ds *mock.Store, pool fleet.RedisP
 
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
-	defer conn.Do("DEL", hostSeenRecordedHostIDsKey, hostSeenProcessingHostIDsKey) //nolint:errcheck
+	defer conn.Do("DEL", hostSeenRecordedHostIDsKey(pool), hostSeenProcessingHostIDsKey(pool)) //nolint:errcheck
 
-	n, err := redigo.Int(conn.Do("SCARD", hostSeenRecordedHostIDsKey))
+	n, err := redigo.Int(conn.Do("SCARD", hostSeenRecordedHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 3, n)
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -259,11 +259,11 @@ func testRecordHostLastSeenAsync(t *testing.T, ds *mock.Store, pool fleet.RedisP
 	require.ElementsMatch(t, []uint{1, 2, 3}, calledWithHostIDs)
 	ds.MarkHostsSeenFuncInvoked = false
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 }

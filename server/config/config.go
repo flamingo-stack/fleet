@@ -85,6 +85,13 @@ type RedisConfig struct {
 	ConnWaitTimeout time.Duration `yaml:"conn_wait_timeout"`
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	ReadTimeout     time.Duration `yaml:"read_timeout"`
+
+	// KeyPrefix is an optional string prepended to every Redis key and pub/sub
+	// channel that Fleet writes/reads. It is used to namespace data per
+	// service/tenant when Redis is shared across multiple Fleet instances or
+	// other services. An empty value (default) means no prefix is applied,
+	// preserving upstream behavior.
+	KeyPrefix string `yaml:"key_prefix"`
 }
 
 const (
@@ -1147,6 +1154,7 @@ func (man Manager) addConfigs() {
 	man.addConfigDuration("redis.read_timeout", 10*time.Second, "Redis maximum amount of time to wait for a read (receive) on a connection")
 	man.addConfigString("redis.sts_assume_role_arn", "", "ARN of role to assume for AWS authentication")
 	man.addConfigString("redis.sts_external_id", "", "Optional unique identifier that can be used by the principal assuming the role to assert its identity")
+	man.addConfigString("redis.key_prefix", "", "Optional prefix prepended to every Redis key and pub/sub channel that Fleet writes/reads (e.g. \"fleet:tenant-abc:\"). Used to namespace data when Redis is shared across multiple Fleet instances or other services. Empty (default) means no prefix.")
 
 	// Server
 	man.addConfigString("server.address", "0.0.0.0:8080",
@@ -1621,6 +1629,7 @@ func (man Manager) LoadConfig() FleetConfig {
 			ReadTimeout:               man.getConfigDuration("redis.read_timeout"),
 			StsAssumeRoleArn:          man.getConfigString("redis.sts_assume_role_arn"),
 			StsExternalID:             man.getConfigString("redis.sts_external_id"),
+			KeyPrefix:                 man.getConfigString("redis.key_prefix"),
 		},
 		Server: ServerConfig{
 			Address:                          man.getConfigString("server.address"),

@@ -17,10 +17,21 @@ import (
 )
 
 const (
-	hostSeenRecordedHostIDsKey   = "{host_seen:host_ids}"            // the SET of current (pending) host ids
-	hostSeenProcessingHostIDsKey = "{host_seen:host_ids}:processing" // the SET of host ids in the process of being collected
-	hostSeenKeysMinTTL           = 7 * 24 * time.Hour                // 1 week
+	hostSeenKeysMinTTL = 7 * 24 * time.Hour // 1 week
 )
+
+// Redis-key builders for host-last-seen async batches. The original keys
+// already used a hash tag (`{host_seen:host_ids}`) to keep the recorded and
+// processing sets co-located on the same Redis Cluster slot. The pool's
+// configured KeyPrefix is prepended OUTSIDE the braces so that this
+// co-location is preserved regardless of the per-tenant prefix.
+func hostSeenRecordedHostIDsKey(pool fleet.RedisPool) string {
+	return pool.KeyPrefix() + "{host_seen:host_ids}"
+}
+
+func hostSeenProcessingHostIDsKey(pool fleet.RedisPool) string {
+	return pool.KeyPrefix() + "{host_seen:host_ids}:processing"
+}
 
 // RecordHostLastSeen records that the specified host ID was seen.
 func (t *Task) RecordHostLastSeen(ctx context.Context, hostID uint) error {
@@ -49,13 +60,15 @@ func (t *Task) RecordHostLastSeen(ctx context.Context, hostID uint) error {
     return redis.call('EXPIRE', KEYS[1], ARGV[2])
   `)
 
+	recordedKey := hostSeenRecordedHostIDsKey(t.pool)
+
 	conn := t.pool.Get()
 	defer conn.Close()
-	if err := redis.BindConn(t.pool, conn, hostSeenRecordedHostIDsKey); err != nil {
+	if err := redis.BindConn(t.pool, conn, recordedKey); err != nil {
 		return ctxerr.Wrap(ctx, err, "bind redis connection")
 	}
 
-	if _, err := script.Do(conn, hostSeenRecordedHostIDsKey, hostID, int(ttl.Seconds())); err != nil {
+	if _, err := script.Do(conn, recordedKey, hostID, int(ttl.Seconds())); err != nil {
 		return ctxerr.Wrap(ctx, err, "run redis script")
 	}
 	return nil
@@ -135,7 +148,7 @@ func (t *Task) collectHostsLastSeen(ctx context.Context, ds fleet.Datastore, poo
 
 	conn := pool.Get()
 	defer conn.Close()
-	if _, err := conn.Do("DEL", hostSeenProcessingHostIDsKey); err != nil {
+	if _, err := conn.Do("DEL", hostSeenProcessingHostIDsKey(pool)); err != nil {
 		return ctxerr.Wrap(ctx, err, "delete processing set key")
 	}
 
@@ -163,20 +176,23 @@ func (t *Task) loadSeenHostsIDs(ctx context.Context, pool fleet.RedisPool) ([]ui
     return redis.call('EXPIRE', KEYS[2], ARGV[1])
   `)
 
+	recordedKey := hostSeenRecordedHostIDsKey(pool)
+	processingKey := hostSeenProcessingHostIDsKey(pool)
+
 	conn := pool.Get()
 	defer conn.Close()
-	if err := redis.BindConn(pool, conn, hostSeenRecordedHostIDsKey, hostSeenProcessingHostIDsKey); err != nil {
+	if err := redis.BindConn(pool, conn, recordedKey, processingKey); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "bind redis connection")
 	}
 
-	if _, err := script.Do(conn, hostSeenRecordedHostIDsKey, hostSeenProcessingHostIDsKey, int(ttl.Seconds())); err != nil {
+	if _, err := script.Do(conn, recordedKey, processingKey, int(ttl.Seconds())); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "run redis script")
 	}
 
 	var ids []uint
 	cursor := 0
 	for {
-		res, err := redigo.Values(conn.Do("SSCAN", hostSeenProcessingHostIDsKey, cursor, "COUNT", cfg.RedisScanKeysCount))
+		res, err := redigo.Values(conn.Do("SSCAN", processingKey, cursor, "COUNT", cfg.RedisScanKeysCount))
 		if err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "scan seen host ids")
 		}

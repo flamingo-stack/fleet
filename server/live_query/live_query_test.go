@@ -106,7 +106,7 @@ func testLiveQueryExpiredQuery(t *testing.T, store fleet.LiveQueryStore) {
 	pool := store.(*redisLiveQuery).pool
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
-	_, err := conn.Do("SADD", activeQueriesKey, "test2")
+	_, err := conn.Do("SADD", store.(*redisLiveQuery).activeQueriesKey(), "test2")
 	require.NoError(t, err)
 
 	queries, err := store.QueriesForHost(1)
@@ -115,7 +115,7 @@ func testLiveQueryExpiredQuery(t *testing.T, store fleet.LiveQueryStore) {
 	assert.Equal(t, map[string]string{"test": "select 1"}, queries)
 
 	assert.Eventually(t, func() bool {
-		activeNames, err := redigo.Strings(conn.Do("SMEMBERS", activeQueriesKey))
+		activeNames, err := redigo.Strings(conn.Do("SMEMBERS", store.(*redisLiveQuery).activeQueriesKey()))
 		require.NoError(t, err)
 		if len(activeNames) == 1 && activeNames[0] == "test" {
 			return true
@@ -133,7 +133,7 @@ func testLiveQueryOnlyExpired(t *testing.T, store fleet.LiveQueryStore) {
 	pool := store.(*redisLiveQuery).pool
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
-	_, err := conn.Do("SADD", activeQueriesKey, "test")
+	_, err := conn.Do("SADD", store.(*redisLiveQuery).activeQueriesKey(), "test")
 	require.NoError(t, err)
 
 	queries, err := store.QueriesForHost(1)
@@ -141,7 +141,7 @@ func testLiveQueryOnlyExpired(t *testing.T, store fleet.LiveQueryStore) {
 	assert.Len(t, queries, 0)
 
 	assert.Eventually(t, func() bool {
-		activeNames, err := redigo.Strings(conn.Do("SMEMBERS", activeQueriesKey))
+		activeNames, err := redigo.Strings(conn.Do("SMEMBERS", store.(*redisLiveQuery).activeQueriesKey()))
 		require.NoError(t, err)
 		return len(activeNames) == 0
 	}, 5*time.Second, 100*time.Millisecond)

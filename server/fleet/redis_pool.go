@@ -16,6 +16,16 @@ type RedisPool interface {
 
 	// Mode returns the mode in which Redis is running.
 	Mode() RedisMode
+
+	// KeyPrefix returns the configured prefix that should be prepended to
+	// every Redis key and pub/sub channel before issuing commands. Returns
+	// the empty string when no prefix is configured (the default), in which
+	// case callers should write/read keys exactly as before. Subsystems
+	// should use the helpers in server/datastore/redis (PrefixKey,
+	// PrefixHashTagKey, StripPrefix, ScanPrefixedKeys) rather than calling
+	// this directly so that hash-tag positioning and scan patterns stay
+	// consistent.
+	KeyPrefix() string
 }
 
 // RedisMode indicates the mode in which Redis is running.

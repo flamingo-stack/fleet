@@ -3,7 +3,6 @@ package async
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -175,7 +174,7 @@ func testRecordScheduledQueryStatsSync(t *testing.T, ds *mock.Store, pool fleet.
 	host := &fleet.Host{ID: 1}
 
 	stats := []fleet.PackStats{{PackName: "p1", QueryStats: []fleet.ScheduledQueryStats{{ScheduledQueryName: "sq1"}}}}
-	hashKey := fmt.Sprintf(scheduledQueryStatsHostQueriesKey, host.ID)
+	hashKey := scheduledQueryStatsHostQueriesKey(pool,host.ID)
 
 	task := NewTask(ds, pool, clock.C, nil)
 
@@ -192,7 +191,7 @@ func testRecordScheduledQueryStatsSync(t *testing.T, ds *mock.Store, pool fleet.
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey))
+	n, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 }
@@ -215,7 +214,7 @@ func testRecordScheduledQueryStatsAsync(t *testing.T, ds *mock.Store, pool fleet
 			},
 		},
 	}
-	hashKey := fmt.Sprintf(scheduledQueryStatsHostQueriesKey, host.ID)
+	hashKey := scheduledQueryStatsHostQueriesKey(pool,host.ID)
 
 	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
@@ -248,10 +247,10 @@ func testRecordScheduledQueryStatsAsync(t *testing.T, ds *mock.Store, pool fleet
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), sqStat.Executions, res["p1\x00sq1"])
 
-	count, err := redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey))
+	count, err := redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", scheduledQueryStatsHostIDsKey, host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", scheduledQueryStatsHostIDsKey(pool), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), tsActive)
 
@@ -263,7 +262,7 @@ func testRecordScheduledQueryStatsAsync(t *testing.T, ds *mock.Store, pool fleet
 	require.Equal(t, 3, collStats.Items) // sq1, sq2, sq3
 	require.False(t, collStats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey))
+	count, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 

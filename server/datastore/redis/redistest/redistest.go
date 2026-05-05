@@ -22,6 +22,8 @@ func (nopRedis) Stats() map[string]redigo.PoolStats { return nil }
 
 func (nopRedis) Mode() fleet.RedisMode { return fleet.RedisStandalone }
 
+func (nopRedis) KeyPrefix() string { return "" }
+
 type nopConn struct{}
 
 func (nopConn) Close() error                                       { return nil }
@@ -82,6 +84,18 @@ func SetupRedisWithConfig(tb testing.TB, cleanupKeyPrefix string, cluster, redir
 	}
 	if config.KeepAlive == 0 {
 		config.KeepAlive = 10 * time.Second
+	}
+	// Use the per-test cleanup prefix as the pool's KeyPrefix as well, unless
+	// a specific KeyPrefix has already been set on the supplied config. This
+	// (a) gives every test pool an isolated namespace by default — important
+	// now that subsystems which previously wrote bare keys (sso, pubsub,
+	// host-counter, async, etc.) participate in the cleanup scan, and (b)
+	// exercises the prefix code path uniformly across the test suite. The
+	// existing per-subsystem testPrefix fields (redis_lock, redis_key_value)
+	// continue to layer on top of this — they provide intra-test
+	// disambiguation between two stores, which is a separate concern.
+	if config.KeyPrefix == "" {
+		config.KeyPrefix = cleanupKeyPrefix
 	}
 
 	pool, err := redis.NewPool(config)

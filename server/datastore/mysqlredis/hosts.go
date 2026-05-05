@@ -11,7 +11,17 @@ import (
 	redigo "github.com/gomodule/redigo/redis"
 )
 
-const enrolledHostsSetKey = "enrolled_hosts:host_ids"
+const enrolledHostsSetKeySuffix = "enrolled_hosts:host_ids"
+
+// enrolledHostsKey returns the fully-qualified Redis key for the host-limit
+// license counter set. The pool's configured KeyPrefix is prepended so that
+// two Fleet instances sharing one Redis do NOT share a single global host
+// counter — without it, the per-tenant license enforcement would compute
+// the union of all tenants' hosts and could falsely block enrollments once
+// the combined count crossed the per-tenant limit.
+func enrolledHostsKey(pool fleet.RedisPool) string {
+	return pool.KeyPrefix() + enrolledHostsSetKeySuffix
+}
 
 var redisSetMembersBatchSize = 10000 // var so it can be changed in tests
 
@@ -28,7 +38,7 @@ func (d *Datastore) SyncEnrolledHostIDs(ctx context.Context) error {
 		// point and then disabled, so we reclaim the redis memory space.
 		conn := redis.ConfigureDoer(d.pool, d.pool.Get())
 		defer conn.Close()
-		if _, err := conn.Do("DEL", enrolledHostsSetKey); err != nil {
+		if _, err := conn.Do("DEL", enrolledHostsKey(d.pool)); err != nil {
 			return ctxerr.Wrap(ctx, err, "delete enrolled hosts key")
 		}
 		return nil
@@ -42,7 +52,7 @@ func (d *Datastore) SyncEnrolledHostIDs(ctx context.Context) error {
 	conn := redis.ConfigureDoer(d.pool, d.pool.Get())
 	defer conn.Close()
 
-	redisCount, err := redigo.Int(conn.Do("SCARD", enrolledHostsSetKey))
+	redisCount, err := redigo.Int(conn.Do("SCARD", enrolledHostsKey(d.pool)))
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "count enrolled hosts from redis")
 	}
@@ -57,7 +67,7 @@ func (d *Datastore) SyncEnrolledHostIDs(ctx context.Context) error {
 		return ctxerr.Wrap(ctx, err, "get enrolled host IDs from the database")
 	}
 
-	if _, err := conn.Do("DEL", enrolledHostsSetKey); err != nil {
+	if _, err := conn.Do("DEL", enrolledHostsKey(d.pool)); err != nil {
 		return ctxerr.Wrap(ctx, err, "clear redis enrolled hosts set")
 	}
 
@@ -80,7 +90,7 @@ func addHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) error 
 			maxSize = redisSetMembersBatchSize
 		}
 
-		args := redigo.Args{enrolledHostsSetKey}
+		args := redigo.Args{enrolledHostsKey(pool)}
 		args = args.AddFlat(hostIDs[:maxSize])
 		if _, err := conn.Do("SADD", args...); err != nil {
 			return ctxerr.Wrap(ctx, err, "enrolled limits: add hosts")
@@ -100,7 +110,7 @@ func removeHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) err
 			maxSize = redisSetMembersBatchSize
 		}
 
-		args := redigo.Args{enrolledHostsSetKey}
+		args := redigo.Args{enrolledHostsKey(pool)}
 		args = args.AddFlat(hostIDs)
 		if _, err := conn.Do("SREM", args...); err != nil {
 			return ctxerr.Wrap(ctx, err, "enrolled limits: remove hosts")
@@ -114,7 +124,7 @@ func (d *Datastore) checkCanAddHost(ctx context.Context) (bool, error) {
 	conn := redis.ConfigureDoer(d.pool, d.pool.Get())
 	defer conn.Close()
 
-	n, err := redigo.Int(conn.Do("SCARD", enrolledHostsSetKey))
+	n, err := redigo.Int(conn.Do("SCARD", enrolledHostsKey(d.pool)))
 	if err != nil {
 		return false, ctxerr.Wrap(ctx, err, "enrolled limits: check can add host")
 	}

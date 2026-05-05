@@ -35,7 +35,7 @@ func (r *RedisKeyValue) Set(ctx context.Context, key string, value string, expir
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	if _, err := redigo.String(conn.Do("SET", r.testPrefix+prefix+key, value, "PX", expireTime.Milliseconds())); err != nil {
+	if _, err := redigo.String(conn.Do("SET", r.pool.KeyPrefix()+r.testPrefix+prefix+key, value, "PX", expireTime.Milliseconds())); err != nil {
 		return ctxerr.Wrap(ctx, err, "redis failed to set")
 	}
 	return nil
@@ -47,7 +47,7 @@ func (r *RedisKeyValue) Get(ctx context.Context, key string) (*string, error) {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	res, err := redigo.String(conn.Do("GET", r.testPrefix+prefix+key))
+	res, err := redigo.String(conn.Do("GET", r.pool.KeyPrefix()+r.testPrefix+prefix+key))
 	if errors.Is(err, redigo.ErrNil) {
 		return nil, nil
 	}

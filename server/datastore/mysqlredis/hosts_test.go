@@ -154,12 +154,12 @@ func TestEnforceHostLimit(t *testing.T) {
 	}
 
 	t.Run("standalone", func(t *testing.T) {
-		pool := redistest.SetupRedis(t, enrolledHostsSetKey, false, false, false)
+		pool := redistest.SetupRedis(t, enrolledHostsSetKeySuffix, false, false, false)
 		runTest(t, pool)
 	})
 
 	t.Run("cluster", func(t *testing.T) {
-		pool := redistest.SetupRedis(t, enrolledHostsSetKey, true, true, false)
+		pool := redistest.SetupRedis(t, enrolledHostsSetKeySuffix, true, true, false)
 		runTest(t, pool)
 	})
 }
@@ -202,7 +202,7 @@ func TestSyncEnrolledHostIDs(t *testing.T) {
 		conn := pool.Get()
 		defer conn.Close()
 
-		redisIDs, err := redigo.Strings(conn.Do("SMEMBERS", enrolledHostsSetKey))
+		redisIDs, err := redigo.Strings(conn.Do("SMEMBERS", enrolledHostsKey(pool)))
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{fmt.Sprint(h1.ID), fmt.Sprint(h2.ID), fmt.Sprint(h3.ID)}, redisIDs)
 
@@ -221,7 +221,7 @@ func TestSyncEnrolledHostIDs(t *testing.T) {
 		requireInvokedAndReset(&ds.CountEnrolledHostsFuncInvoked)
 		requireInvokedAndReset(&ds.EnrolledHostIDsFuncInvoked)
 
-		redisIDs, err = redigo.Strings(conn.Do("SMEMBERS", enrolledHostsSetKey))
+		redisIDs, err = redigo.Strings(conn.Do("SMEMBERS", enrolledHostsKey(pool)))
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{fmt.Sprint(h1.ID), fmt.Sprint(h3.ID)}, redisIDs)
 
@@ -229,18 +229,18 @@ func TestSyncEnrolledHostIDs(t *testing.T) {
 		wrappedDS = New(ds, pool) // no limit enforced
 		err = wrappedDS.SyncEnrolledHostIDs(ctx)
 		require.NoError(t, err)
-		exists, err := redigo.Bool(conn.Do("EXISTS", enrolledHostsSetKey))
+		exists, err := redigo.Bool(conn.Do("EXISTS", enrolledHostsKey(pool)))
 		require.NoError(t, err)
 		require.False(t, exists)
 	}
 
 	t.Run("standalone", func(t *testing.T) {
-		pool := redistest.SetupRedis(t, enrolledHostsSetKey, false, false, false)
+		pool := redistest.SetupRedis(t, enrolledHostsSetKeySuffix, false, false, false)
 		runTest(t, pool)
 	})
 
 	t.Run("cluster", func(t *testing.T) {
-		pool := redistest.SetupRedis(t, enrolledHostsSetKey, true, true, false)
+		pool := redistest.SetupRedis(t, enrolledHostsSetKeySuffix, true, true, false)
 		runTest(t, pool)
 	})
 }

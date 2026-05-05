@@ -56,7 +56,7 @@ func TestQueryResultsStoreErrors(t *testing.T) {
 		require.NoError(t, err)
 
 		psc := &redigo.PubSubConn{Conn: conn}
-		pubSubName := pubSubForID(9999)
+		pubSubName := store.pubSubForID(9999)
 		require.NoError(t, psc.Subscribe(pubSubName))
 
 		// wait for subscribed confirmation

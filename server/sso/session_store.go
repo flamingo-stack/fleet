@@ -50,6 +50,15 @@ type store struct {
 	pool fleet.RedisPool
 }
 
+// k returns the fully-qualified Redis key for the given SSO session ID,
+// with the pool's configured KeyPrefix prepended. SSO sessions previously
+// used the bare sessionID as the Redis key — without a prefix, two Fleet
+// instances sharing one Redis would risk colliding session IDs (and worse,
+// could read each other's sessions if a UUID happened to coincide).
+func (s *store) k(sessionID string) string {
+	return s.pool.KeyPrefix() + sessionID
+}
+
 func (s *store) create(sessionID, requestID, originalURL, metadata string, lifetimeSecs uint, requestData SSORequestData) error {
 	if len(sessionID) < 8 {
 		return errors.New("request id must be 8 or more characters in length")
@@ -68,7 +77,7 @@ func (s *store) create(sessionID, requestID, originalURL, metadata string, lifet
 	if err != nil {
 		return err
 	}
-	_, err = conn.Do("SETEX", sessionID, lifetimeSecs, writer.String())
+	_, err = conn.Do("SETEX", s.k(sessionID), lifetimeSecs, writer.String())
 	return err
 }
 
@@ -78,7 +87,7 @@ func (s *store) get(sessionID string) (*Session, error) {
 	// read that write.
 	conn := redis.ConfigureDoer(s.pool, s.pool.Get())
 	defer conn.Close()
-	val, err := redigo.String(conn.Do("GET", sessionID))
+	val, err := redigo.String(conn.Do("GET", s.k(sessionID)))
 	if err != nil {
 		if err == redigo.ErrNil {
 			return nil, fleet.NewAuthRequiredError("session not found")
@@ -98,7 +107,7 @@ func (s *store) get(sessionID string) (*Session, error) {
 func (s *store) expire(sessionID string) error {
 	conn := redis.ConfigureDoer(s.pool, s.pool.Get())
 	defer conn.Close()
-	_, err := conn.Do("DEL", sessionID)
+	_, err := conn.Do("DEL", s.k(sessionID))
 	return err
 }
 

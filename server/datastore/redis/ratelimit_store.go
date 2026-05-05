@@ -39,7 +39,11 @@ return 1
 func (s *ThrottledStore) GetWithTime(key string) (int64, time.Time, error) {
 	var t time.Time
 
-	key = s.KeyPrefix + key
+	// Compose the pool-level prefix (per-tenant namespace, configured via
+	// redis.key_prefix) with the in-store KeyPrefix (subsystem namespace,
+	// e.g. "ratelimit::"). Lua scripts below receive the fully-qualified
+	// key via KEYS[1], so script bodies don't need to know about prefixing.
+	key = s.Pool.KeyPrefix() + s.KeyPrefix + key
 
 	conn := s.Pool.Get()
 	defer conn.Close()
@@ -69,7 +73,11 @@ func (s *ThrottledStore) GetWithTime(key string) (int64, time.Time, error) {
 }
 
 func (s *ThrottledStore) SetIfNotExistsWithTTL(key string, value int64, ttl time.Duration) (bool, error) {
-	key = s.KeyPrefix + key
+	// Compose the pool-level prefix (per-tenant namespace, configured via
+	// redis.key_prefix) with the in-store KeyPrefix (subsystem namespace,
+	// e.g. "ratelimit::"). Lua scripts below receive the fully-qualified
+	// key via KEYS[1], so script bodies don't need to know about prefixing.
+	key = s.Pool.KeyPrefix() + s.KeyPrefix + key
 
 	conn := ConfigureDoer(s.Pool, s.Pool.Get())
 	defer conn.Close()
@@ -93,7 +101,11 @@ func (s *ThrottledStore) SetIfNotExistsWithTTL(key string, value int64, ttl time
 }
 
 func (s *ThrottledStore) CompareAndSwapWithTTL(key string, old, isNew int64, ttl time.Duration) (bool, error) {
-	key = s.KeyPrefix + key
+	// Compose the pool-level prefix (per-tenant namespace, configured via
+	// redis.key_prefix) with the in-store KeyPrefix (subsystem namespace,
+	// e.g. "ratelimit::"). Lua scripts below receive the fully-qualified
+	// key via KEYS[1], so script bodies don't need to know about prefixing.
+	key = s.Pool.KeyPrefix() + s.KeyPrefix + key
 
 	conn := s.Pool.Get()
 	defer conn.Close()

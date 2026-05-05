@@ -90,8 +90,10 @@ end
 func (s *IPBanner) CheckBanned(ip string) (bool, error) {
 	ip = SetNullIfEmptyIP(ip)
 
-	// enclosing in {} to support Redis cluster.
-	key := s.keyPrefix + "{" + ip + "}::banned"
+	// Pool-level prefix (per-tenant) sits OUTSIDE the {ip} hash tag so the
+	// count/banned key pair still hashes to the same Redis Cluster slot
+	// regardless of any per-tenant prefix.
+	key := s.pool.KeyPrefix() + s.keyPrefix + "{" + ip + "}::banned"
 
 	conn := s.pool.Get()
 	defer conn.Close()
@@ -116,9 +118,13 @@ func (s *IPBanner) CheckBanned(ip string) (bool, error) {
 func (s *IPBanner) RunRequest(ip string, success bool) error {
 	ip = SetNullIfEmptyIP(ip)
 
-	// enclosing in {} to support Redis cluster.
-	ipCountKey := s.keyPrefix + "{" + ip + "}::count"
-	ipBannedKey := s.keyPrefix + "{" + ip + "}::banned"
+	// Pool-level prefix (per-tenant) sits OUTSIDE the {ip} hash tag so that
+	// count/banned still co-locate on the same Redis Cluster slot — the Lua
+	// script touches both KEYS[1] and KEYS[2] atomically and would fail with
+	// CROSSSLOT if they hashed differently.
+	poolPrefix := s.pool.KeyPrefix()
+	ipCountKey := poolPrefix + s.keyPrefix + "{" + ip + "}::count"
+	ipBannedKey := poolPrefix + s.keyPrefix + "{" + ip + "}::banned"
 
 	conn := s.pool.Get()
 	defer conn.Close()

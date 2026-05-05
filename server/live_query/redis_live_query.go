@@ -62,11 +62,14 @@ import (
 )
 
 const (
-	bitsInByte       = 8
-	queryKeyPrefix   = "livequery:"
-	sqlKeyPrefix     = "sql:"
-	activeQueriesKey = "livequery:active"
-	queryExpiration  = 7 * 24 * time.Hour
+	bitsInByte     = 8
+	queryKeyPrefix = "livequery:"
+	sqlKeyPrefix   = "sql:"
+	// activeQueriesSuffix is the suffix used to build the "active queries"
+	// set name. The full key is built via r.activeQueriesKey() so that the
+	// pool's configured KeyPrefix is prepended uniformly.
+	activeQueriesSuffix = "livequery:active"
+	queryExpiration     = 7 * 24 * time.Hour
 )
 
 type redisLiveQuery struct {
@@ -124,20 +127,37 @@ func newMemCache() memCache {
 	}
 }
 
-// generate keys for the bitfield and sql of a query - those always go in pair
-// and should live on the same cluster node when Redis Cluster is used, so
-// the common part of the key (the 'name' parameter) is used as key tag.
-func generateKeys(name string) (targetsKey, sqlKey string) {
+// generateKeys returns the bitfield and sql keys for a query. Those always
+// go in pair and must live on the same cluster node when Redis Cluster is
+// used, so the common part of the key (the 'name' parameter) is wrapped in
+// a Redis Cluster hash tag (curly braces). The pool's configured KeyPrefix
+// is prepended *outside* the hash tag so that the hash-tag invariant is
+// preserved (the prefix is a constant for a given pool, so two keys built
+// here always share the same slot regardless of the prefix).
+func (r *redisLiveQuery) generateKeys(name string) (targetsKey, sqlKey string) {
+	prefix := r.pool.KeyPrefix()
 	keyTag := "{" + name + "}"
-	return queryKeyPrefix + keyTag, sqlKeyPrefix + queryKeyPrefix + keyTag
+	return prefix + queryKeyPrefix + keyTag, prefix + sqlKeyPrefix + queryKeyPrefix + keyTag
 }
 
-// returns the base name part of a target key, i.e. so that this is true:
+// activeQueriesKey returns the Redis key name for the set holding the
+// currently active live-query campaign IDs, with the pool's configured
+// KeyPrefix prepended.
+func (r *redisLiveQuery) activeQueriesKey() string {
+	return r.pool.KeyPrefix() + activeQueriesSuffix
+}
+
+// extractTargetKeyName returns the base name part of a target key, i.e. so
+// that this is true:
 //
-//	tkey, _ := generateKeys(name)
-//	baseName := extractTargetKeyName(tkey)
+//	tkey, _ := r.generateKeys(name)
+//	baseName := r.extractTargetKeyName(tkey)
 //	baseName == name
-func extractTargetKeyName(key string) string {
+//
+// It first strips the pool's configured KeyPrefix (if any) so that keys
+// produced by generateKeys round-trip cleanly.
+func (r *redisLiveQuery) extractTargetKeyName(key string) string {
+	key = redis.StripPrefix(r.pool, key)
 	name := strings.TrimPrefix(key, queryKeyPrefix)
 	if len(name) > 0 && name[0] == '{' {
 		name = name[1:]
@@ -196,7 +216,7 @@ func (r *redisLiveQuery) QueriesForHost(hostID uint) (map[string]string, error) 
 	// convert the query name (campaign id) to the key name
 	keyNames := make([]string, 0, len(names))
 	for _, name := range names {
-		tkey, _ := generateKeys(name)
+		tkey, _ := r.generateKeys(name)
 		keyNames = append(keyNames, tkey)
 	}
 
@@ -236,7 +256,7 @@ func (r *redisLiveQuery) collectBatchQueriesForHost(hostID uint, queryKeys []str
 
 	// Receive target and SQL in order of pipelined calls.
 	for _, key := range queryKeys {
-		name := extractTargetKeyName(key)
+		name := r.extractTargetKeyName(key)
 
 		// the result of GETBIT will not fail if the key does not exist, it will
 		// just return 0, so it can't be used to detect if the livequery still
@@ -261,7 +281,7 @@ func (r *redisLiveQuery) QueryCompletedByHost(name string, hostID uint) error {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	targetKey, _ := generateKeys(name)
+	targetKey, _ := r.generateKeys(name)
 
 	// Update the bitfield for this host only if the key exists.
 	// If the key doesn't exist (e.g. query marked as completed or cancelled)
@@ -292,7 +312,7 @@ func (r *redisLiveQuery) storeQueryInfo(name, sql string, hostIDs []uint) error 
 
 	// Map the targeted host IDs to a bitfield. Store targets in one key and SQL
 	// in another.
-	targetKey, sqlKey := generateKeys(name)
+	targetKey, sqlKey := r.generateKeys(name)
 	targets := mapBitfield(hostIDs)
 
 	// Ensure to set SQL first or else we can end up in a weird state in which a
@@ -313,7 +333,7 @@ func (r *redisLiveQuery) storeQueryNames(names ...string) error {
 	defer conn.Close()
 
 	var args redigo.Args
-	args = args.Add(activeQueriesKey)
+	args = args.Add(r.activeQueriesKey())
 	args = args.AddFlat(names)
 	_, err := conn.Do("SADD", args...)
 	return err
@@ -323,7 +343,7 @@ func (r *redisLiveQuery) removeQueryInfo(name string) error {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	targetKey, sqlKey := generateKeys(name)
+	targetKey, sqlKey := r.generateKeys(name)
 	if _, err := conn.Do("DEL", targetKey, sqlKey); err != nil {
 		return fmt.Errorf("del query keys: %w", err)
 	}
@@ -335,7 +355,7 @@ func (r *redisLiveQuery) removeQueryNames(names ...string) error {
 	defer conn.Close()
 
 	var args redigo.Args
-	args = args.Add(activeQueriesKey)
+	args = args.Add(r.activeQueriesKey())
 	args = args.AddFlat(names)
 	_, err := conn.Do("SREM", args...)
 	return err
@@ -371,13 +391,13 @@ func (r *redisLiveQuery) loadCache() error {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	activeIDs, err := redigo.Strings(conn.Do("SMEMBERS", activeQueriesKey))
+	activeIDs, err := redigo.Strings(conn.Do("SMEMBERS", r.activeQueriesKey()))
 	if err != nil && err != redigo.ErrNil {
 		return fmt.Errorf("get active queries: %w", err)
 	}
 
 	for _, id := range activeIDs {
-		_, sqlKey := generateKeys(id)
+		_, sqlKey := r.generateKeys(id)
 
 		sql, err := redigo.String(conn.Do("GET", sqlKey))
 		if err != nil {
@@ -455,7 +475,7 @@ func (r *redisLiveQuery) CleanupInactiveQueries(ctx context.Context, inactiveCam
 
 	keysToDel := make([]string, 0, len(inactiveCampaignIDs)*2)
 	for _, id := range inactiveCampaignIDs {
-		targetKey, sqlKey := generateKeys(strconv.FormatUint(uint64(id), 10))
+		targetKey, sqlKey := r.generateKeys(strconv.FormatUint(uint64(id), 10))
 		keysToDel = append(keysToDel, targetKey, sqlKey)
 	}
 
@@ -483,7 +503,7 @@ func (r *redisLiveQuery) removeInactiveQueries(ctx context.Context, inactiveCamp
 	conn := r.pool.Get()
 	defer conn.Close()
 
-	args := redigo.Args{}.Add(activeQueriesKey).AddFlat(inactiveCampaignIDs)
+	args := redigo.Args{}.Add(r.activeQueriesKey()).AddFlat(inactiveCampaignIDs)
 	if _, err := conn.Do("SREM", args...); err != nil {
 		return ctxerr.Wrap(ctx, err, "remove inactive campaign IDs")
 	}

@@ -170,7 +170,7 @@ func testCollectPolicyQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fl
 		var wantStats collectorExecStats
 		for hostID, res := range data {
 			if len(res) > 0 {
-				key := fmt.Sprintf(policyPassHostKey, hostID)
+				key := policyPassHostKey(pool, uint(hostID))
 				args := make(redigo.Args, 0, 1+(len(res)))
 				args = args.Add(key)
 				for polID, pass := range res {
@@ -186,10 +186,10 @@ func testCollectPolicyQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fl
 				}
 				_, err := conn.Do("LPUSH", args...)
 				require.NoError(t, err)
-				_, err = conn.Do("ZADD", policyPassHostIDsKey, time.Now().Unix(), hostID)
+				_, err = conn.Do("ZADD", policyPassHostIDsKey(pool), time.Now().Unix(), hostID)
 				require.NoError(t, err)
 			}
-			cnt, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+			cnt, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 			require.NoError(t, err)
 			wantStats.Keys = cnt
 			wantStats.RedisCmds++
@@ -314,7 +314,7 @@ func testRecordPolicyQueryExecutionsSync(t *testing.T, ds *mock.Store, pool flee
 
 	yes, no := true, false
 	results := map[uint]*bool{1: &yes, 2: &yes, 3: &no, 4: nil}
-	keyList, keyTs := fmt.Sprintf(policyPassHostKey, host.ID), fmt.Sprintf(policyPassReportedKey, host.ID)
+	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
 
 	task := NewTask(ds, pool, clock.C, nil)
 
@@ -338,7 +338,7 @@ func testRecordPolicyQueryExecutionsSync(t *testing.T, ds *mock.Store, pool flee
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -357,7 +357,7 @@ func testRecordPolicyQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool fle
 	}
 	yes, no := true, false
 	results := map[uint]*bool{1: &yes, 2: &yes, 3: &no, 4: nil}
-	keyList, keyTs := fmt.Sprintf(policyPassHostKey, host.ID), fmt.Sprintf(policyPassReportedKey, host.ID)
+	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
 
 	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
@@ -390,10 +390,10 @@ func testRecordPolicyQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool fle
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), ts)
 
-	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey, host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey(pool), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, tsActive, ts)
 
@@ -412,7 +412,7 @@ func testRecordPolicyQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool fle
 	require.Equal(t, 4, stats.Items)
 	require.False(t, stats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 }
@@ -428,7 +428,7 @@ func testRecordPolicyQueryExecutionsNoPoliciesSync(t *testing.T, ds *mock.Store,
 	}
 
 	var emptyResults map[uint]*bool
-	keyList, keyTs := fmt.Sprintf(policyPassHostKey, host.ID), fmt.Sprintf(policyPassReportedKey, host.ID)
+	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
 
 	task := NewTask(ds, pool, clock.C, nil)
 
@@ -451,7 +451,7 @@ func testRecordPolicyQueryExecutionsNoPoliciesSync(t *testing.T, ds *mock.Store,
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -469,7 +469,7 @@ func testRecordPolicyQueryExecutionsNoPoliciesAsync(t *testing.T, ds *mock.Store
 		PolicyUpdatedAt: lastYear,
 	}
 	var emptyResults map[uint]*bool
-	keyList, keyTs := fmt.Sprintf(policyPassHostKey, host.ID), fmt.Sprintf(policyPassReportedKey, host.ID)
+	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
 
 	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
@@ -501,10 +501,10 @@ func testRecordPolicyQueryExecutionsNoPoliciesAsync(t *testing.T, ds *mock.Store
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), ts)
 
-	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey, host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey(pool), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, tsActive, ts)
 
@@ -523,7 +523,7 @@ func testRecordPolicyQueryExecutionsNoPoliciesAsync(t *testing.T, ds *mock.Store
 	require.Equal(t, 0, stats.Items)
 	require.False(t, stats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey))
+	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 }

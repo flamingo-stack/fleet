@@ -34,6 +34,15 @@ func NewProfileMatcher(pool fleet.RedisPool) fleet.ProfileMatcher {
 	return &profileMatcher{pool: pool}
 }
 
+// k returns the fully-qualified Redis hash key for the given external host
+// identifier, with the pool's configured KeyPrefix prepended.
+// keyForExternalHostIdentifier is preserved as a free function for test
+// helpers that operate on raw key shape; production code paths must always
+// route through this method so that per-tenant prefixes are applied.
+func (p *profileMatcher) k(externalHostIdentifier string) string {
+	return p.pool.KeyPrefix() + p.k(externalHostIdentifier)
+}
+
 // PreassignProfile stores the profile associated with the host in Redis for
 // later retrieval and matching to a team. Note that to keep this logic fast,
 // we avoid accessing the mysql database, so the host is not validated at this
@@ -70,7 +79,7 @@ func (p *profileMatcher) PreassignProfile(ctx context.Context, payload fleet.MDM
 	args := []any{
 		// key is the prefix + the external identifier, all of this host's profiles
 		// will be stored under that hash, keyed by the md5-hash.
-		keyForExternalHostIdentifier(payload.ExternalHostIdentifier),
+		p.k(payload.ExternalHostIdentifier),
 
 		// the host uuid must be stored (cannot clash with other fields as they are
 		// hex-encoded hashes), will be a no-op if it was already stored (i.e. not
@@ -115,11 +124,11 @@ func (p *profileMatcher) RetrieveProfiles(ctx context.Context, externalHostIdent
 	conn := redis.ConfigureDoer(p.pool, p.pool.Get())
 	defer conn.Close()
 
-	profs, err := redigo.StringMap(conn.Do("HGETALL", keyForExternalHostIdentifier(externalHostIdentifier)))
+	profs, err := redigo.StringMap(conn.Do("HGETALL", p.k(externalHostIdentifier)))
 	if err != nil {
 		return hostProfs, ctxerr.Wrap(ctx, err, "execute redis HGETALL")
 	}
-	if _, err := conn.Do("UNLINK", keyForExternalHostIdentifier(externalHostIdentifier)); err != nil {
+	if _, err := conn.Do("UNLINK", p.k(externalHostIdentifier)); err != nil {
 		return hostProfs, ctxerr.Wrap(ctx, err, "execute redis UNLINK")
 	}
 	_ = conn.Close() // release connection to the pool immediately as we're done with redis
