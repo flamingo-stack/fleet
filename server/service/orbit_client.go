@@ -555,11 +555,31 @@ func (oc *OrbitClient) enroll() (string, error) {
 		ComputerName:      oc.hostInfo.ComputerName,
 		HardwareModel:     oc.hostInfo.HardwareModel,
 	}
+	log.Info().
+		Str("hardware_uuid", oc.hostInfo.HardwareUUID).
+		Str("hostname", oc.hostInfo.Hostname).
+		Str("platform", oc.hostInfo.Platform).
+		Msg("Enrolling orbit host with Fleet server")
+
 	var resp EnrollOrbitResponse
 	err := oc.request(verb, path, params, &resp)
 	if err != nil {
+		log.Error().Err(err).
+			Str("hardware_uuid", oc.hostInfo.HardwareUUID).
+			Msg("Orbit enrollment request failed")
 		return "", err
 	}
+
+	if resp.OrbitNodeKey == "" {
+		log.Error().
+			Str("hardware_uuid", oc.hostInfo.HardwareUUID).
+			Msg("Orbit enrollment returned empty node key")
+	} else {
+		log.Info().
+			Str("hardware_uuid", oc.hostInfo.HardwareUUID).
+			Msg("Orbit enrollment succeeded, received node key")
+	}
+
 	return resp.OrbitNodeKey, nil
 }
 
@@ -580,9 +600,10 @@ func (oc *OrbitClient) getNodeKeyOrEnroll() (string, error) {
 	orbitNodeKey, err := os.ReadFile(oc.nodeKeyFilePath)
 	switch {
 	case err == nil:
+		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("Orbit node key loaded from file, skipping enrollment")
 		return string(orbitNodeKey), nil
 	case errors.Is(err, fs.ErrNotExist):
-		// OK, if there's no orbit node key, proceed to enroll.
+		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("No orbit node key file found, proceeding to enroll")
 	default:
 		return "", fmt.Errorf("read orbit node key file: %w", err)
 	}
@@ -674,6 +695,8 @@ func (oc *OrbitClient) enrollAndWriteNodeKeyFile() (string, error) {
 		return "", fmt.Errorf("write orbit node key file: %w", err)
 	}
 
+	log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("Orbit node key written to file")
+
 	return orbitNodeKey, nil
 }
 
@@ -692,6 +715,17 @@ func (oc *OrbitClient) authenticatedRequest(verb string, path string, params int
 		oc.setEnrolled(true)
 		return nil
 	case errors.Is(err, ErrUnauthenticated):
+		hasNodeKey := nodeKey != ""
+		hasAuthToken := false
+		if oc.openFrameMode && oc.authManager != nil {
+			hasAuthToken = oc.authManager.GetToken() != ""
+		}
+		log.Error().
+			Str("path", path).
+			Bool("has_node_key", hasNodeKey).
+			Bool("has_auth_token", hasAuthToken).
+			Msg("Authenticated request got 401 — removing orbit node key and marking as unenrolled")
+
 		if err := os.Remove(oc.nodeKeyFilePath); err != nil {
 			log.Info().Err(err).Msg("remove orbit node key")
 		}

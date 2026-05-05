@@ -50,6 +50,7 @@ func (bc *baseClient) parseResponse(verb, path string, response *http.Response, 
 		}
 	case http.StatusUnauthorized:
 		errText := extractServerErrorText(response.Body)
+		fmt.Fprintf(os.Stderr, "HTTP 401 on %s %s: %s\n", verb, path, errText)
 		if strings.Contains(errText, "password reset required") {
 			return ErrPasswordResetRequired
 		}
