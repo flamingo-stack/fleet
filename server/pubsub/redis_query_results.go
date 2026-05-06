@@ -17,17 +17,20 @@ import (
 
 type redisQueryResults struct {
 	pool             fleet.RedisPool
+	kb               redis.KeyBuilder
 	duplicateResults bool
 	logger           log.Logger
 }
 
 var _ fleet.QueryResultStore = &redisQueryResults{}
 
-// NewRedisQueryResults creats a new Redis implementation of the
-// QueryResultStore interface using the provided Redis connection pool.
-func NewRedisQueryResults(pool fleet.RedisPool, duplicateResults bool, logger log.Logger) *redisQueryResults {
+// NewRedisQueryResults creates a new Redis implementation of the
+// QueryResultStore interface using the provided Redis connection pool
+// and key builder.
+func NewRedisQueryResults(pool fleet.RedisPool, kb redis.KeyBuilder, duplicateResults bool, logger log.Logger) *redisQueryResults {
 	return &redisQueryResults{
 		pool:             pool,
+		kb:               kb,
 		duplicateResults: duplicateResults,
 		logger:           logger,
 	}
@@ -42,7 +45,7 @@ func NewRedisQueryResults(pool fleet.RedisPool, duplicateResults bool, logger lo
 // prefixing is still required to prevent cross-tenant pub/sub leakage on
 // a shared Redis.
 func (r *redisQueryResults) pubSubForID(id uint) string {
-	return redis.PrefixSprintf(r.pool, "results_%d", id)
+	return r.kb.Sprintf("results_%d", id)
 }
 
 // Pool returns the redisc connection pool (used in tests).

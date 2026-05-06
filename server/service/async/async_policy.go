@@ -25,16 +25,16 @@ const (
 // Redis-key builders for policy-pass async batches. The pool's configured
 // KeyPrefix is prepended outside any hash-tag braces so that the per-host
 // list+timestamp pair still co-locates on the same Redis Cluster slot.
-func policyPassHostIDsKey(pool fleet.RedisPool) string {
-	return redis.PrefixKey(pool, "policy_pass:active_host_ids")
+func policyPassHostIDsKey(kb redis.KeyBuilder) string {
+	return kb.Key("policy_pass:active_host_ids")
 }
 
-func policyPassHostKey(pool fleet.RedisPool, hostID uint) string {
-	return redis.PrefixSprintf(pool, "policy_pass:{%d}", hostID)
+func policyPassHostKey(kb redis.KeyBuilder, hostID uint) string {
+	return kb.Sprintf("policy_pass:{%d}", hostID)
 }
 
-func policyPassReportedKey(pool fleet.RedisPool, hostID uint) string {
-	return redis.PrefixSprintf(pool, "policy_pass_reported:{%d}", hostID)
+func policyPassReportedKey(kb redis.KeyBuilder, hostID uint) string {
+	return kb.Sprintf("policy_pass_reported:{%d}", hostID)
 }
 
 // redis list will be LTRIM'd if there are more policy IDs than this.
@@ -47,8 +47,8 @@ func (t *Task) RecordPolicyQueryExecutions(ctx context.Context, host *fleet.Host
 		return t.datastore.RecordPolicyQueryExecutions(ctx, host, results, ts, deferred)
 	}
 
-	keyList := policyPassHostKey(t.pool, host.ID)
-	keyTs := policyPassReportedKey(t.pool, host.ID)
+	keyList := policyPassHostKey(t.kb, host.ID)
+	keyTs := policyPassReportedKey(t.kb, host.ID)
 
 	// set an expiration on both keys (list and ts), ensuring that a deleted host
 	// (eventually) does not use any redis space. Ensure that TTL is reasonably
@@ -129,7 +129,7 @@ func (t *Task) RecordPolicyQueryExecutions(ctx context.Context, host *fleet.Host
 	// outside of the redis script because in Redis Cluster mode the key may not
 	// live on the same node as the host's keys. At the same time, purge any
 	// entry in the set that is older than now - TTL.
-	if _, err := storePurgeActiveHostID(t.pool, policyPassHostIDsKey(t.pool), host.ID, ts, ts.Add(-ttl)); err != nil {
+	if _, err := storePurgeActiveHostID(t.pool, policyPassHostIDsKey(t.kb), host.ID, ts, ts.Add(-ttl)); err != nil {
 		return ctxerr.Wrap(ctx, err, "store active host id")
 	}
 	return nil
@@ -150,7 +150,7 @@ func (t *Task) collectPolicyQueryExecutions(ctx context.Context, ds fleet.Datast
 
 	cfg := t.taskConfigs[config.AsyncTaskPolicyMembership]
 
-	hosts, err := loadActiveHostIDs(pool, policyPassHostIDsKey(pool), cfg.RedisScanKeysCount)
+	hosts, err := loadActiveHostIDs(pool, policyPassHostIDsKey(t.kb), cfg.RedisScanKeysCount)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "load active host ids")
 	}
@@ -167,7 +167,7 @@ func (t *Task) collectPolicyQueryExecutions(ctx context.Context, ds fleet.Datast
   `)
 
 	getKeyTuples := func(hostID uint) (inserts []fleet.PolicyMembershipResult, err error) {
-		keyList := policyPassHostKey(pool, hostID)
+		keyList := policyPassHostKey(t.kb, hostID)
 		conn := redis.ConfigureDoer(pool, pool.Get())
 		defer conn.Close()
 
@@ -262,7 +262,7 @@ func (t *Task) collectPolicyQueryExecutions(ctx context.Context, ds fleet.Datast
 		// the initial value, so that the active set does not keep all (potentially
 		// 100K+) host IDs to process at all times - only those with reported
 		// results to process.
-		if _, err := removeProcessedHostIDs(pool, policyPassHostIDsKey(pool), hosts); err != nil {
+		if _, err := removeProcessedHostIDs(pool, policyPassHostIDsKey(t.kb), hosts); err != nil {
 			return ctxerr.Wrap(ctx, err, "remove processed host ids")
 		}
 	}
@@ -277,7 +277,7 @@ func (t *Task) GetHostPolicyReportedAt(ctx context.Context, host *fleet.Host) ti
 		conn := redis.ConfigureDoer(t.pool, t.pool.Get())
 		defer conn.Close()
 
-		key := policyPassReportedKey(t.pool, host.ID)
+		key := policyPassReportedKey(t.kb, host.ID)
 		epoch, err := redigo.Int64(conn.Do("GET", key))
 		if err == nil {
 			if reported := time.Unix(epoch, 0); reported.After(host.PolicyUpdatedAt) {

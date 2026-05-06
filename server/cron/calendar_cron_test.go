@@ -13,6 +13,7 @@ import (
 
 	"github.com/fleetdm/fleet/v4/ee/server/calendar"
 	"github.com/fleetdm/fleet/v4/server/config"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/mock"
@@ -201,7 +202,7 @@ func TestEventForDifferentHost(t *testing.T) {
 	}
 
 	pool := redistest.SetupRedis(t, t.Name(), false, false, false)
-	err := cronCalendarEvents(ctx, ds, redis_lock.NewLock(pool), defaultCalendarConfig, logger)
+	err := cronCalendarEvents(ctx, ds, redis_lock.NewLock(pool, redis.NewKeyBuilder("")), defaultCalendarConfig, logger)
 	require.NoError(t, err)
 }
 
@@ -376,7 +377,7 @@ func TestCalendarEventsMultipleHosts(t *testing.T) {
 	}
 
 	pool := redistest.SetupRedis(t, t.Name(), false, false, false)
-	err := cronCalendarEvents(ctx, ds, redis_lock.NewLock(pool), defaultCalendarConfig, logger)
+	err := cronCalendarEvents(ctx, ds, redis_lock.NewLock(pool, redis.NewKeyBuilder("")), defaultCalendarConfig, logger)
 	require.NoError(t, err)
 
 	eventsMu.Lock()
@@ -666,7 +667,7 @@ func TestCalendarEvents1KHosts(t *testing.T) {
 	}
 
 	pool := redistest.SetupRedis(t, t.Name(), false, false, false)
-	distributedLock := redis_lock.NewLock(pool)
+	distributedLock := redis_lock.NewLock(pool, redis.NewKeyBuilder(""))
 	err := cronCalendarEvents(ctx, ds, distributedLock, defaultCalendarConfig, logger)
 	require.NoError(t, err)
 
@@ -954,7 +955,7 @@ func TestEventBody(t *testing.T) {
 	}
 
 	pool := redistest.SetupRedis(t, t.Name(), false, false, false)
-	err := cronCalendarEvents(ctx, ds, redis_lock.NewLock(pool), defaultCalendarConfig, logger)
+	err := cronCalendarEvents(ctx, ds, redis_lock.NewLock(pool, redis.NewKeyBuilder("")), defaultCalendarConfig, logger)
 	require.NoError(t, err)
 
 	numberOfEvents := 7

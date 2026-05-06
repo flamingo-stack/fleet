@@ -19,22 +19,24 @@ const (
 
 type redisLock struct {
 	pool       fleet.RedisPool
+	kb         redis.KeyBuilder
 	testPrefix string // for tests, the key prefix to use to avoid conflicts
 }
 
-func NewLock(pool fleet.RedisPool) fleet.Lock {
+func NewLock(pool fleet.RedisPool, kb redis.KeyBuilder) fleet.Lock {
 	lock := &redisLock{
 		pool: pool,
+		kb:   kb,
 	}
 	return fleet.Lock(lock)
 }
 
-// k composes the fully-qualified Redis key for a lock: pool-level KeyPrefix
-// (per-tenant namespace) + testPrefix (intra-test isolation) + caller key.
-// All read/write methods route key construction through this helper so that
-// the prefix layering stays consistent.
+// k composes the fully-qualified Redis key for a lock: per-tenant prefix
+// (via kb) + testPrefix (intra-test isolation) + caller key. All read/
+// write methods route key construction through this helper so that the
+// prefix layering stays consistent.
 func (r *redisLock) k(key string) string {
-	return redis.PrefixKey(r.pool, r.testPrefix+key)
+	return r.kb.Key(r.testPrefix + key)
 }
 
 func (r *redisLock) SetIfNotExist(ctx context.Context, key string, value string, expireMs uint64) (ok bool, err error) {

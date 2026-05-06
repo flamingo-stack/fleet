@@ -118,7 +118,7 @@ func testCollectHostsLastSeen(t *testing.T, ds *mysql.Datastore, pool fleet.Redi
 		wantStats.RedisCmds = 1
 
 		if len(ids) > 0 {
-			args := redigo.Args{hostSeenRecordedHostIDsKey(pool)}
+			args := redigo.Args{hostSeenRecordedHostIDsKey(redis.NewKeyBuilder(""))}
 			args = args.AddFlat(ids)
 			_, err := conn.Do("SADD", args...)
 			require.NoError(t, err)
@@ -144,7 +144,7 @@ func testCollectHostsLastSeen(t *testing.T, ds *mysql.Datastore, pool fleet.Redi
 
 			// run the collection
 			var stats collectorExecStats
-			task := NewTask(nil, nil, mockTime, &config.FleetConfig{
+			task := NewTask(nil, nil, redis.NewKeyBuilder(""), mockTime, &config.FleetConfig{
 				Osquery: config.OsqueryConfig{
 					AsyncHostInsertBatch:        batchSizes,
 					AsyncHostUpdateBatch:        batchSizes,
@@ -179,7 +179,7 @@ func testRecordHostLastSeenSync(t *testing.T, ds *mock.Store, pool fleet.RedisPo
 		return nil
 	}
 
-	task := NewTask(ds, pool, clock.C, nil)
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, nil)
 	err := task.RecordHostLastSeen(ctx, 1)
 	require.NoError(t, err)
 	err = task.RecordHostLastSeen(ctx, 2)
@@ -196,13 +196,13 @@ func testRecordHostLastSeenSync(t *testing.T, ds *mock.Store, pool fleet.RedisPo
 
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
-	defer conn.Do("DEL", hostSeenRecordedHostIDsKey(pool), hostSeenProcessingHostIDsKey(pool)) //nolint:errcheck
+	defer conn.Do("DEL", hostSeenRecordedHostIDsKey(redis.NewKeyBuilder("")), hostSeenProcessingHostIDsKey(redis.NewKeyBuilder(""))) //nolint:errcheck
 
-	n, err := redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey(pool)))
+	n, err := redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 }
@@ -216,7 +216,7 @@ func testRecordHostLastSeenAsync(t *testing.T, ds *mock.Store, pool fleet.RedisP
 		return nil
 	}
 
-	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			EnableAsyncHostProcessing:   "true",
 			AsyncHostInsertBatch:        2,
@@ -238,13 +238,13 @@ func testRecordHostLastSeenAsync(t *testing.T, ds *mock.Store, pool fleet.RedisP
 
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
-	defer conn.Do("DEL", hostSeenRecordedHostIDsKey(pool), hostSeenProcessingHostIDsKey(pool)) //nolint:errcheck
+	defer conn.Do("DEL", hostSeenRecordedHostIDsKey(redis.NewKeyBuilder("")), hostSeenProcessingHostIDsKey(redis.NewKeyBuilder(""))) //nolint:errcheck
 
-	n, err := redigo.Int(conn.Do("SCARD", hostSeenRecordedHostIDsKey(pool)))
+	n, err := redigo.Int(conn.Do("SCARD", hostSeenRecordedHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 3, n)
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -259,11 +259,11 @@ func testRecordHostLastSeenAsync(t *testing.T, ds *mock.Store, pool fleet.RedisP
 	require.ElementsMatch(t, []uint{1, 2, 3}, calledWithHostIDs)
 	ds.MarkHostsSeenFuncInvoked = false
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenRecordedHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("EXISTS", hostSeenProcessingHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 }

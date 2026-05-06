@@ -170,7 +170,7 @@ func testCollectPolicyQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fl
 		var wantStats collectorExecStats
 		for hostID, res := range data {
 			if len(res) > 0 {
-				key := policyPassHostKey(pool, uint(hostID))
+				key := policyPassHostKey(redis.NewKeyBuilder(""), uint(hostID))
 				args := make(redigo.Args, 0, 1+(len(res)))
 				args = args.Add(key)
 				for polID, pass := range res {
@@ -186,10 +186,10 @@ func testCollectPolicyQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fl
 				}
 				_, err := conn.Do("LPUSH", args...)
 				require.NoError(t, err)
-				_, err = conn.Do("ZADD", policyPassHostIDsKey(pool), time.Now().Unix(), hostID)
+				_, err = conn.Do("ZADD", policyPassHostIDsKey(redis.NewKeyBuilder("")), time.Now().Unix(), hostID)
 				require.NoError(t, err)
 			}
-			cnt, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+			cnt, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 			require.NoError(t, err)
 			wantStats.Keys = cnt
 			wantStats.RedisCmds++
@@ -229,7 +229,7 @@ func testCollectPolicyQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fl
 
 			// run the collection
 			var stats collectorExecStats
-			task := NewTask(nil, nil, clock.C, &config.FleetConfig{
+			task := NewTask(nil, nil, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 				Osquery: config.OsqueryConfig{
 					AsyncHostInsertBatch:        batchSizes,
 					AsyncHostUpdateBatch:        batchSizes,
@@ -279,7 +279,7 @@ func testCollectPolicyQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fl
 	// update host 1, policy 1, already existing
 	setupTest(t, map[int]map[int]*bool{1: {1: nil}})
 	var stats collectorExecStats
-	task := NewTask(nil, nil, clock.C, &config.FleetConfig{
+	task := NewTask(nil, nil, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			AsyncHostInsertBatch:        batchSizes,
 			AsyncHostUpdateBatch:        batchSizes,
@@ -314,9 +314,9 @@ func testRecordPolicyQueryExecutionsSync(t *testing.T, ds *mock.Store, pool flee
 
 	yes, no := true, false
 	results := map[uint]*bool{1: &yes, 2: &yes, 3: &no, 4: nil}
-	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
+	keyList, keyTs := policyPassHostKey(redis.NewKeyBuilder(""),host.ID), policyPassReportedKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, nil)
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, nil)
 
 	policyReportedAt := task.GetHostPolicyReportedAt(ctx, host)
 	require.True(t, policyReportedAt.Equal(lastYear))
@@ -338,7 +338,7 @@ func testRecordPolicyQueryExecutionsSync(t *testing.T, ds *mock.Store, pool flee
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -357,9 +357,9 @@ func testRecordPolicyQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool fle
 	}
 	yes, no := true, false
 	results := map[uint]*bool{1: &yes, 2: &yes, 3: &no, 4: nil}
-	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
+	keyList, keyTs := policyPassHostKey(redis.NewKeyBuilder(""),host.ID), policyPassReportedKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			EnableAsyncHostProcessing:   "true",
 			AsyncHostInsertBatch:        3,
@@ -390,10 +390,10 @@ func testRecordPolicyQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool fle
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), ts)
 
-	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey(pool), host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey(redis.NewKeyBuilder("")), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, tsActive, ts)
 
@@ -412,7 +412,7 @@ func testRecordPolicyQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool fle
 	require.Equal(t, 4, stats.Items)
 	require.False(t, stats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 }
@@ -428,9 +428,9 @@ func testRecordPolicyQueryExecutionsNoPoliciesSync(t *testing.T, ds *mock.Store,
 	}
 
 	var emptyResults map[uint]*bool
-	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
+	keyList, keyTs := policyPassHostKey(redis.NewKeyBuilder(""),host.ID), policyPassReportedKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, nil)
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, nil)
 
 	policyReportedAt := task.GetHostPolicyReportedAt(ctx, host)
 	require.True(t, policyReportedAt.Equal(lastYear))
@@ -451,7 +451,7 @@ func testRecordPolicyQueryExecutionsNoPoliciesSync(t *testing.T, ds *mock.Store,
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -469,9 +469,9 @@ func testRecordPolicyQueryExecutionsNoPoliciesAsync(t *testing.T, ds *mock.Store
 		PolicyUpdatedAt: lastYear,
 	}
 	var emptyResults map[uint]*bool
-	keyList, keyTs := policyPassHostKey(pool,host.ID), policyPassReportedKey(pool,host.ID)
+	keyList, keyTs := policyPassHostKey(redis.NewKeyBuilder(""),host.ID), policyPassReportedKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			EnableAsyncHostProcessing:   "true",
 			AsyncHostInsertBatch:        3,
@@ -501,10 +501,10 @@ func testRecordPolicyQueryExecutionsNoPoliciesAsync(t *testing.T, ds *mock.Store
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), ts)
 
-	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+	count, err := redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey(pool), host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", policyPassHostIDsKey(redis.NewKeyBuilder("")), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, tsActive, ts)
 
@@ -523,7 +523,7 @@ func testRecordPolicyQueryExecutionsNoPoliciesAsync(t *testing.T, ds *mock.Store
 	require.Equal(t, 0, stats.Items)
 	require.False(t, stats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(pool)))
+	count, err = redigo.Int(conn.Do("ZCARD", policyPassHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 }

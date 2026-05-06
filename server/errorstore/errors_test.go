@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	kitlog "github.com/go-kit/log"
@@ -150,7 +151,7 @@ func TestErrorHandler(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // cancel immediately
 
-		eh := newTestHandler(ctx, nil, kitlog.NewNopLogger(), time.Minute, nil, nil)
+		eh := newTestHandler(ctx, nil, redis.NewKeyBuilder(""), kitlog.NewNopLogger(), time.Minute, nil, nil)
 
 		doneCh := make(chan struct{})
 		go func() {
@@ -168,7 +169,7 @@ func TestErrorHandler(t *testing.T) {
 	})
 
 	t.Run("works if the error storage is disabled", func(t *testing.T) {
-		eh := newTestHandler(context.Background(), nil, kitlog.NewNopLogger(), -1, nil, nil)
+		eh := newTestHandler(context.Background(), nil, redis.NewKeyBuilder(""), kitlog.NewNopLogger(), -1, nil, nil)
 
 		doneCh := make(chan struct{})
 		go func() {
@@ -218,7 +219,7 @@ func testErrorHandlerCollectsErrors(t *testing.T, pool fleet.RedisPool, wd strin
 			close(chDone)
 		}
 	}
-	eh := newTestHandler(ctx, pool, kitlog.NewNopLogger(), time.Minute, testOnStart, testOnStore)
+	eh := newTestHandler(ctx, pool, redis.NewKeyBuilder(""), kitlog.NewNopLogger(), time.Minute, testOnStart, testOnStore)
 
 	<-chGo
 
@@ -279,7 +280,7 @@ func testErrorHandlerCollectsDifferentErrors(t *testing.T, pool fleet.RedisPool,
 		}
 	}
 
-	eh := newTestHandler(ctx, pool, kitlog.NewNopLogger(), time.Minute, testOnStart, testOnStore)
+	eh := newTestHandler(ctx, pool, redis.NewKeyBuilder(""), kitlog.NewNopLogger(), time.Minute, testOnStart, testOnStore)
 
 	<-chGo
 
@@ -363,7 +364,7 @@ func TestHttpHandler(t *testing.T) {
 			}
 		}
 
-		eh := newTestHandler(ctx, pool, kitlog.NewNopLogger(), time.Minute, testOnStart, testOnStore)
+		eh := newTestHandler(ctx, pool, redis.NewKeyBuilder(""), kitlog.NewNopLogger(), time.Minute, testOnStart, testOnStore)
 
 		<-chGo
 		// simulate two errors, one happening twice

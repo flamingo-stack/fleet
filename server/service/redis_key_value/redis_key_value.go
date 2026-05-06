@@ -17,22 +17,26 @@ import (
 // Items are removed via expiration (defined in the SET operation).
 type RedisKeyValue struct {
 	pool       fleet.RedisPool
+	kb         redis.KeyBuilder
 	testPrefix string // for tests, the key prefix to use to avoid conflicts
 }
 
 // New creates a new RedisKeyValue store.
-func New(pool fleet.RedisPool) *RedisKeyValue {
-	return &RedisKeyValue{pool: pool}
+func New(pool fleet.RedisPool, kb redis.KeyBuilder) *RedisKeyValue {
+	return &RedisKeyValue{
+		pool: pool,
+		kb:   kb,
+	}
 }
 
 // prefix is used to not collide with other key domains (like live queries or calendar locks).
 const prefix = "key_value_"
 
 // k composes the fully-qualified Redis key for a key/value entry:
-// pool-level KeyPrefix (per-tenant namespace) + testPrefix (intra-test
-// isolation) + the "key_value_" domain prefix + caller key.
+// per-tenant prefix (via kb) + testPrefix (intra-test isolation) +
+// the "key_value_" domain prefix + caller key.
 func (r *RedisKeyValue) k(key string) string {
-	return redis.PrefixKey(r.pool, r.testPrefix+prefix+key)
+	return r.kb.Key(r.testPrefix + prefix + key)
 }
 
 // Set creates or overrides the given key with the given value.

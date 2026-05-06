@@ -75,6 +75,9 @@ const (
 type redisLiveQuery struct {
 	// connection pool
 	pool fleet.RedisPool
+	// kb owns the per-tenant key prefix snapshotted at construction time.
+	// All Redis keys/channels written by this store are routed through it.
+	kb redis.KeyBuilder
 	// in memory cache
 	cache memCache
 	// in memory cache expiration
@@ -110,10 +113,14 @@ func (r *redisLiveQuery) getSQLByCampaignID(campaignID string) (string, bool) {
 }
 
 // NewRedisQueryResults creates a new Redis implementation of the
-// QueryResultStore interface using the provided Redis connection pool.
-func NewRedisLiveQuery(pool fleet.RedisPool, logger kitlog.Logger, memCacheExp time.Duration) *redisLiveQuery {
+// QueryResultStore interface using the provided Redis connection pool
+// and key builder. The key builder owns the per-tenant key prefix; pass
+// the same kb to every Fleet subsystem so they all agree on the
+// namespace.
+func NewRedisLiveQuery(pool fleet.RedisPool, kb redis.KeyBuilder, logger kitlog.Logger, memCacheExp time.Duration) *redisLiveQuery {
 	return &redisLiveQuery{
 		pool:            pool,
+		kb:              kb,
 		cache:           newMemCache(),
 		cacheExpiration: memCacheExp,
 		logger:          logger,
@@ -135,15 +142,15 @@ func newMemCache() memCache {
 // preserved (the prefix is a constant for a given pool, so two keys built
 // here always share the same slot regardless of the prefix).
 func (r *redisLiveQuery) generateKeys(name string) (targetsKey, sqlKey string) {
-	return redis.PrefixHashTagKey(r.pool, queryKeyPrefix, name, ""),
-		redis.PrefixHashTagKey(r.pool, sqlKeyPrefix+queryKeyPrefix, name, "")
+	return r.kb.HashTag(queryKeyPrefix, name, ""),
+		r.kb.HashTag(sqlKeyPrefix+queryKeyPrefix, name, "")
 }
 
 // activeQueriesKey returns the Redis key name for the set holding the
 // currently active live-query campaign IDs, with the pool's configured
 // KeyPrefix prepended.
 func (r *redisLiveQuery) activeQueriesKey() string {
-	return redis.PrefixKey(r.pool, activeQueriesSuffix)
+	return r.kb.Key(activeQueriesSuffix)
 }
 
 // extractTargetKeyName returns the base name part of a target key, i.e. so
@@ -156,7 +163,7 @@ func (r *redisLiveQuery) activeQueriesKey() string {
 // It first strips the pool's configured KeyPrefix (if any) so that keys
 // produced by generateKeys round-trip cleanly.
 func (r *redisLiveQuery) extractTargetKeyName(key string) string {
-	key = redis.StripPrefix(r.pool, key)
+	key = r.kb.Strip(key)
 	name := strings.TrimPrefix(key, queryKeyPrefix)
 	if len(name) > 0 && name[0] == '{' {
 		name = name[1:]

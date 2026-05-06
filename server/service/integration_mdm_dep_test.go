@@ -2871,7 +2871,7 @@ func (s *integrationMDMTestSuite) TestStickyMDMTeamEnrollment() {
 			host, mdmDevice := createHostThenEnrollMDM(s.ds, s.server.URL, t)
 
 			// Check that redis key was set
-			keyValueStore := redis_key_value.New(s.redisPool)
+			keyValueStore := redis_key_value.New(s.redisPool, redis.NewKeyBuilder(""))
 			val, err := keyValueStore.Get(ctx, fleet.StickyMDMEnrollmentKeyPrefix+host.UUID)
 			require.NoError(t, err)
 			require.NotNil(t, val)

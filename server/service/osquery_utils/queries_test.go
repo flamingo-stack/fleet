@@ -25,6 +25,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/config"
 	"github.com/fleetdm/fleet/v4/server/contexts/publicip"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/common_mysql"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	apple_mdm "github.com/fleetdm/fleet/v4/server/mdm/apple"
 	"github.com/fleetdm/fleet/v4/server/mdm/microsoft/syncml"
@@ -176,7 +177,7 @@ func TestDetailQueryNetworkInterfaces(t *testing.T) {
 func TestDetailQueryScheduledQueryStats(t *testing.T) {
 	host := fleet.Host{ID: 1}
 	ds := new(mock.Store)
-	task := async.NewTask(ds, nil, clock.C, &config.FleetConfig{
+	task := async.NewTask(ds, nil, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{EnableAsyncHostProcessing: "false"},
 	})
 

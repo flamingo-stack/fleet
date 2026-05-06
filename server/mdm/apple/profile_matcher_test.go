@@ -18,7 +18,7 @@ import (
 func TestPreassignProfile(t *testing.T) {
 	runTest := func(t *testing.T, pool fleet.RedisPool) {
 		ctx := context.Background()
-		matcher := NewProfileMatcher(pool)
+		matcher := NewProfileMatcher(pool, redis.NewKeyBuilder(""))
 
 		// preassign a profile
 		p1 := fleet.MDMApplePreassignProfilePayload{
@@ -146,7 +146,7 @@ func TestPreassignProfile(t *testing.T) {
 func TestRetrieveProfiles(t *testing.T) {
 	runTest := func(t *testing.T, pool fleet.RedisPool) {
 		ctx := context.Background()
-		matcher := NewProfileMatcher(pool)
+		matcher := NewProfileMatcher(pool, redis.NewKeyBuilder(""))
 
 		// preassign a profile with a group
 		p1 := fleet.MDMApplePreassignProfilePayload{
@@ -225,7 +225,7 @@ func TestRetrieveProfiles(t *testing.T) {
 func TestPreassignProfileValidation(t *testing.T) {
 	ctx := context.Background()
 	pool := redistest.SetupRedis(t, preassignKeyPrefix, false, false, false)
-	matcher := NewProfileMatcher(pool)
+	matcher := NewProfileMatcher(pool, redis.NewKeyBuilder(""))
 
 	cases := []struct {
 		desc    string

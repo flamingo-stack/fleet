@@ -46,7 +46,7 @@ func TestIPBanner(t *testing.T) {
 			allowedConsecutiveFailuresTimeWindow := 10 * time.Second
 			banDuration := 5 * time.Second
 
-			ipBan := redis.NewIPBanner(pool, prefix, allowedConsecutiveFailuresCount, allowedConsecutiveFailuresTimeWindow, banDuration)
+			ipBan := redis.NewIPBanner(pool, redis.NewKeyBuilder(""), prefix, allowedConsecutiveFailuresCount, allowedConsecutiveFailuresTimeWindow, banDuration)
 
 			// Initially the IP should not be banned.
 			banned, err := ipBan.CheckBanned(ip)
@@ -168,7 +168,7 @@ func TestIPBanner(t *testing.T) {
 			allowedConsecutiveFailuresTimeWindow := 1 * time.Minute
 			banDuration := 5 * time.Second
 
-			ipBan := redis.NewIPBanner(pool, prefix, allowedConsecutiveFailuresCount, allowedConsecutiveFailuresTimeWindow, banDuration)
+			ipBan := redis.NewIPBanner(pool, redis.NewKeyBuilder(""), prefix, allowedConsecutiveFailuresCount, allowedConsecutiveFailuresTimeWindow, banDuration)
 
 			ip1 := "127.0.0.2"
 			ip2 := "::1"

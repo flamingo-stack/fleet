@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fleetdm/fleet/v4/server/config"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/mock"
 	kitlog "github.com/go-kit/log"
 	"github.com/gorilla/mux"
@@ -26,7 +27,7 @@ func TestAPIRoutesConflicts(t *testing.T) {
 	svc, _ := newTestService(t, ds, nil, nil)
 	limitStore, _ := memstore.New(0)
 	cfg := config.TestConfig()
-	h := MakeHandler(svc, cfg, kitlog.NewNopLogger(), limitStore, nil, nil)
+	h := MakeHandler(svc, cfg, kitlog.NewNopLogger(), limitStore, nil, redis.NewKeyBuilder(""), nil)
 	router := h.(*mux.Router)
 
 	type testCase struct {
@@ -80,7 +81,7 @@ func TestAPIRoutesMetrics(t *testing.T) {
 
 	svc, _ := newTestService(t, ds, nil, nil)
 	limitStore, _ := memstore.New(0)
-	h := MakeHandler(svc, config.TestConfig(), kitlog.NewNopLogger(), limitStore, nil, nil)
+	h := MakeHandler(svc, config.TestConfig(), kitlog.NewNopLogger(), limitStore, nil, redis.NewKeyBuilder(""), nil)
 	router := h.(*mux.Router)
 
 	// replace all handlers with mocks, and collect the requests to make to each

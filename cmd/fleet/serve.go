@@ -329,26 +329,33 @@ the way that the Fleet server works.
 				ConnWaitTimeout:           config.Redis.ConnWaitTimeout,
 				WriteTimeout:              config.Redis.WriteTimeout,
 				ReadTimeout:               config.Redis.ReadTimeout,
-				KeyPrefix:                 config.Redis.KeyPrefix,
 			})
 			if err != nil {
 				initFatal(err, "initialize Redis")
 			}
 			level.Info(logger).Log("component", "redis", "mode", redisPool.Mode())
 
+			// kb owns the per-tenant key prefix (config.Redis.KeyPrefix). It is
+			// passed to every subsystem constructor below so the connection pool
+			// itself doesn't need to know about prefixing — the pool is a pure
+			// connection abstraction (matches upstream Fleet), and kb is the
+			// orthogonal "key namespace" abstraction. An empty prefix yields
+			// upstream-identical keys.
+			redisKB := redis.NewKeyBuilder(config.Redis.KeyPrefix)
+
 			ds = cached_mysql.New(ds)
 			var dsOpts []mysqlredis.Option
 			if license.DeviceCount > 0 && config.License.EnforceHostLimit {
 				dsOpts = append(dsOpts, mysqlredis.WithEnforcedHostLimit(license.DeviceCount))
 			}
-			redisWrapperDS := mysqlredis.New(ds, redisPool, dsOpts...)
+			redisWrapperDS := mysqlredis.New(ds, redisPool, redisKB, dsOpts...)
 			ds = redisWrapperDS
 
-			resultStore := pubsub.NewRedisQueryResults(redisPool, config.Redis.DuplicateResults,
+			resultStore := pubsub.NewRedisQueryResults(redisPool, redisKB, config.Redis.DuplicateResults,
 				log.With(logger, "component", "query-results"),
 			)
-			liveQueryStore := live_query.NewRedisLiveQuery(redisPool, logger, liveQueryMemCacheDuration)
-			ssoSessionStore := sso.NewSessionStore(redisPool)
+			liveQueryStore := live_query.NewRedisLiveQuery(redisPool, redisKB, logger, liveQueryMemCacheDuration)
+			ssoSessionStore := sso.NewSessionStore(redisPool, redisKB)
 
 			// Set common configuration for all logging.
 			loggingConfig := logging.Config{
@@ -457,9 +464,9 @@ the way that the Fleet server works.
 				}
 			}
 
-			failingPolicySet := redis_policy_set.NewFailing(redisPool)
+			failingPolicySet := redis_policy_set.NewFailing(redisPool, redisKB)
 
-			task := async.NewTask(ds, redisPool, clock.C, &config)
+			task := async.NewTask(ds, redisPool, redisKB, clock.C, &config)
 
 			if config.Sentry.Dsn != "" {
 				v := version.Version()
@@ -765,7 +772,7 @@ the way that the Fleet server works.
 				}
 			}
 
-			eh := errorstore.NewHandler(ctx, redisPool, logger, config.Logging.ErrorRetentionPeriod)
+			eh := errorstore.NewHandler(ctx, redisPool, redisKB, logger, config.Logging.ErrorRetentionPeriod)
 			scepConfigMgr := eeservice.NewSCEPConfigService(logger, nil)
 			digiCertService := digicert.NewService(digicert.WithLogger(logger))
 			ctx = ctxerr.NewContext(ctx, eh)
@@ -813,7 +820,7 @@ the way that the Fleet server works.
 				scepConfigMgr,
 				digiCertService,
 				conditionalAccessMicrosoftProxy,
-				redis_key_value.New(redisPool),
+				redis_key_value.New(redisPool, redisKB),
 				androidSvc,
 			)
 			if err != nil {
@@ -826,7 +833,7 @@ the way that the Fleet server works.
 			var distributedLock fleet.Lock
 			if license.IsPremium() {
 				hydrantService := est.NewService(est.WithLogger(logger))
-				profileMatcher := apple_mdm.NewProfileMatcher(redisPool)
+				profileMatcher := apple_mdm.NewProfileMatcher(redisPool, redisKB)
 				if config.S3.SoftwareInstallersBucket != "" {
 					if config.S3.BucketsAndPrefixesMatch() {
 						level.Warn(logger).Log("msg",
@@ -900,7 +907,7 @@ the way that the Fleet server works.
 					}
 				}
 
-				distributedLock = redis_lock.NewLock(redisPool)
+				distributedLock = redis_lock.NewLock(redisPool, redisKB)
 				svc, err = eeservice.NewService(
 					svc,
 					ds,
@@ -916,7 +923,7 @@ the way that the Fleet server works.
 					bootstrapPackageStore,
 					softwareTitleIconStore,
 					distributedLock,
-					redis_key_value.New(redisPool),
+					redis_key_value.New(redisPool, redisKB),
 					scepConfigMgr,
 					digiCertService,
 					androidSvc,
@@ -1250,10 +1257,7 @@ the way that the Fleet server works.
 
 			httpLogger := kitlog.With(logger, "component", "http")
 
-			limiterStore := &redis.ThrottledStore{
-				Pool:      redisPool,
-				KeyPrefix: "ratelimit::",
-			}
+			limiterStore := redis.NewThrottledStore(redisPool, redisKB, "ratelimit::")
 
 			var httpSigVerifier func(http.Handler) http.Handler
 			if license.IsPremium() {
@@ -1278,7 +1282,7 @@ the way that the Fleet server works.
 				}
 				extra = append(extra, service.WithHTTPSigVerifier(httpSigVerifier))
 
-				apiHandler = service.MakeHandler(svc, config, httpLogger, limiterStore, redisPool,
+				apiHandler = service.MakeHandler(svc, config, httpLogger, limiterStore, redisPool, redisKB,
 					[]endpointer.HandlerRoutesFunc{android_service.GetRoutes(svc, androidSvc)}, extra...)
 
 				setupRequired, err := svc.SetupRequired(baseCtx)
@@ -1340,7 +1344,7 @@ the way that the Fleet server works.
 					vppInstaller,
 					license.IsPremium(),
 					logger,
-					redis_key_value.New(redisPool),
+					redis_key_value.New(redisPool, redisKB),
 				)
 
 				mdmCheckinAndCommandService.RegisterResultsHandler("InstalledApplicationList", service.NewInstalledApplicationListResultsHandler(ds, commander, logger, config.Server.VPPVerifyTimeout, config.Server.VPPVerifyRequestDelay))

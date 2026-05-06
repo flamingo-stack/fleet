@@ -25,6 +25,7 @@ import (
 	fleetLogging "github.com/fleetdm/fleet/v4/server/contexts/logging"
 	"github.com/fleetdm/fleet/v4/server/contexts/viewer"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysqlredis"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/live_query/live_query_mock"
@@ -344,7 +345,7 @@ func TestEnrollOsqueryEnforceLimit(t *testing.T) {
 			return nil
 		}
 
-		redisWrapDS := mysqlredis.New(ds, pool, mysqlredis.WithEnforcedHostLimit(maxHosts))
+		redisWrapDS := mysqlredis.New(ds, pool, redis.NewKeyBuilder(""), mysqlredis.WithEnforcedHostLimit(maxHosts))
 		svc, ctx := newTestService(t, redisWrapDS, nil, nil, &TestServerOpts{
 			EnrollHostLimiter: redisWrapDS,
 			License:           &fleet.LicenseInfo{DeviceCount: maxHosts},
@@ -460,7 +461,7 @@ func TestEnrollOsqueryDetails(t *testing.T) {
 
 func TestAuthenticateHost(t *testing.T) {
 	ds := new(mock.Store)
-	task := async.NewTask(ds, nil, clock.C, nil)
+	task := async.NewTask(ds, nil, redis.NewKeyBuilder(""), clock.C, nil)
 	svc, ctx := newTestService(t, ds, nil, nil, &TestServerOpts{Task: task})
 
 	var gotKey string
@@ -3528,7 +3529,7 @@ func TestPolicyWebhooks(t *testing.T) {
 	ds := new(mock.Store)
 	lq := live_query_mock.New(t)
 	pool := redistest.SetupRedis(t, t.Name(), false, false, false)
-	failingPolicySet := redis_policy_set.NewFailingTest(t, pool)
+	failingPolicySet := redis_policy_set.NewFailingTest(t, pool, redis.NewKeyBuilder(""))
 	testConfig := config.TestConfig()
 	svc, ctx := newTestServiceWithConfig(t, ds, testConfig, nil, lq, &TestServerOpts{
 		FailingPolicySet: failingPolicySet,

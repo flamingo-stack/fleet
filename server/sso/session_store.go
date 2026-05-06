@@ -41,22 +41,26 @@ type SessionStore interface {
 	Fullfill(sessionID string) (*Session, error)
 }
 
-// NewSessionStore creates a SessionStore
-func NewSessionStore(pool fleet.RedisPool) SessionStore {
-	return &store{pool}
+// NewSessionStore creates a SessionStore.
+func NewSessionStore(pool fleet.RedisPool, kb redis.KeyBuilder) SessionStore {
+	return &store{
+		pool: pool,
+		kb:   kb,
+	}
 }
 
 type store struct {
 	pool fleet.RedisPool
+	kb   redis.KeyBuilder
 }
 
 // k returns the fully-qualified Redis key for the given SSO session ID,
-// with the pool's configured KeyPrefix prepended. SSO sessions previously
+// with the per-tenant prefix prepended via kb. SSO sessions previously
 // used the bare sessionID as the Redis key — without a prefix, two Fleet
-// instances sharing one Redis would risk colliding session IDs (and worse,
-// could read each other's sessions if a UUID happened to coincide).
+// instances sharing one Redis would risk colliding session IDs (and
+// worse, could read each other's sessions if a UUID happened to coincide).
 func (s *store) k(sessionID string) string {
-	return redis.PrefixKey(s.pool, sessionID)
+	return s.kb.Key(sessionID)
 }
 
 func (s *store) create(sessionID, requestID, originalURL, metadata string, lifetimeSecs uint, requestData SSORequestData) error {

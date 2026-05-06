@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/fleet/policytest"
@@ -39,7 +40,7 @@ func TestRedisFailingPolicySet(t *testing.T) {
 
 func setupRedis(t testing.TB, cluster, redir bool) *redisFailingPolicySet {
 	pool := redistest.SetupRedis(t, t.Name(), cluster, redir, true)
-	return NewFailingTest(t, pool)
+	return NewFailingTest(t, pool, redis.NewKeyBuilder(""))
 }
 
 func BenchmarkFailingPolicySetStandaloneP10H10(b *testing.B) {

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ import (
 
 func TestSessionStore(t *testing.T) {
 	runTest := func(t *testing.T, pool fleet.RedisPool) {
-		store := NewSessionStore(pool)
+		store := NewSessionStore(pool, redis.NewKeyBuilder(""))
 
 		// Create session that lives for 1 second.
 		err := store.create("sessionID123", "requestID123", "https://originalurl.com", "some metadata", 1, SSORequestData{HostUUID: "host-uuid-123"})

@@ -32,7 +32,9 @@ import (
 // Handler.Retrieve to retrieve all stored errors and optionally clear them
 // from the store. It is safe to call those methods concurrently.
 type Handler struct {
-	pool    fleet.RedisPool
+	pool fleet.RedisPool
+	// kb owns the per-tenant key prefix snapshotted at construction time.
+	kb      redis.KeyBuilder
 	logger  kitlog.Logger
 	ttl     time.Duration
 	running int32 // accessed atomically
@@ -44,12 +46,13 @@ type Handler struct {
 	testOnStart func()      // if set, called once the handler is running
 }
 
-// NewHandler creates an error handler using the provided pool and logger,
-// storing unique instances of errors in Redis using the pool. It stops storing
-// errors when ctx is cancelled. Errors are kept for the duration of ttl.
-func NewHandler(ctx context.Context, pool fleet.RedisPool, logger kitlog.Logger, ttl time.Duration) *Handler {
+// NewHandler creates an error handler using the provided pool, key
+// builder and logger. It stops storing errors when ctx is cancelled.
+// Errors are kept for the duration of ttl.
+func NewHandler(ctx context.Context, pool fleet.RedisPool, kb redis.KeyBuilder, logger kitlog.Logger, ttl time.Duration) *Handler {
 	eh := &Handler{
 		pool:   pool,
+		kb:     kb,
 		logger: logger,
 		ttl:    ttl,
 	}
@@ -60,9 +63,10 @@ func NewHandler(ctx context.Context, pool fleet.RedisPool, logger kitlog.Logger,
 	return eh
 }
 
-func newTestHandler(ctx context.Context, pool fleet.RedisPool, logger kitlog.Logger, ttl time.Duration, onStart func(), onStore func(error)) *Handler {
+func newTestHandler(ctx context.Context, pool fleet.RedisPool, kb redis.KeyBuilder, logger kitlog.Logger, ttl time.Duration, onStart func(), onStore func(error)) *Handler {
 	eh := &Handler{
 		pool:   pool,
+		kb:     kb,
 		logger: logger,
 		ttl:    ttl,
 
@@ -90,11 +94,10 @@ func runHandler(ctx context.Context, eh *Handler) {
 // from Redis on return.
 func (h *Handler) Retrieve(flush bool) ([]*ctxerr.StoredError, error) {
 	// scanning only the error:*:json keys as json and count are both tagged keys
-	// and should hash to the same Redis slot. ScanPrefixedKeys auto-prefixes
-	// the pattern with the pool's configured KeyPrefix (e.g. "fleet:t1:") so
-	// the scan is scoped to this Fleet instance's namespace when shared Redis
-	// is in use.
-	errorKeys, err := redis.ScanPrefixedKeys(h.pool, "error:*:json", 100)
+	// and should hash to the same Redis slot. The KeyBuilder's Scan auto-
+	// prepends the per-tenant prefix to the pattern so the scan stays scoped
+	// to this Fleet instance's namespace under shared Redis.
+	errorKeys, err := h.kb.Scan(h.pool, "error:*:json", 100)
 	if err != nil {
 		return nil, err
 	}
@@ -225,11 +228,11 @@ func (h *Handler) storeError(ctx context.Context, err error) {
 	conn := h.pool.Get()
 	defer conn.Close()
 
-	// PrefixHashTagKey ensures the pool's KeyPrefix lands BEFORE the {HASH}
+	// kb.HashTag ensures the per-tenant prefix lands BEFORE the {HASH}
 	// hash tag so that the json/count pair still hashes to the same Redis
 	// Cluster slot regardless of any per-tenant prefix.
-	jsonKey := redis.PrefixHashTagKey(h.pool, "error:", errorHash, ":json")
-	countKey := redis.PrefixHashTagKey(h.pool, "error:", errorHash, ":count")
+	jsonKey := h.kb.HashTag("error:", errorHash, ":json")
+	countKey := h.kb.HashTag("error:", errorHash, ":count")
 
 	conn.Send("SET", jsonKey, errorJson) //nolint:errcheck
 	conn.Send("INCR", countKey)          //nolint:errcheck

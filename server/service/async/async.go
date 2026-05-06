@@ -18,8 +18,11 @@ import (
 const collectorLockKey = "locks:async_collector:{%s}"
 
 type Task struct {
-	datastore   fleet.Datastore
-	pool        fleet.RedisPool
+	datastore fleet.Datastore
+	pool      fleet.RedisPool
+	// kb owns the per-tenant key prefix. All Redis keys produced by the
+	// async-task builder methods on Task route through it.
+	kb          redis.KeyBuilder
 	clock       clock.Clock
 	taskConfigs map[config.AsyncTaskName]config.AsyncProcessingConfig
 	seenHostSet seenHostSet
@@ -27,7 +30,7 @@ type Task struct {
 }
 
 // NewTask configures and returns a Task.
-func NewTask(ds fleet.Datastore, pool fleet.RedisPool, clck clock.Clock, fleetConfig *config.FleetConfig) *Task {
+func NewTask(ds fleet.Datastore, pool fleet.RedisPool, kb redis.KeyBuilder, clck clock.Clock, fleetConfig *config.FleetConfig) *Task {
 	taskCfgs := make(map[config.AsyncTaskName]config.AsyncProcessingConfig)
 
 	var osqueryConf config.OsqueryConfig
@@ -45,6 +48,7 @@ func NewTask(ds fleet.Datastore, pool fleet.RedisPool, clck clock.Clock, fleetCo
 	return &Task{
 		datastore:   ds,
 		pool:        pool,
+		kb:          kb,
 		clock:       clck,
 		taskConfigs: taskCfgs,
 		otelEnabled: otelEnabled,

@@ -3,7 +3,10 @@
 // keep a count of active hosts so that a limit can be applied.
 package mysqlredis
 
-import "github.com/fleetdm/fleet/v4/server/fleet"
+import (
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
+	"github.com/fleetdm/fleet/v4/server/fleet"
+)
 
 // Datastore is the mysqlredis datastore type - it wraps the fleet.Datastore
 // interface to keep track of enrolled hosts and extends it to implement the
@@ -12,6 +15,8 @@ import "github.com/fleetdm/fleet/v4/server/fleet"
 type Datastore struct {
 	fleet.Datastore
 	pool fleet.RedisPool
+	// kb owns the per-tenant key prefix snapshotted at construction time.
+	kb redis.KeyBuilder
 
 	// options
 	enforceHostLimit int // <= 0 means do not enforce
@@ -29,9 +34,13 @@ func WithEnforcedHostLimit(limit int) Option {
 }
 
 // New creates a Datastore that wraps ds and uses pool to execute redis-based
-// operations.
-func New(ds fleet.Datastore, pool fleet.RedisPool, opts ...Option) *Datastore {
-	newDS := &Datastore{Datastore: ds, pool: pool}
+// operations. The key builder owns the per-tenant key prefix.
+func New(ds fleet.Datastore, pool fleet.RedisPool, kb redis.KeyBuilder, opts ...Option) *Datastore {
+	newDS := &Datastore{
+		Datastore: ds,
+		pool:      pool,
+		kb:        kb,
+	}
 	for _, opt := range opts {
 		opt(newDS)
 	}

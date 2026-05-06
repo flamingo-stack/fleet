@@ -25,12 +25,12 @@ const (
 // processing sets co-located on the same Redis Cluster slot. The pool's
 // configured KeyPrefix is prepended OUTSIDE the braces so that this
 // co-location is preserved regardless of the per-tenant prefix.
-func hostSeenRecordedHostIDsKey(pool fleet.RedisPool) string {
-	return redis.PrefixKey(pool, "{host_seen:host_ids}")
+func hostSeenRecordedHostIDsKey(kb redis.KeyBuilder) string {
+	return kb.Key("{host_seen:host_ids}")
 }
 
-func hostSeenProcessingHostIDsKey(pool fleet.RedisPool) string {
-	return redis.PrefixKey(pool, "{host_seen:host_ids}:processing")
+func hostSeenProcessingHostIDsKey(kb redis.KeyBuilder) string {
+	return kb.Key("{host_seen:host_ids}:processing")
 }
 
 // RecordHostLastSeen records that the specified host ID was seen.
@@ -60,7 +60,7 @@ func (t *Task) RecordHostLastSeen(ctx context.Context, hostID uint) error {
     return redis.call('EXPIRE', KEYS[1], ARGV[2])
   `)
 
-	recordedKey := hostSeenRecordedHostIDsKey(t.pool)
+	recordedKey := hostSeenRecordedHostIDsKey(t.kb)
 
 	conn := t.pool.Get()
 	defer conn.Close()
@@ -148,7 +148,7 @@ func (t *Task) collectHostsLastSeen(ctx context.Context, ds fleet.Datastore, poo
 
 	conn := pool.Get()
 	defer conn.Close()
-	if _, err := conn.Do("DEL", hostSeenProcessingHostIDsKey(pool)); err != nil {
+	if _, err := conn.Do("DEL", hostSeenProcessingHostIDsKey(t.kb)); err != nil {
 		return ctxerr.Wrap(ctx, err, "delete processing set key")
 	}
 
@@ -176,8 +176,8 @@ func (t *Task) loadSeenHostsIDs(ctx context.Context, pool fleet.RedisPool) ([]ui
     return redis.call('EXPIRE', KEYS[2], ARGV[1])
   `)
 
-	recordedKey := hostSeenRecordedHostIDsKey(pool)
-	processingKey := hostSeenProcessingHostIDsKey(pool)
+	recordedKey := hostSeenRecordedHostIDsKey(t.kb)
+	processingKey := hostSeenProcessingHostIDsKey(t.kb)
 
 	conn := pool.Get()
 	defer conn.Close()

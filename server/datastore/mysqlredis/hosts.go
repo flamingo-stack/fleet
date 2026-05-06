@@ -14,13 +14,13 @@ import (
 const enrolledHostsSetKeySuffix = "enrolled_hosts:host_ids"
 
 // enrolledHostsKey returns the fully-qualified Redis key for the host-limit
-// license counter set. The pool's configured KeyPrefix is prepended so that
+// license counter set. The per-tenant prefix (via kb) is prepended so that
 // two Fleet instances sharing one Redis do NOT share a single global host
 // counter — without it, the per-tenant license enforcement would compute
 // the union of all tenants' hosts and could falsely block enrollments once
 // the combined count crossed the per-tenant limit.
-func enrolledHostsKey(pool fleet.RedisPool) string {
-	return redis.PrefixKey(pool, enrolledHostsSetKeySuffix)
+func enrolledHostsKey(kb redis.KeyBuilder) string {
+	return kb.Key(enrolledHostsSetKeySuffix)
 }
 
 var redisSetMembersBatchSize = 10000 // var so it can be changed in tests
@@ -38,7 +38,7 @@ func (d *Datastore) SyncEnrolledHostIDs(ctx context.Context) error {
 		// point and then disabled, so we reclaim the redis memory space.
 		conn := redis.ConfigureDoer(d.pool, d.pool.Get())
 		defer conn.Close()
-		if _, err := conn.Do("DEL", enrolledHostsKey(d.pool)); err != nil {
+		if _, err := conn.Do("DEL", enrolledHostsKey(d.kb)); err != nil {
 			return ctxerr.Wrap(ctx, err, "delete enrolled hosts key")
 		}
 		return nil
@@ -52,7 +52,7 @@ func (d *Datastore) SyncEnrolledHostIDs(ctx context.Context) error {
 	conn := redis.ConfigureDoer(d.pool, d.pool.Get())
 	defer conn.Close()
 
-	redisCount, err := redigo.Int(conn.Do("SCARD", enrolledHostsKey(d.pool)))
+	redisCount, err := redigo.Int(conn.Do("SCARD", enrolledHostsKey(d.kb)))
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "count enrolled hosts from redis")
 	}
@@ -67,20 +67,20 @@ func (d *Datastore) SyncEnrolledHostIDs(ctx context.Context) error {
 		return ctxerr.Wrap(ctx, err, "get enrolled host IDs from the database")
 	}
 
-	if _, err := conn.Do("DEL", enrolledHostsKey(d.pool)); err != nil {
+	if _, err := conn.Do("DEL", enrolledHostsKey(d.kb)); err != nil {
 		return ctxerr.Wrap(ctx, err, "clear redis enrolled hosts set")
 	}
 
 	// return the connection to the pool so it can be reused in addHosts
 	conn.Close()
 
-	if err := addHosts(ctx, d.pool, ids...); err != nil {
+	if err := addHosts(ctx, d.pool, d.kb, ids...); err != nil {
 		return ctxerr.Wrap(ctx, err, "add database host IDs to the redis set")
 	}
 	return nil
 }
 
-func addHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) error {
+func addHosts(ctx context.Context, pool fleet.RedisPool, kb redis.KeyBuilder, hostIDs ...uint) error {
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
 
@@ -90,7 +90,7 @@ func addHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) error 
 			maxSize = redisSetMembersBatchSize
 		}
 
-		args := redigo.Args{enrolledHostsKey(pool)}
+		args := redigo.Args{enrolledHostsKey(kb)}
 		args = args.AddFlat(hostIDs[:maxSize])
 		if _, err := conn.Do("SADD", args...); err != nil {
 			return ctxerr.Wrap(ctx, err, "enrolled limits: add hosts")
@@ -100,7 +100,7 @@ func addHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) error 
 	return nil
 }
 
-func removeHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) error {
+func removeHosts(ctx context.Context, pool fleet.RedisPool, kb redis.KeyBuilder, hostIDs ...uint) error {
 	conn := redis.ConfigureDoer(pool, pool.Get())
 	defer conn.Close()
 
@@ -110,7 +110,7 @@ func removeHosts(ctx context.Context, pool fleet.RedisPool, hostIDs ...uint) err
 			maxSize = redisSetMembersBatchSize
 		}
 
-		args := redigo.Args{enrolledHostsKey(pool)}
+		args := redigo.Args{enrolledHostsKey(kb)}
 		args = args.AddFlat(hostIDs)
 		if _, err := conn.Do("SREM", args...); err != nil {
 			return ctxerr.Wrap(ctx, err, "enrolled limits: remove hosts")
@@ -124,7 +124,7 @@ func (d *Datastore) checkCanAddHost(ctx context.Context) (bool, error) {
 	conn := redis.ConfigureDoer(d.pool, d.pool.Get())
 	defer conn.Close()
 
-	n, err := redigo.Int(conn.Do("SCARD", enrolledHostsKey(d.pool)))
+	n, err := redigo.Int(conn.Do("SCARD", enrolledHostsKey(d.kb)))
 	if err != nil {
 		return false, ctxerr.Wrap(ctx, err, "enrolled limits: check can add host")
 	}
@@ -137,7 +137,7 @@ func (d *Datastore) checkCanAddHost(ctx context.Context) (bool, error) {
 func (d *Datastore) NewHost(ctx context.Context, host *fleet.Host) (*fleet.Host, error) {
 	h, err := d.Datastore.NewHost(ctx, host)
 	if err == nil && d.enforceHostLimit > 0 {
-		if err := addHosts(ctx, d.pool, h.ID); err != nil {
+		if err := addHosts(ctx, d.pool, d.kb, h.ID); err != nil {
 			logging.WithErr(ctx, err)
 		}
 	}
@@ -147,7 +147,7 @@ func (d *Datastore) NewHost(ctx context.Context, host *fleet.Host) (*fleet.Host,
 func (d *Datastore) EnrollOsquery(ctx context.Context, opts ...fleet.DatastoreEnrollOsqueryOption) (*fleet.Host, error) {
 	h, err := d.Datastore.EnrollOsquery(ctx, opts...)
 	if err == nil && d.enforceHostLimit > 0 {
-		if err := addHosts(ctx, d.pool, h.ID); err != nil {
+		if err := addHosts(ctx, d.pool, d.kb, h.ID); err != nil {
 			logging.WithErr(ctx, err)
 		}
 	}
@@ -157,7 +157,7 @@ func (d *Datastore) EnrollOsquery(ctx context.Context, opts ...fleet.DatastoreEn
 func (d *Datastore) DeleteHost(ctx context.Context, hid uint) error {
 	err := d.Datastore.DeleteHost(ctx, hid)
 	if err == nil && d.enforceHostLimit > 0 {
-		if err := removeHosts(ctx, d.pool, hid); err != nil {
+		if err := removeHosts(ctx, d.pool, d.kb, hid); err != nil {
 			logging.WithErr(ctx, err)
 		}
 	}
@@ -167,7 +167,7 @@ func (d *Datastore) DeleteHost(ctx context.Context, hid uint) error {
 func (d *Datastore) DeleteHosts(ctx context.Context, ids []uint) error {
 	err := d.Datastore.DeleteHosts(ctx, ids)
 	if err == nil && d.enforceHostLimit > 0 {
-		if err := removeHosts(ctx, d.pool, ids...); err != nil {
+		if err := removeHosts(ctx, d.pool, d.kb, ids...); err != nil {
 			logging.WithErr(ctx, err)
 		}
 	}
@@ -182,7 +182,7 @@ func (d *Datastore) CleanupExpiredHosts(ctx context.Context) ([]fleet.DeletedHos
 		for i, detail := range details {
 			ids[i] = detail.ID
 		}
-		if err := removeHosts(ctx, d.pool, ids...); err != nil {
+		if err := removeHosts(ctx, d.pool, d.kb, ids...); err != nil {
 			logging.WithErr(ctx, err)
 		}
 	}
@@ -192,7 +192,7 @@ func (d *Datastore) CleanupExpiredHosts(ctx context.Context) ([]fleet.DeletedHos
 func (d *Datastore) CleanupIncomingHosts(ctx context.Context, now time.Time) ([]uint, error) {
 	ids, err := d.Datastore.CleanupIncomingHosts(ctx, now)
 	if err == nil && d.enforceHostLimit > 0 {
-		if err := removeHosts(ctx, d.pool, ids...); err != nil {
+		if err := removeHosts(ctx, d.pool, d.kb, ids...); err != nil {
 			logging.WithErr(ctx, err)
 		}
 	}

@@ -7,79 +7,84 @@ import (
 	"github.com/fleetdm/fleet/v4/server/fleet"
 )
 
-// PrefixKey returns key with the pool's configured key prefix prepended.
-// If the pool has no prefix configured (the default), it returns key
-// unchanged. This is the standard helper for any Redis key built by Fleet
-// subsystems — it guarantees that a shared Redis can be safely namespaced
-// per service or tenant via the redis.key_prefix config option.
+// KeyBuilder is a small value type that owns a single string prefix and
+// produces fully-qualified Redis keys/channels for a Fleet subsystem.
 //
-// For keys that contain Redis Cluster hash tags (segments wrapped in
-// curly braces, e.g. "livequery:{42}"), use PrefixHashTagKey instead so
-// that the prefix is placed *outside* the hash-tag braces and the cluster
-// slot routing for related keys is preserved.
-func PrefixKey(pool fleet.RedisPool, key string) string {
-	return pool.KeyPrefix() + key
+// It is intentionally decoupled from fleet.RedisPool: a KeyBuilder only
+// needs the prefix string, not the connection pool. Production code in
+// cmd/fleet/serve.go builds one from config.Redis.KeyPrefix and threads
+// it into every subsystem constructor so all subsystems share the same
+// namespace; tests pass NewKeyBuilder("") for upstream-identical keys.
+//
+// All methods are safe for concurrent use (the value is immutable after
+// construction). An empty prefix produces upstream-Fleet-identical keys —
+// callers do not need to special-case the "no prefix" deployment.
+type KeyBuilder struct {
+	prefix string
 }
 
-// PrefixHashTagKey builds a Redis key of the form
+// NewKeyBuilder returns a KeyBuilder that prepends prefix to every key it
+// produces. Pass "" to disable prefixing entirely (matches upstream Fleet
+// byte-for-byte). The canonical call site is in cmd/fleet/serve.go:
 //
-//	<pool prefix><before>{<tagged>}<after>
-//
-// guaranteeing that the configured pool key-prefix lands *before* the
-// hash-tag braces. Hash tags determine which slot a key maps to in Redis
-// Cluster, so two keys that need to share a slot (and therefore live on
-// the same node — required for multi-key commands, transactions, and Lua
-// scripts) must share the substring inside the braces. Putting the
-// per-tenant pool prefix outside the braces preserves that invariant: keys
-// that were co-located before remain co-located afterwards.
-//
-// Example:
-//
-//	PrefixHashTagKey(pool, "livequery:", "42", "")    => "fleet:t1:livequery:{42}"
-//	PrefixHashTagKey(pool, "sql:livequery:", "42", "") => "fleet:t1:sql:livequery:{42}"
-//
-// Both keys above hash to the same slot regardless of the pool prefix.
-func PrefixHashTagKey(pool fleet.RedisPool, before, tagged, after string) string {
-	return pool.KeyPrefix() + before + "{" + tagged + "}" + after
+//	kb := redis.NewKeyBuilder(config.Redis.KeyPrefix)
+func NewKeyBuilder(prefix string) KeyBuilder {
+	return KeyBuilder{prefix: prefix}
 }
 
-// StripPrefix removes the pool's configured key prefix from the front of
-// key, if present. It is intended for callers that read raw keys back out
-// of Redis (for example via SCAN) and need to recover the original
-// subsystem-level key name. If the pool has no prefix configured or the
-// key does not start with the prefix, key is returned unchanged.
-func StripPrefix(pool fleet.RedisPool, key string) string {
-	prefix := pool.KeyPrefix()
-	if prefix == "" {
-		return key
+// Prefix returns the configured prefix string. Useful for code that needs
+// to inspect or pass the prefix elsewhere (e.g. test cleanup scans). Most
+// callers should not need this — use Key/HashTag/Sprintf/Scan instead.
+func (b KeyBuilder) Prefix() string {
+	return b.prefix
+}
+
+// Key prepends the builder's prefix to s and returns the result. For keys
+// containing Redis Cluster hash tags use HashTag instead so the prefix
+// stays outside the {...} braces.
+func (b KeyBuilder) Key(s string) string {
+	return b.prefix + s
+}
+
+// HashTag builds a Redis key of the form
+//
+//	<prefix><before>{<tagged>}<after>
+//
+// guaranteeing that the configured prefix lands BEFORE the hash-tag
+// braces. Hash tags determine which slot a key maps to in Redis Cluster,
+// so two keys built with the same `tagged` value (and the same builder)
+// always co-locate on the same slot regardless of the prefix.
+func (b KeyBuilder) HashTag(before, tagged, after string) string {
+	return b.prefix + before + "{" + tagged + "}" + after
+}
+
+// Sprintf is the printf-style sibling of Key: it formats `format` with
+// `args` and prepends the prefix to the result. Preferred for keys whose
+// body contains a hash tag built via fmt.Sprintf — e.g.
+// "policy_pass:{%d}", hostID — so all subsystems use a single, uniform
+// construction style. Same hash-tag positioning rules as HashTag apply:
+// the prefix lands before any "{...}" segment in `format`.
+func (b KeyBuilder) Sprintf(format string, args ...any) string {
+	return b.prefix + fmt.Sprintf(format, args...)
+}
+
+// Strip removes the builder's prefix from the front of s, if present.
+// Use it for callers that read raw keys back out of Redis (for example
+// via SCAN) and need to recover the original subsystem-level key name.
+// If the prefix is empty or s does not start with it, s is returned
+// unchanged.
+func (b KeyBuilder) Strip(s string) string {
+	if b.prefix == "" {
+		return s
 	}
-	return strings.TrimPrefix(key, prefix)
+	return strings.TrimPrefix(s, b.prefix)
 }
 
-// PrefixSprintf is the Sprintf-style sibling of PrefixKey: it formats
-// `format` with `args` and prepends the pool's configured key prefix to
-// the result. It is the preferred helper for keys whose body contains a
-// hash tag built via fmt.Sprintf — e.g. "policy_pass:{%d}", hostID — so
-// that all subsystems use a single, uniform construction style.
-//
-// The same hash-tag positioning rules as PrefixHashTagKey apply: the
-// pool prefix lands BEFORE any "{...}" segment in `format`, preserving
-// Redis Cluster slot co-location invariants.
-//
-// Example:
-//
-//	PrefixSprintf(pool, "policy_pass:{%d}", 42)
-//	    => "fleet:t1:policy_pass:{42}"
-func PrefixSprintf(pool fleet.RedisPool, format string, args ...any) string {
-	return pool.KeyPrefix() + fmt.Sprintf(format, args...)
-}
-
-// ScanPrefixedKeys is like ScanKeys but automatically prepends the pool's
-// configured key prefix to the supplied pattern. Use this for any
-// administrative scan (cleanup, debug listings, error-store enumeration)
-// so that the scan is automatically scoped to the current pool's
-// namespace. When the pool has no prefix configured, this is equivalent
-// to calling ScanKeys directly.
-func ScanPrefixedKeys(pool fleet.RedisPool, pattern string, count int) ([]string, error) {
-	return ScanKeys(pool, pool.KeyPrefix()+pattern, count)
+// Scan is like the package-level ScanKeys but automatically prepends the
+// builder's prefix to the supplied pattern, scoping the scan to this
+// builder's namespace. Pass the redis pool the builder was created from
+// (the pool is needed to actually run the SCAN — the builder only owns
+// the prefix string).
+func (b KeyBuilder) Scan(pool fleet.RedisPool, pattern string, count int) ([]string, error) {
+	return ScanKeys(pool, b.prefix+pattern, count)
 }

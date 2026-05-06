@@ -27,20 +27,24 @@ const (
 
 type profileMatcher struct {
 	pool fleet.RedisPool
+	kb   redis.KeyBuilder
 }
 
 // NewProfileMatcher creates a new MDM profile matcher based on Redis.
-func NewProfileMatcher(pool fleet.RedisPool) fleet.ProfileMatcher {
-	return &profileMatcher{pool: pool}
+func NewProfileMatcher(pool fleet.RedisPool, kb redis.KeyBuilder) fleet.ProfileMatcher {
+	return &profileMatcher{
+		pool: pool,
+		kb:   kb,
+	}
 }
 
 // k returns the fully-qualified Redis hash key for the given external host
-// identifier, with the pool's configured KeyPrefix prepended.
+// identifier, with the per-tenant prefix prepended via kb.
 // keyForExternalHostIdentifier is preserved as a free function for test
 // helpers that operate on raw key shape; production code paths must always
 // route through this method so that per-tenant prefixes are applied.
 func (p *profileMatcher) k(externalHostIdentifier string) string {
-	return redis.PrefixKey(p.pool, keyForExternalHostIdentifier(externalHostIdentifier))
+	return p.kb.Key(keyForExternalHostIdentifier(externalHostIdentifier))
 }
 
 // PreassignProfile stores the profile associated with the host in Redis for

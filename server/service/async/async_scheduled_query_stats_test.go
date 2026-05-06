@@ -143,7 +143,7 @@ func testCollectScheduledQueryStats(t *testing.T, ds *mysql.Datastore, pool flee
 		func() {
 			t.Log("test name: ", c.name)
 
-			task := NewTask(ds, pool, clock.C, &config.FleetConfig{
+			task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 				Osquery: config.OsqueryConfig{
 					EnableAsyncHostProcessing:   "true",
 					AsyncHostInsertBatch:        batchSizes,
@@ -174,9 +174,9 @@ func testRecordScheduledQueryStatsSync(t *testing.T, ds *mock.Store, pool fleet.
 	host := &fleet.Host{ID: 1}
 
 	stats := []fleet.PackStats{{PackName: "p1", QueryStats: []fleet.ScheduledQueryStats{{ScheduledQueryName: "sq1"}}}}
-	hashKey := scheduledQueryStatsHostQueriesKey(pool,host.ID)
+	hashKey := scheduledQueryStatsHostQueriesKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, nil)
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, nil)
 
 	err := task.RecordScheduledQueryStats(ctx, host.TeamID, host.ID, stats, now)
 	require.NoError(t, err)
@@ -191,7 +191,7 @@ func testRecordScheduledQueryStatsSync(t *testing.T, ds *mock.Store, pool fleet.
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 }
@@ -214,9 +214,9 @@ func testRecordScheduledQueryStatsAsync(t *testing.T, ds *mock.Store, pool fleet
 			},
 		},
 	}
-	hashKey := scheduledQueryStatsHostQueriesKey(pool,host.ID)
+	hashKey := scheduledQueryStatsHostQueriesKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			EnableAsyncHostProcessing:   "true",
 			AsyncHostInsertBatch:        3,
@@ -247,10 +247,10 @@ func testRecordScheduledQueryStatsAsync(t *testing.T, ds *mock.Store, pool fleet
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), sqStat.Executions, res["p1\x00sq1"])
 
-	count, err := redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(pool)))
+	count, err := redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", scheduledQueryStatsHostIDsKey(pool), host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", scheduledQueryStatsHostIDsKey(redis.NewKeyBuilder("")), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), tsActive)
 
@@ -262,7 +262,7 @@ func testRecordScheduledQueryStatsAsync(t *testing.T, ds *mock.Store, pool fleet
 	require.Equal(t, 3, collStats.Items) // sq1, sq2, sq3
 	require.False(t, collStats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(pool)))
+	count, err = redigo.Int(conn.Do("ZCARD", scheduledQueryStatsHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 

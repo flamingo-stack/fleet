@@ -3,117 +3,75 @@ package redis
 import (
 	"testing"
 
-	"github.com/fleetdm/fleet/v4/server/fleet"
-	redigo "github.com/gomodule/redigo/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// fakePool is a minimal fleet.RedisPool implementation that only carries a
-// configurable KeyPrefix value — used to exercise the prefix helpers without
-// spinning up a real Redis. It returns nil/empty for everything else; the
-// helpers tested here never actually open a connection.
-type fakePool struct {
-	prefix string
-}
+// TestKeyBuilder verifies the struct-style builder. It carries the prefix
+// itself (no fleet.RedisPool dependency) and exposes the helpers Fleet
+// subsystems use to build per-tenant Redis keys. Subsystems are expected
+// to embed a KeyBuilder via NewKeyBuilder(prefix) at construction time
+// and route every key build through it.
+func TestKeyBuilder(t *testing.T) {
+	t.Run("empty prefix is identity (backward-compat with upstream Fleet)", func(t *testing.T) {
+		b := NewKeyBuilder("")
+		assert.Equal(t, "livequery:42", b.Key("livequery:42"))
+		assert.Equal(t, "livequery:{42}", b.HashTag("livequery:", "42", ""))
+		assert.Equal(t, "policy_pass:{42}", b.Sprintf("policy_pass:{%d}", 42))
+		assert.Equal(t, "k", b.Strip("k"))
+		assert.Equal(t, "", b.Prefix())
+	})
 
-func (f *fakePool) Get() redigo.Conn                     { return nil }
-func (f *fakePool) Close() error                         { return nil }
-func (f *fakePool) Stats() map[string]redigo.PoolStats   { return nil }
-func (f *fakePool) Mode() fleet.RedisMode                { return fleet.RedisStandalone }
-func (f *fakePool) KeyPrefix() string                    { return f.prefix }
+	t.Run("with prefix", func(t *testing.T) {
+		b := NewKeyBuilder("fleet:t1:")
+		assert.Equal(t, "fleet:t1:livequery:42", b.Key("livequery:42"))
+		assert.Equal(t, "fleet:t1:livequery:{42}", b.HashTag("livequery:", "42", ""))
+		assert.Equal(t, "fleet:t1:policy_pass:{42}", b.Sprintf("policy_pass:{%d}", 42))
+		assert.Equal(t, "livequery:42", b.Strip("fleet:t1:livequery:42"))
+		assert.Equal(t, "fleet:t1:", b.Prefix())
+	})
 
-// TestPrefixKey covers the basic concatenation contract and the "empty
-// prefix is identity" backward-compat invariant.
-func TestPrefixKey(t *testing.T) {
-	cases := []struct {
-		name   string
-		prefix string
-		key    string
-		want   string
-	}{
-		{"empty prefix returns key unchanged (backward-compat)", "", "livequery:42", "livequery:42"},
-		{"tenant prefix prepended", "fleet:t1:", "livequery:42", "fleet:t1:livequery:42"},
-		{"prefix is opaque, can be anything", "x:y:z:", "k", "x:y:z:k"},
-		{"empty key with prefix yields just the prefix", "fleet:t1:", "", "fleet:t1:"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			pool := &fakePool{prefix: tc.prefix}
-			assert.Equal(t, tc.want, PrefixKey(pool, tc.key))
-		})
-	}
-}
+	// HashTag MUST keep the per-tenant prefix OUTSIDE the {…} braces. Two
+	// keys built with the same `tagged` value must always hash to the same
+	// Redis Cluster slot regardless of the tenant prefix — that's the
+	// invariant Fleet's live_query, errorstore, async ip_banner subsystems
+	// rely on for multi-key Lua scripts and pipelines.
+	t.Run("hash-tag stays inside braces under HashTag", func(t *testing.T) {
+		b := NewKeyBuilder("fleet:t1:")
+		bitfield := b.HashTag("livequery:", "42", "")
+		sql := b.HashTag("sql:livequery:", "42", "")
+		// The substring inside {...} must be identical for cluster slot co-location.
+		assert.Equal(t, hashTag(bitfield), hashTag(sql))
 
-// TestPrefixHashTagKey is the most important test in this file: it verifies
-// that the per-tenant prefix lands OUTSIDE the {…} hash tag braces. Two
-// keys built with the same tag must always hash to the same Redis Cluster
-// slot, regardless of which tenant they belong to. We can't run a real
-// CLUSTER KEYSLOT here (no Redis dependency in this package's unit tests),
-// but we assert the shape that guarantees that property.
-func TestPrefixHashTagKey(t *testing.T) {
-	pool := &fakePool{prefix: "fleet:t1:"}
+		// errorstore shape: error:{HASH}:json + error:{HASH}:count
+		jsonKey := b.HashTag("error:", "abc", ":json")
+		countKey := b.HashTag("error:", "abc", ":count")
+		assert.Equal(t, hashTag(jsonKey), hashTag(countKey))
 
-	// Replicates the live_query shape: livequery:{42} + sql:livequery:{42}
-	bitfield := PrefixHashTagKey(pool, "livequery:", "42", "")
-	sql := PrefixHashTagKey(pool, "sql:livequery:", "42", "")
+		// Empty prefix preserves upstream-Fleet shape exactly.
+		empty := NewKeyBuilder("")
+		assert.Equal(t, "livequery:{42}", empty.HashTag("livequery:", "42", ""))
+		assert.Equal(t, "error:{abc}:json", empty.HashTag("error:", "abc", ":json"))
+	})
 
-	assert.Equal(t, "fleet:t1:livequery:{42}", bitfield)
-	assert.Equal(t, "fleet:t1:sql:livequery:{42}", sql)
-
-	// The hash tag (the substring between the first { and first }) must be
-	// identical across both — that is the property Redis Cluster uses to
-	// co-locate them on the same slot.
-	assert.Equal(t, hashTag(bitfield), hashTag(sql),
-		"hash tags must match for cluster slot co-location")
-
-	// Replicates the errorstore shape: error:{HASH}:json + error:{HASH}:count
-	jsonKey := PrefixHashTagKey(pool, "error:", "abc123", ":json")
-	countKey := PrefixHashTagKey(pool, "error:", "abc123", ":count")
-	assert.Equal(t, "fleet:t1:error:{abc123}:json", jsonKey)
-	assert.Equal(t, "fleet:t1:error:{abc123}:count", countKey)
-	assert.Equal(t, hashTag(jsonKey), hashTag(countKey))
-
-	// With an empty prefix the helper still produces the original
-	// upstream-Fleet shape — no behavior change.
-	emptyPool := &fakePool{prefix: ""}
-	assert.Equal(t, "livequery:{42}", PrefixHashTagKey(emptyPool, "livequery:", "42", ""))
-	assert.Equal(t, "error:{abc123}:json", PrefixHashTagKey(emptyPool, "error:", "abc123", ":json"))
-}
-
-// TestStripPrefix verifies that a key produced by PrefixKey round-trips
-// cleanly back to the original. This is what live_query.extractTargetKeyName
-// relies on to recover campaign IDs from raw Redis keys.
-func TestStripPrefix(t *testing.T) {
-	cases := []struct {
-		name   string
-		prefix string
-		key    string
-		want   string
-	}{
-		{"empty prefix is no-op", "", "livequery:{42}", "livequery:{42}"},
-		{"prefix is stripped when present", "fleet:t1:", "fleet:t1:livequery:{42}", "livequery:{42}"},
-		{"key without prefix is returned unchanged", "fleet:t1:", "livequery:{42}", "livequery:{42}"},
-		{"only prefix yields empty string", "fleet:t1:", "fleet:t1:", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			pool := &fakePool{prefix: tc.prefix}
-			assert.Equal(t, tc.want, StripPrefix(pool, tc.key))
-		})
-	}
-}
-
-// TestPrefixRoundTrip ensures PrefixKey and StripPrefix are exact inverses.
-// This is the property extractTargetKeyName depends on.
-func TestPrefixRoundTrip(t *testing.T) {
-	for _, prefix := range []string{"", "fleet:t1:", "x:", "very:long:prefix:with:colons:"} {
-		for _, key := range []string{"livequery:{42}", "error:{abc}:count", "key_value_foo", ""} {
-			pool := &fakePool{prefix: prefix}
-			require.Equal(t, key, StripPrefix(pool, PrefixKey(pool, key)),
-				"round-trip failed for prefix=%q key=%q", prefix, key)
+	t.Run("Strip + Key round-trip", func(t *testing.T) {
+		for _, prefix := range []string{"", "fleet:t1:", "x:", "very:long:prefix:with:colons:"} {
+			b := NewKeyBuilder(prefix)
+			for _, key := range []string{"livequery:{42}", "error:{abc}:count", "key_value_foo", "k", ""} {
+				require.Equal(t, key, b.Strip(b.Key(key)),
+					"round-trip failed: prefix=%q key=%q", prefix, key)
+			}
 		}
-	}
+	})
+
+	t.Run("zero value is usable (no prefix, no panic)", func(t *testing.T) {
+		// A KeyBuilder field on a struct that wasn't initialised yet
+		// should still produce upstream-identical keys.
+		var b KeyBuilder
+		assert.Equal(t, "x", b.Key("x"))
+		assert.Equal(t, "{42}", b.HashTag("", "42", ""))
+		assert.Equal(t, "", b.Prefix())
+	})
 }
 
 // hashTag extracts the substring between the first '{' and the first '}'
@@ -145,7 +103,7 @@ func hashTag(key string) string {
 
 // TestHashTagHelper sanity-checks the hashTag helper itself so that a
 // regression in the test infra does not silently mask a regression in
-// PrefixHashTagKey.
+// KeyBuilder.HashTag.
 func TestHashTagHelper(t *testing.T) {
 	assert.Equal(t, "42", hashTag("livequery:{42}"))
 	assert.Equal(t, "42", hashTag("fleet:t1:livequery:{42}"))

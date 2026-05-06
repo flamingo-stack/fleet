@@ -34,6 +34,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/contexts/license"
 	"github.com/fleetdm/fleet/v4/server/contexts/viewer"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	fleetmdm "github.com/fleetdm/fleet/v4/server/mdm"
@@ -1199,7 +1200,7 @@ func TestMDMAuthenticateManualEnrollment(t *testing.T) {
 	svc := MDMAppleCheckinAndCommandService{
 		ds:            ds,
 		mdmLifecycle:  mdmLifecycle,
-		keyValueStore: redis_key_value.New(redistest.NopRedis()),
+		keyValueStore: redis_key_value.New(redistest.NopRedis(), redis.NewKeyBuilder("")),
 		logger:        kitlog.NewNopLogger(),
 	}
 	ctx := context.Background()
@@ -1249,7 +1250,7 @@ func TestMDMAuthenticateADE(t *testing.T) {
 	svc := MDMAppleCheckinAndCommandService{
 		ds:            ds,
 		mdmLifecycle:  mdmLifecycle,
-		keyValueStore: redis_key_value.New(redistest.NopRedis()),
+		keyValueStore: redis_key_value.New(redistest.NopRedis(), redis.NewKeyBuilder("")),
 		logger:        kitlog.NewNopLogger(),
 	}
 	ctx := context.Background()

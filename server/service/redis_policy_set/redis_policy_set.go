@@ -13,15 +13,17 @@ import (
 
 type redisFailingPolicySet struct {
 	pool       fleet.RedisPool
+	kb         redis.KeyBuilder
 	testPrefix string // for tests, the key prefix to use to avoid conflicts
 }
 
 var _ fleet.FailingPolicySet = (*redisFailingPolicySet)(nil)
 
 // NewFailing creates a redis policy set for failing policies.
-func NewFailing(pool fleet.RedisPool) *redisFailingPolicySet {
+func NewFailing(pool fleet.RedisPool, kb redis.KeyBuilder) *redisFailingPolicySet {
 	return &redisFailingPolicySet{
 		pool: pool,
+		kb:   kb,
 	}
 }
 
@@ -31,9 +33,10 @@ type TestNamer interface {
 
 // NewFailingTest creates a redis policy set for failing policies to be used
 // only in tests.
-func NewFailingTest(t TestNamer, pool fleet.RedisPool) *redisFailingPolicySet {
+func NewFailingTest(t TestNamer, pool fleet.RedisPool, kb redis.KeyBuilder) *redisFailingPolicySet {
 	return &redisFailingPolicySet{
 		pool:       pool,
+		kb:         kb,
 		testPrefix: t.Name() + ":",
 	}
 }
@@ -202,15 +205,15 @@ func (r *redisFailingPolicySet) removePolicyFromSetOfSets(policyID uint) error {
 }
 
 func (r *redisFailingPolicySet) policySetKey(policyID uint) string {
-	return redis.PrefixKey(r.pool, r.testPrefix+policySetKeyPrefix+fmt.Sprint(policyID))
+	return r.kb.Key(r.testPrefix + policySetKeyPrefix + fmt.Sprint(policyID))
 }
 
 func (r *redisFailingPolicySet) policySetOfSetsKey() string {
-	// Pool-level KeyPrefix scopes the set-of-sets per Fleet instance/tenant.
-	// Without it, multiple tenants sharing one Redis would all read/write
-	// the same global "policies:failing_sets" set and see each other's
-	// failing policies.
-	return redis.PrefixKey(r.pool, r.testPrefix+policySetsSetKey)
+	// kb prefixes the set-of-sets per Fleet instance/tenant. Without it,
+	// multiple tenants sharing one Redis would all read/write the same
+	// global "policies:failing_sets" set and see each other's failing
+	// policies.
+	return r.kb.Key(r.testPrefix + policySetsSetKey)
 }
 
 func hostEntry(host fleet.PolicySetHost) string {

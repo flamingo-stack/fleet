@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/mock"
@@ -55,7 +56,7 @@ func TestEnforceHostLimit(t *testing.T) {
 			return incomingHostsIDs, nil
 		}
 
-		wrappedDS := New(ds, pool, WithEnforcedHostLimit(hostLimit))
+		wrappedDS := New(ds, pool, redis.NewKeyBuilder(""), WithEnforcedHostLimit(hostLimit))
 
 		requireInvokedAndReset := func(flag *bool) {
 			require.True(t, *flag)
@@ -189,7 +190,7 @@ func TestSyncEnrolledHostIDs(t *testing.T) {
 			*flag = false
 		}
 
-		wrappedDS := New(ds, pool, WithEnforcedHostLimit(10)) // limit is irrelevant for this test
+		wrappedDS := New(ds, pool, redis.NewKeyBuilder(""), WithEnforcedHostLimit(10)) // limit is irrelevant for this test
 
 		// create a few hosts kept in sync
 		h1, err := wrappedDS.NewHost(ctx, &fleet.Host{})
@@ -202,7 +203,12 @@ func TestSyncEnrolledHostIDs(t *testing.T) {
 		conn := pool.Get()
 		defer conn.Close()
 
-		redisIDs, err := redigo.Strings(conn.Do("SMEMBERS", enrolledHostsKey(pool)))
+		// Tests use an empty per-tenant prefix (upstream-Fleet-identical
+		// key shape). Production callers pass kb built from
+		// config.Redis.KeyPrefix in serve.go.
+		kb := redis.NewKeyBuilder("")
+
+		redisIDs, err := redigo.Strings(conn.Do("SMEMBERS", enrolledHostsKey(kb)))
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{fmt.Sprint(h1.ID), fmt.Sprint(h2.ID), fmt.Sprint(h3.ID)}, redisIDs)
 
@@ -221,15 +227,15 @@ func TestSyncEnrolledHostIDs(t *testing.T) {
 		requireInvokedAndReset(&ds.CountEnrolledHostsFuncInvoked)
 		requireInvokedAndReset(&ds.EnrolledHostIDsFuncInvoked)
 
-		redisIDs, err = redigo.Strings(conn.Do("SMEMBERS", enrolledHostsKey(pool)))
+		redisIDs, err = redigo.Strings(conn.Do("SMEMBERS", enrolledHostsKey(kb)))
 		require.NoError(t, err)
 		require.ElementsMatch(t, []string{fmt.Sprint(h1.ID), fmt.Sprint(h3.ID)}, redisIDs)
 
 		// syncing when enforcing the limit is disabled removes the set key
-		wrappedDS = New(ds, pool) // no limit enforced
+		wrappedDS = New(ds, pool, kb) // no limit enforced
 		err = wrappedDS.SyncEnrolledHostIDs(ctx)
 		require.NoError(t, err)
-		exists, err := redigo.Bool(conn.Do("EXISTS", enrolledHostsKey(pool)))
+		exists, err := redigo.Bool(conn.Do("EXISTS", enrolledHostsKey(kb)))
 		require.NoError(t, err)
 		require.False(t, exists)
 	}

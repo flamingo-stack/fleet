@@ -106,7 +106,7 @@ func newTestServiceWithConfig(t *testing.T, ds fleet.Datastore, fleetConfig conf
 		keyValueStore = opts[0].KeyValueStore
 	}
 
-	task := async.NewTask(ds, nil, c, nil)
+	task := async.NewTask(ds, nil, redis.NewKeyBuilder(""), c, nil)
 	if len(opts) > 0 {
 		if opts[0].Task != nil {
 			task = opts[0].Task
@@ -123,10 +123,15 @@ func newTestServiceWithConfig(t *testing.T, ds fleet.Datastore, fleetConfig conf
 			lic = opts[0].License
 		}
 		if opts[0].Pool != nil {
-			ssoStore = sso.NewSessionStore(opts[0].Pool)
-			profMatcher = apple_mdm.NewProfileMatcher(opts[0].Pool)
-			distributedLock = redis_lock.NewLock(opts[0].Pool)
-			keyValueStore = redis_key_value.New(opts[0].Pool)
+			// Tests use an empty per-tenant prefix (upstream-Fleet-identical
+			// key shape). Production callers in cmd/fleet/serve.go build
+			// redisKB from config.Redis.KeyPrefix and share it across every
+			// subsystem.
+			testKB := redis.NewKeyBuilder("")
+			ssoStore = sso.NewSessionStore(opts[0].Pool, testKB)
+			profMatcher = apple_mdm.NewProfileMatcher(opts[0].Pool, testKB)
+			distributedLock = redis_lock.NewLock(opts[0].Pool, testKB)
+			keyValueStore = redis_key_value.New(opts[0].Pool, testKB)
 		}
 		if opts[0].ProfileMatcher != nil {
 			profMatcher = opts[0].ProfileMatcher
@@ -167,7 +172,7 @@ func newTestServiceWithConfig(t *testing.T, ds fleet.Datastore, fleetConfig conf
 	var eh *errorstore.Handler
 	if len(opts) > 0 {
 		if opts[0].Pool != nil {
-			eh = errorstore.NewHandler(ctx, opts[0].Pool, logger, time.Minute*10)
+			eh = errorstore.NewHandler(ctx, opts[0].Pool, redis.NewKeyBuilder(""), logger, time.Minute*10)
 			ctx = ctxerr.NewContext(ctx, eh)
 		}
 		if opts[0].StartCronSchedules != nil {
@@ -461,10 +466,7 @@ func RunServerForTestsWithServiceWithDS(t *testing.T, ctx context.Context, ds fl
 	var redisPool fleet.RedisPool
 	if len(opts) > 0 && opts[0].Pool != nil {
 		redisPool = opts[0].Pool
-		limitStore = &redis.ThrottledStore{
-			Pool:      opts[0].Pool,
-			KeyPrefix: "ratelimit::",
-		}
+		limitStore = redis.NewThrottledStore(opts[0].Pool, redis.NewKeyBuilder(""), "ratelimit::")
 	} else {
 		redisPool = redistest.SetupRedis(t, t.Name(), false, false, false) // We are good to initalize a redis pool here as it is only called by integration tests
 	}
@@ -475,7 +477,7 @@ func RunServerForTestsWithServiceWithDS(t *testing.T, ctx context.Context, ds fl
 		commander := apple_mdm.NewMDMAppleCommander(mdmStorage, mdmPusher)
 		if mdmStorage != nil && scepStorage != nil {
 			vppInstaller := svc.(fleet.AppleMDMVPPInstaller)
-			checkInAndCommand := NewMDMAppleCheckinAndCommandService(ds, commander, vppInstaller, opts[0].License.IsPremium(), logger, redis_key_value.New(redisPool))
+			checkInAndCommand := NewMDMAppleCheckinAndCommandService(ds, commander, vppInstaller, opts[0].License.IsPremium(), logger, redis_key_value.New(redisPool, redis.NewKeyBuilder("")))
 			checkInAndCommand.RegisterResultsHandler("InstalledApplicationList", NewInstalledApplicationListResultsHandler(ds, commander, logger, cfg.Server.VPPVerifyTimeout, cfg.Server.VPPVerifyRequestDelay))
 			err := RegisterAppleMDMProtocolServices(
 				rootMux,
@@ -541,7 +543,7 @@ func RunServerForTestsWithServiceWithDS(t *testing.T, ctx context.Context, ds fl
 		require.NoError(t, condaccess.RegisterSCEP(ctx, rootMux, opts[0].ConditionalAccess.SCEPStorage, ds, logger, &cfg))
 		require.NoError(t, condaccess.RegisterIdP(rootMux, ds, logger, &cfg))
 	}
-	apiHandler := MakeHandler(svc, cfg, logger, limitStore, redisPool, featureRoutes, extra...)
+	apiHandler := MakeHandler(svc, cfg, logger, limitStore, redisPool, redis.NewKeyBuilder(""), featureRoutes, extra...)
 	rootMux.Handle("/api/", apiHandler)
 	var errHandler *errorstore.Handler
 	ctxErrHandler := ctxerr.FromContext(ctx)

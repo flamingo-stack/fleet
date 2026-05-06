@@ -21,7 +21,6 @@ type standalonePool struct {
 	*redis.Pool
 	addr            string
 	connWaitTimeout time.Duration
-	keyPrefix       string
 }
 
 func (p *standalonePool) Get() redis.Conn {
@@ -50,23 +49,14 @@ func (p *standalonePool) Mode() fleet.RedisMode {
 	return fleet.RedisStandalone
 }
 
-func (p *standalonePool) KeyPrefix() string {
-	return p.keyPrefix
-}
-
 type clusterPool struct {
 	*redisc.Cluster
 	followRedirs bool
 	readReplica  bool
-	keyPrefix    string
 }
 
 func (p *clusterPool) Mode() fleet.RedisMode {
 	return fleet.RedisCluster
-}
-
-func (p *clusterPool) KeyPrefix() string {
-	return p.keyPrefix
 }
 
 // PoolConfig holds the redis pool configuration options.
@@ -99,14 +89,6 @@ type PoolConfig struct {
 	WriteTimeout              time.Duration
 	ReadTimeout               time.Duration
 
-	// KeyPrefix, when non-empty, is prepended by Fleet subsystems to every
-	// Redis key and pub/sub channel they read/write through this pool. It is
-	// surfaced via fleet.RedisPool.KeyPrefix() and used by the helpers in
-	// this package (PrefixKey, PrefixHashTagKey, ScanPrefixedKeys) so that a
-	// shared Redis can be safely namespaced per service or tenant. Empty
-	// (default) preserves upstream behavior — no prefix is applied.
-	KeyPrefix string
-
 	// allows for testing dial retries and other dial-related scenarios
 	testRedisDialFunc func(net, addr string, opts ...redis.DialOption) (redis.Conn, error)
 }
@@ -123,21 +105,15 @@ func NewPool(config PoolConfig) (fleet.RedisPool, error) {
 			// not a Redis Cluster setup, use a standalone Redis pool
 			pool, _ := cluster.CreatePool(config.Server, cluster.DialOptions...)
 			cluster.Close()
-			return &standalonePool{
-				Pool:            pool,
-				addr:            config.Server,
-				connWaitTimeout: config.ConnWaitTimeout,
-				keyPrefix:       config.KeyPrefix,
-			}, nil
+			return &standalonePool{pool, config.Server, config.ConnWaitTimeout}, nil
 		}
 		return nil, fmt.Errorf("refresh cluster: %w", err)
 	}
 
 	return &clusterPool{
-		Cluster:      cluster,
-		followRedirs: config.ClusterFollowRedirections,
-		readReplica:  config.ClusterReadFromReplica,
-		keyPrefix:    config.KeyPrefix,
+		cluster,
+		config.ClusterFollowRedirections,
+		config.ClusterReadFromReplica,
 	}, nil
 }
 

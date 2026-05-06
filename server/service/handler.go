@@ -96,6 +96,7 @@ func MakeHandler(
 	logger kitlog.Logger,
 	limitStore throttled.GCRAStore,
 	redisPool fleet.RedisPool,
+	redisKB redis.KeyBuilder,
 	featureRoutes []endpointer.HandlerRoutesFunc,
 	extra ...ExtraHandlerOption,
 ) http.Handler {
@@ -138,7 +139,7 @@ func MakeHandler(
 		r.Use(eopts.httpSigVerifier)
 	}
 
-	attachFleetAPIRoutes(r, svc, config, logger, limitStore, redisPool, fleetAPIOptions, eopts)
+	attachFleetAPIRoutes(r, svc, config, logger, limitStore, redisPool, redisKB, fleetAPIOptions, eopts)
 	for _, featureRoute := range featureRoutes {
 		featureRoute(r, fleetAPIOptions)
 	}
@@ -254,7 +255,7 @@ const (
 )
 
 func attachFleetAPIRoutes(r *mux.Router, svc fleet.Service, config config.FleetConfig,
-	logger kitlog.Logger, limitStore throttled.GCRAStore, redisPool fleet.RedisPool, opts []kithttp.ServerOption,
+	logger kitlog.Logger, limitStore throttled.GCRAStore, redisPool fleet.RedisPool, redisKB redis.KeyBuilder, opts []kithttp.ServerOption,
 	extra extraHandlerOpts,
 ) {
 	apiVersions := []string{"v1", "2022-04"}
@@ -858,7 +859,7 @@ func attachFleetAPIRoutes(r *mux.Router, svc fleet.Service, config config.FleetC
 	ue.POST("/api/_version_/fleet/spec/certificate_authorities", batchApplyCertificateAuthoritiesEndpoint, batchApplyCertificateAuthoritiesRequest{})
 	ue.GET("/api/_version_/fleet/spec/certificate_authorities", getCertificateAuthoritiesSpecEndpoint, getCertificateAuthoritiesSpecRequest{})
 
-	ipBanner := redis.NewIPBanner(redisPool, "ipbanner::",
+	ipBanner := redis.NewIPBanner(redisPool, redisKB, "ipbanner::",
 		deviceIPAllowedConsecutiveFailingRequestsCount,
 		deviceIPAllowedConsecutiveFailingRequestsTimeWindow,
 		deviceIPBanTime,

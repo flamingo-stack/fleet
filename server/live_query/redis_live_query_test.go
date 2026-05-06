@@ -3,6 +3,7 @@ package live_query
 import (
 	"testing"
 
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/test"
 	"github.com/go-kit/log"
@@ -27,7 +28,7 @@ func TestRedisLiveQuery(t *testing.T) {
 
 func setupRedisLiveQuery(t *testing.T, cluster bool) *redisLiveQuery {
 	pool := redistest.SetupRedis(t, "*livequery", cluster, true, true)
-	return NewRedisLiveQuery(pool, log.NewNopLogger(), 0)
+	return NewRedisLiveQuery(pool, redis.NewKeyBuilder(""), log.NewNopLogger(), 0)
 }
 
 func TestMapBitfield(t *testing.T) {

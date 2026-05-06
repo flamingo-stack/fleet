@@ -25,12 +25,12 @@ const (
 // configured KeyPrefix is prepended outside the {hostID} hash tag so that
 // the per-host hash key still maps to its own slot — useful for the HSCAN
 // loop in collectScheduledQueryStats.
-func scheduledQueryStatsHostQueriesKey(pool fleet.RedisPool, hostID uint) string {
-	return redis.PrefixSprintf(pool, "scheduled_query_stats:{%d}", hostID)
+func scheduledQueryStatsHostQueriesKey(kb redis.KeyBuilder, hostID uint) string {
+	return kb.Sprintf("scheduled_query_stats:{%d}", hostID)
 }
 
-func scheduledQueryStatsHostIDsKey(pool fleet.RedisPool) string {
-	return redis.PrefixKey(pool, "scheduled_query_stats:active_host_ids")
+func scheduledQueryStatsHostIDsKey(kb redis.KeyBuilder) string {
+	return kb.Key("scheduled_query_stats:active_host_ids")
 }
 
 // RecordScheduledQueryStats records the scheduled query stats for a given host.
@@ -67,7 +67,7 @@ func (t *Task) RecordScheduledQueryStats(ctx context.Context, teamID *uint, host
   `)
 
 	// build the arguments
-	key := scheduledQueryStatsHostQueriesKey(t.pool, hostID)
+	key := scheduledQueryStatsHostQueriesKey(t.kb, hostID)
 	args := redigo.Args{key, int(ttl.Seconds())}
 	for _, ps := range stats {
 		for _, qs := range ps.QueryStats {
@@ -97,7 +97,7 @@ func (t *Task) RecordScheduledQueryStats(ctx context.Context, teamID *uint, host
 	// outside of the redis script because in Redis Cluster mode the key may not
 	// live on the same node as the host's keys. At the same time, purge any
 	// entry in the set that is older than now - TTL.
-	if _, err := storePurgeActiveHostID(t.pool, scheduledQueryStatsHostIDsKey(t.pool), hostID, ts, ts.Add(-ttl)); err != nil {
+	if _, err := storePurgeActiveHostID(t.pool, scheduledQueryStatsHostIDsKey(t.kb), hostID, ts, ts.Add(-ttl)); err != nil {
 		return ctxerr.Wrap(ctx, err, "store active host id")
 	}
 	return nil
@@ -118,14 +118,14 @@ func (t *Task) collectScheduledQueryStats(ctx context.Context, ds fleet.Datastor
 
 	cfg := t.taskConfigs[config.AsyncTaskScheduledQueryStats]
 
-	hosts, err := loadActiveHostIDs(pool, scheduledQueryStatsHostIDsKey(pool), cfg.RedisScanKeysCount)
+	hosts, err := loadActiveHostIDs(pool, scheduledQueryStatsHostIDsKey(t.kb), cfg.RedisScanKeysCount)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "load active host ids")
 	}
 	stats.Keys = len(hosts)
 
 	getHostStats := func(hostID uint) (sqStats []fleet.ScheduledQueryStats, schedQueryNames [][2]string, err error) {
-		keyHash := scheduledQueryStatsHostQueriesKey(pool, hostID)
+		keyHash := scheduledQueryStatsHostQueriesKey(t.kb, hostID)
 		conn := redis.ConfigureDoer(pool, pool.Get())
 		defer conn.Close()
 
@@ -234,7 +234,7 @@ func (t *Task) collectScheduledQueryStats(ctx context.Context, ds fleet.Datastor
 		// the initial value, so that the active set does not keep all (potentially
 		// 100K+) host IDs to process at all times - only those with reported
 		// results to process.
-		if _, err := removeProcessedHostIDs(pool, scheduledQueryStatsHostIDsKey(pool), hosts); err != nil {
+		if _, err := removeProcessedHostIDs(pool, scheduledQueryStatsHostIDsKey(t.kb), hosts); err != nil {
 			return ctxerr.Wrap(ctx, err, "remove processed host ids")
 		}
 	}

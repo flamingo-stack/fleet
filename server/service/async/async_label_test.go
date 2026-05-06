@@ -149,7 +149,7 @@ func testCollectLabelQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fle
 		var wantStats collectorExecStats
 		for hostID, res := range data {
 			if len(res) > 0 {
-				key := labelMembershipHostKey(pool, uint(hostID))
+				key := labelMembershipHostKey(redis.NewKeyBuilder(""), uint(hostID))
 				args := make(redigo.Args, 0, 1+(len(res)*2))
 				args = args.Add(key)
 				for lblID, ins := range res {
@@ -161,11 +161,11 @@ func testCollectLabelQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fle
 				}
 				_, err := conn.Do("ZADD", args...)
 				require.NoError(t, err)
-				_, err = conn.Do("ZADD", labelMembershipActiveHostIDsKey(pool), time.Now().Unix(), hostID)
+				_, err = conn.Do("ZADD", labelMembershipActiveHostIDsKey(redis.NewKeyBuilder("")), time.Now().Unix(), hostID)
 				require.NoError(t, err)
 			}
 
-			cnt, err := redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(pool)))
+			cnt, err := redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(redis.NewKeyBuilder(""))))
 			require.NoError(t, err)
 			wantStats.Keys = cnt
 			wantStats.Items += len(res)
@@ -204,7 +204,7 @@ func testCollectLabelQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fle
 
 			// run the collection
 			var stats collectorExecStats
-			task := NewTask(nil, nil, clock.C, &config.FleetConfig{
+			task := NewTask(nil, nil, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 				Osquery: config.OsqueryConfig{
 					AsyncHostInsertBatch:        batchSizes,
 					AsyncHostUpdateBatch:        batchSizes,
@@ -253,7 +253,7 @@ func testCollectLabelQueryExecutions(t *testing.T, ds *mysql.Datastore, pool fle
 	// update host 1, label 1, already existing
 	setupTest(t, map[int]map[int]bool{1: {1: true}})
 	var stats collectorExecStats
-	task := NewTask(nil, nil, clock.C, &config.FleetConfig{
+	task := NewTask(nil, nil, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			AsyncHostInsertBatch:        batchSizes,
 			AsyncHostUpdateBatch:        batchSizes,
@@ -288,9 +288,9 @@ func testRecordLabelQueryExecutionsSync(t *testing.T, ds *mock.Store, pool fleet
 
 	yes, no := true, false
 	results := map[uint]*bool{1: &yes, 2: &yes, 3: &no, 4: nil}
-	keySet, keyTs := labelMembershipHostKey(pool,host.ID), labelMembershipReportedKey(pool,host.ID)
+	keySet, keyTs := labelMembershipHostKey(redis.NewKeyBuilder(""),host.ID), labelMembershipReportedKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, nil)
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, nil)
 
 	labelReportedAt := task.GetHostLabelReportedAt(ctx, host)
 	require.True(t, labelReportedAt.Equal(lastYear))
@@ -312,7 +312,7 @@ func testRecordLabelQueryExecutionsSync(t *testing.T, ds *mock.Store, pool fleet
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
-	n, err = redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(pool)))
+	n, err = redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 
@@ -331,9 +331,9 @@ func testRecordLabelQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool flee
 	}
 	yes, no := true, false
 	results := map[uint]*bool{1: &yes, 2: &yes, 3: &no, 4: nil}
-	keySet, keyTs := labelMembershipHostKey(pool,host.ID), labelMembershipReportedKey(pool,host.ID)
+	keySet, keyTs := labelMembershipHostKey(redis.NewKeyBuilder(""),host.ID), labelMembershipReportedKey(redis.NewKeyBuilder(""),host.ID)
 
-	task := NewTask(ds, pool, clock.C, &config.FleetConfig{
+	task := NewTask(ds, pool, redis.NewKeyBuilder(""), clock.C, &config.FleetConfig{
 		Osquery: config.OsqueryConfig{
 			EnableAsyncHostProcessing:   "true",
 			AsyncHostInsertBatch:        3,
@@ -364,10 +364,10 @@ func testRecordLabelQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool flee
 	require.NoError(t, err)
 	require.Equal(t, now.Unix(), ts)
 
-	count, err := redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(pool)))
+	count, err := redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
-	tsActive, err := redigo.Int64(conn.Do("ZSCORE", labelMembershipActiveHostIDsKey(pool), host.ID))
+	tsActive, err := redigo.Int64(conn.Do("ZSCORE", labelMembershipActiveHostIDsKey(redis.NewKeyBuilder("")), host.ID))
 	require.NoError(t, err)
 	require.Equal(t, tsActive, ts)
 
@@ -386,7 +386,7 @@ func testRecordLabelQueryExecutionsAsync(t *testing.T, ds *mock.Store, pool flee
 	require.Equal(t, 0, stats.Items) // zero because we cleared the host's set with ZPOPMIN above
 	require.False(t, stats.Failed)
 
-	count, err = redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(pool)))
+	count, err = redigo.Int(conn.Do("ZCARD", labelMembershipActiveHostIDsKey(redis.NewKeyBuilder(""))))
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
 }

@@ -44,6 +44,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/cron"
 	"github.com/fleetdm/fleet/v4/server/datastore/filesystem"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql"
+	"github.com/fleetdm/fleet/v4/server/datastore/redis"
 	"github.com/fleetdm/fleet/v4/server/datastore/redis/redistest"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/live_query/live_query_mock"
@@ -125,7 +126,7 @@ func (s *integrationEnterpriseTestSuite) SetupSuite() {
 						cronLog = kitlog.NewNopLogger()
 					}
 					calendarSchedule, err = cron.NewCalendarSchedule(
-						ctx, s.T().Name(), s.ds, redis_lock.NewLock(s.redisPool), config.CalendarConfig{Periodicity: 24 * time.Hour},
+						ctx, s.T().Name(), s.ds, redis_lock.NewLock(s.redisPool, redis.NewKeyBuilder("")), config.CalendarConfig{Periodicity: 24 * time.Hour},
 						cronLog,
 					)
 					return calendarSchedule, err
@@ -15747,7 +15748,7 @@ func (s *integrationEnterpriseTestSuite) TestCalendarCallback() {
 	calendar.ClearMockEvents()
 
 	// Grab the distributed lock for this event
-	distributedLock := redis_lock.NewLock(s.redisPool)
+	distributedLock := redis_lock.NewLock(s.redisPool, redis.NewKeyBuilder(""))
 	lockValue := uuid.New().String()
 	result, err := distributedLock.SetIfNotExist(ctx, commonCalendar.LockKeyPrefix+event.UUID, lockValue, 0)
 	require.NoError(t, err)

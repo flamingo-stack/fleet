@@ -21,6 +21,8 @@ import (
 type IPBanner struct {
 	pool      fleet.RedisPool
 	keyPrefix string
+	// kb owns the per-tenant key prefix snapshotted at construction time.
+	kb KeyBuilder
 
 	// allowedConsecutiveFailuresCount is the allowed number of failed requests for an IP.
 	allowedConsecutiveFailuresCount int
@@ -31,9 +33,12 @@ type IPBanner struct {
 	banDuration time.Duration
 }
 
-// NewIPBanner creates an IPBanner backed by Redis.
+// NewIPBanner creates an IPBanner backed by Redis. The key builder owns
+// the per-tenant key prefix; pass the same kb to every Fleet subsystem
+// so they all agree on the namespace.
 func NewIPBanner(
 	pool fleet.RedisPool,
+	kb KeyBuilder,
 	keyPrefix string,
 	allowedConsecutiveFailuresCount int,
 	allowedConsecutiveFailuresTimeWindow time.Duration,
@@ -42,6 +47,7 @@ func NewIPBanner(
 	return &IPBanner{
 		pool:      pool,
 		keyPrefix: keyPrefix,
+		kb:        kb,
 
 		allowedConsecutiveFailuresCount:      allowedConsecutiveFailuresCount,
 		allowedConsecutiveFailuresTimeWindow: allowedConsecutiveFailuresTimeWindow,
@@ -92,7 +98,7 @@ end
 // Lua script touches both KEYS[1] and KEYS[2] atomically and would fail
 // with CROSSSLOT if they hashed differently.
 func (s *IPBanner) k(ip, suffix string) string {
-	return PrefixHashTagKey(s.pool, s.keyPrefix, ip, suffix)
+	return s.kb.HashTag(s.keyPrefix, ip, suffix)
 }
 
 // CheckBanned returns true if the IP is currently banned.

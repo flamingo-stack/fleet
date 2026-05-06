@@ -11,6 +11,26 @@ import (
 type ThrottledStore struct {
 	Pool      fleet.RedisPool
 	KeyPrefix string
+	// Kb owns the per-tenant key prefix. Callers should set it from the
+	// same KeyBuilder passed to other Fleet subsystems so that all keys
+	// share the same namespace. Leaving it as the zero value keeps
+	// upstream-Fleet behavior (no per-tenant prefix).
+	Kb KeyBuilder
+}
+
+// NewThrottledStore is the conventional constructor for ThrottledStore.
+// Prefer it over a struct literal so the ThrottledStore initialization
+// signature matches the rest of Fleet's Redis-backed subsystems
+// (NewSessionStore, NewProfileMatcher, NewLock, …): all of them take
+// (pool, kb, ...subsystem-specific args). The struct fields are kept
+// exported for upstream compatibility — the constructor is a thin
+// convenience wrapper.
+func NewThrottledStore(pool fleet.RedisPool, kb KeyBuilder, keyPrefix string) *ThrottledStore {
+	return &ThrottledStore{
+		Pool:      pool,
+		Kb:        kb,
+		KeyPrefix: keyPrefix,
+	}
 }
 
 const (
@@ -37,13 +57,12 @@ return 1
 )
 
 // k composes the fully-qualified Redis key for a throttled-store entry:
-// pool-level KeyPrefix (per-tenant namespace, configured via
-// redis.key_prefix) followed by the in-store KeyPrefix (subsystem
-// namespace, e.g. "ratelimit::"). Lua scripts below receive the
-// fully-qualified key via KEYS[1], so script bodies don't need to know
-// about prefixing.
+// per-tenant prefix (via Kb) followed by the in-store KeyPrefix (subsystem
+// namespace, e.g. "ratelimit::") + caller key. Lua scripts below receive
+// the fully-qualified key via KEYS[1], so script bodies don't need to
+// know about prefixing.
 func (s *ThrottledStore) k(key string) string {
-	return PrefixKey(s.Pool, s.KeyPrefix+key)
+	return s.Kb.Key(s.KeyPrefix + key)
 }
 
 func (s *ThrottledStore) GetWithTime(key string) (int64, time.Time, error) {
