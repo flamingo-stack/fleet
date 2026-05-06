@@ -20,7 +20,7 @@ const enrolledHostsSetKeySuffix = "enrolled_hosts:host_ids"
 // the union of all tenants' hosts and could falsely block enrollments once
 // the combined count crossed the per-tenant limit.
 func enrolledHostsKey(pool fleet.RedisPool) string {
-	return pool.KeyPrefix() + enrolledHostsSetKeySuffix
+	return redis.PrefixKey(pool, enrolledHostsSetKeySuffix)
 }
 
 var redisSetMembersBatchSize = 10000 // var so it can be changed in tests

@@ -202,7 +202,7 @@ func (r *redisFailingPolicySet) removePolicyFromSetOfSets(policyID uint) error {
 }
 
 func (r *redisFailingPolicySet) policySetKey(policyID uint) string {
-	return r.pool.KeyPrefix() + r.testPrefix + policySetKeyPrefix + fmt.Sprint(policyID)
+	return redis.PrefixKey(r.pool, r.testPrefix+policySetKeyPrefix+fmt.Sprint(policyID))
 }
 
 func (r *redisFailingPolicySet) policySetOfSetsKey() string {
@@ -210,7 +210,7 @@ func (r *redisFailingPolicySet) policySetOfSetsKey() string {
 	// Without it, multiple tenants sharing one Redis would all read/write
 	// the same global "policies:failing_sets" set and see each other's
 	// failing policies.
-	return r.pool.KeyPrefix() + r.testPrefix + policySetsSetKey
+	return redis.PrefixKey(r.pool, r.testPrefix+policySetsSetKey)
 }
 
 func hostEntry(host fleet.PolicySetHost) string {

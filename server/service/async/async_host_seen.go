@@ -26,11 +26,11 @@ const (
 // configured KeyPrefix is prepended OUTSIDE the braces so that this
 // co-location is preserved regardless of the per-tenant prefix.
 func hostSeenRecordedHostIDsKey(pool fleet.RedisPool) string {
-	return pool.KeyPrefix() + "{host_seen:host_ids}"
+	return redis.PrefixKey(pool, "{host_seen:host_ids}")
 }
 
 func hostSeenProcessingHostIDsKey(pool fleet.RedisPool) string {
-	return pool.KeyPrefix() + "{host_seen:host_ids}:processing"
+	return redis.PrefixKey(pool, "{host_seen:host_ids}:processing")
 }
 
 // RecordHostLastSeen records that the specified host ID was seen.

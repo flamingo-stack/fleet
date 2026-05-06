@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/fleetdm/fleet/v4/server/fleet"
@@ -53,6 +54,24 @@ func StripPrefix(pool fleet.RedisPool, key string) string {
 		return key
 	}
 	return strings.TrimPrefix(key, prefix)
+}
+
+// PrefixSprintf is the Sprintf-style sibling of PrefixKey: it formats
+// `format` with `args` and prepends the pool's configured key prefix to
+// the result. It is the preferred helper for keys whose body contains a
+// hash tag built via fmt.Sprintf — e.g. "policy_pass:{%d}", hostID — so
+// that all subsystems use a single, uniform construction style.
+//
+// The same hash-tag positioning rules as PrefixHashTagKey apply: the
+// pool prefix lands BEFORE any "{...}" segment in `format`, preserving
+// Redis Cluster slot co-location invariants.
+//
+// Example:
+//
+//	PrefixSprintf(pool, "policy_pass:{%d}", 42)
+//	    => "fleet:t1:policy_pass:{42}"
+func PrefixSprintf(pool fleet.RedisPool, format string, args ...any) string {
+	return pool.KeyPrefix() + fmt.Sprintf(format, args...)
 }
 
 // ScanPrefixedKeys is like ScanKeys but automatically prepends the pool's

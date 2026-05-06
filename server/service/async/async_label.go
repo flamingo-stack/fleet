@@ -2,7 +2,6 @@ package async
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/fleetdm/fleet/v4/server/config"
@@ -28,15 +27,15 @@ const (
 // host-keyed pair (set + reported timestamp) still co-locates on the same
 // Redis Cluster slot.
 func labelMembershipActiveHostIDsKey(pool fleet.RedisPool) string {
-	return pool.KeyPrefix() + "label_membership:active_host_ids"
+	return redis.PrefixKey(pool, "label_membership:active_host_ids")
 }
 
 func labelMembershipHostKey(pool fleet.RedisPool, hostID uint) string {
-	return fmt.Sprintf("%slabel_membership:{%d}", pool.KeyPrefix(), hostID)
+	return redis.PrefixSprintf(pool, "label_membership:{%d}", hostID)
 }
 
 func labelMembershipReportedKey(pool fleet.RedisPool, hostID uint) string {
-	return fmt.Sprintf("%slabel_membership_reported:{%d}", pool.KeyPrefix(), hostID)
+	return redis.PrefixSprintf(pool, "label_membership_reported:{%d}", hostID)
 }
 
 func (t *Task) RecordLabelQueryExecutions(ctx context.Context, host *fleet.Host, results map[uint]*bool, ts time.Time, deferred bool) error {

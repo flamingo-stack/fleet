@@ -36,14 +36,20 @@ return 1
 	compareAndSwapNoKeyError = "key does not exist"
 )
 
+// k composes the fully-qualified Redis key for a throttled-store entry:
+// pool-level KeyPrefix (per-tenant namespace, configured via
+// redis.key_prefix) followed by the in-store KeyPrefix (subsystem
+// namespace, e.g. "ratelimit::"). Lua scripts below receive the
+// fully-qualified key via KEYS[1], so script bodies don't need to know
+// about prefixing.
+func (s *ThrottledStore) k(key string) string {
+	return PrefixKey(s.Pool, s.KeyPrefix+key)
+}
+
 func (s *ThrottledStore) GetWithTime(key string) (int64, time.Time, error) {
 	var t time.Time
 
-	// Compose the pool-level prefix (per-tenant namespace, configured via
-	// redis.key_prefix) with the in-store KeyPrefix (subsystem namespace,
-	// e.g. "ratelimit::"). Lua scripts below receive the fully-qualified
-	// key via KEYS[1], so script bodies don't need to know about prefixing.
-	key = s.Pool.KeyPrefix() + s.KeyPrefix + key
+	key = s.k(key)
 
 	conn := s.Pool.Get()
 	defer conn.Close()
@@ -73,11 +79,7 @@ func (s *ThrottledStore) GetWithTime(key string) (int64, time.Time, error) {
 }
 
 func (s *ThrottledStore) SetIfNotExistsWithTTL(key string, value int64, ttl time.Duration) (bool, error) {
-	// Compose the pool-level prefix (per-tenant namespace, configured via
-	// redis.key_prefix) with the in-store KeyPrefix (subsystem namespace,
-	// e.g. "ratelimit::"). Lua scripts below receive the fully-qualified
-	// key via KEYS[1], so script bodies don't need to know about prefixing.
-	key = s.Pool.KeyPrefix() + s.KeyPrefix + key
+	key = s.k(key)
 
 	conn := ConfigureDoer(s.Pool, s.Pool.Get())
 	defer conn.Close()
@@ -101,11 +103,7 @@ func (s *ThrottledStore) SetIfNotExistsWithTTL(key string, value int64, ttl time
 }
 
 func (s *ThrottledStore) CompareAndSwapWithTTL(key string, old, isNew int64, ttl time.Duration) (bool, error) {
-	// Compose the pool-level prefix (per-tenant namespace, configured via
-	// redis.key_prefix) with the in-store KeyPrefix (subsystem namespace,
-	// e.g. "ratelimit::"). Lua scripts below receive the fully-qualified
-	// key via KEYS[1], so script bodies don't need to know about prefixing.
-	key = s.Pool.KeyPrefix() + s.KeyPrefix + key
+	key = s.k(key)
 
 	conn := s.Pool.Get()
 	defer conn.Close()

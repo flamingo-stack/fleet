@@ -34,7 +34,7 @@ func NewLock(pool fleet.RedisPool) fleet.Lock {
 // All read/write methods route key construction through this helper so that
 // the prefix layering stays consistent.
 func (r *redisLock) k(key string) string {
-	return r.pool.KeyPrefix() + r.testPrefix + key
+	return redis.PrefixKey(r.pool, r.testPrefix+key)
 }
 
 func (r *redisLock) SetIfNotExist(ctx context.Context, key string, value string, expireMs uint64) (ok bool, err error) {

@@ -56,7 +56,7 @@ type store struct {
 // instances sharing one Redis would risk colliding session IDs (and worse,
 // could read each other's sessions if a UUID happened to coincide).
 func (s *store) k(sessionID string) string {
-	return s.pool.KeyPrefix() + sessionID
+	return redis.PrefixKey(s.pool, sessionID)
 }
 
 func (s *store) create(sessionID, requestID, originalURL, metadata string, lifetimeSecs uint, requestData SSORequestData) error {

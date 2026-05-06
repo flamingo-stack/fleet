@@ -40,7 +40,7 @@ func NewProfileMatcher(pool fleet.RedisPool) fleet.ProfileMatcher {
 // helpers that operate on raw key shape; production code paths must always
 // route through this method so that per-tenant prefixes are applied.
 func (p *profileMatcher) k(externalHostIdentifier string) string {
-	return p.pool.KeyPrefix() + p.k(externalHostIdentifier)
+	return redis.PrefixKey(p.pool, keyForExternalHostIdentifier(externalHostIdentifier))
 }
 
 // PreassignProfile stores the profile associated with the host in Redis for

@@ -28,6 +28,13 @@ func New(pool fleet.RedisPool) *RedisKeyValue {
 // prefix is used to not collide with other key domains (like live queries or calendar locks).
 const prefix = "key_value_"
 
+// k composes the fully-qualified Redis key for a key/value entry:
+// pool-level KeyPrefix (per-tenant namespace) + testPrefix (intra-test
+// isolation) + the "key_value_" domain prefix + caller key.
+func (r *RedisKeyValue) k(key string) string {
+	return redis.PrefixKey(r.pool, r.testPrefix+prefix+key)
+}
+
 // Set creates or overrides the given key with the given value.
 // Argument expireTime is used to set the expiration of the item
 // (when updating, the expiration of the item is updated).
@@ -35,7 +42,7 @@ func (r *RedisKeyValue) Set(ctx context.Context, key string, value string, expir
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	if _, err := redigo.String(conn.Do("SET", r.pool.KeyPrefix()+r.testPrefix+prefix+key, value, "PX", expireTime.Milliseconds())); err != nil {
+	if _, err := redigo.String(conn.Do("SET", r.k(key), value, "PX", expireTime.Milliseconds())); err != nil {
 		return ctxerr.Wrap(ctx, err, "redis failed to set")
 	}
 	return nil
@@ -47,7 +54,7 @@ func (r *RedisKeyValue) Get(ctx context.Context, key string) (*string, error) {
 	conn := redis.ConfigureDoer(r.pool, r.pool.Get())
 	defer conn.Close()
 
-	res, err := redigo.String(conn.Do("GET", r.pool.KeyPrefix()+r.testPrefix+prefix+key))
+	res, err := redigo.String(conn.Do("GET", r.k(key)))
 	if errors.Is(err, redigo.ErrNil) {
 		return nil, nil
 	}

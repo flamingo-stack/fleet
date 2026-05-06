@@ -42,7 +42,7 @@ func NewRedisQueryResults(pool fleet.RedisPool, duplicateResults bool, logger lo
 // prefixing is still required to prevent cross-tenant pub/sub leakage on
 // a shared Redis.
 func (r *redisQueryResults) pubSubForID(id uint) string {
-	return r.pool.KeyPrefix() + fmt.Sprintf("results_%d", id)
+	return redis.PrefixSprintf(r.pool, "results_%d", id)
 }
 
 // Pool returns the redisc connection pool (used in tests).

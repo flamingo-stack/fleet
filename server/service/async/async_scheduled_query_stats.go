@@ -26,11 +26,11 @@ const (
 // the per-host hash key still maps to its own slot — useful for the HSCAN
 // loop in collectScheduledQueryStats.
 func scheduledQueryStatsHostQueriesKey(pool fleet.RedisPool, hostID uint) string {
-	return fmt.Sprintf("%sscheduled_query_stats:{%d}", pool.KeyPrefix(), hostID)
+	return redis.PrefixSprintf(pool, "scheduled_query_stats:{%d}", hostID)
 }
 
 func scheduledQueryStatsHostIDsKey(pool fleet.RedisPool) string {
-	return pool.KeyPrefix() + "scheduled_query_stats:active_host_ids"
+	return redis.PrefixKey(pool, "scheduled_query_stats:active_host_ids")
 }
 
 // RecordScheduledQueryStats records the scheduled query stats for a given host.

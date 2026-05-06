@@ -135,16 +135,15 @@ func newMemCache() memCache {
 // preserved (the prefix is a constant for a given pool, so two keys built
 // here always share the same slot regardless of the prefix).
 func (r *redisLiveQuery) generateKeys(name string) (targetsKey, sqlKey string) {
-	prefix := r.pool.KeyPrefix()
-	keyTag := "{" + name + "}"
-	return prefix + queryKeyPrefix + keyTag, prefix + sqlKeyPrefix + queryKeyPrefix + keyTag
+	return redis.PrefixHashTagKey(r.pool, queryKeyPrefix, name, ""),
+		redis.PrefixHashTagKey(r.pool, sqlKeyPrefix+queryKeyPrefix, name, "")
 }
 
 // activeQueriesKey returns the Redis key name for the set holding the
 // currently active live-query campaign IDs, with the pool's configured
 // KeyPrefix prepended.
 func (r *redisLiveQuery) activeQueriesKey() string {
-	return r.pool.KeyPrefix() + activeQueriesSuffix
+	return redis.PrefixKey(r.pool, activeQueriesSuffix)
 }
 
 // extractTargetKeyName returns the base name part of a target key, i.e. so

@@ -86,14 +86,20 @@ else
 end
 `
 
+// k composes the fully-qualified Redis key for an IP-banner entry. The
+// pool-level prefix (per-tenant) sits OUTSIDE the `{ip}` hash tag so that
+// the count/banned pair still hashes to the same Redis Cluster slot — the
+// Lua script touches both KEYS[1] and KEYS[2] atomically and would fail
+// with CROSSSLOT if they hashed differently.
+func (s *IPBanner) k(ip, suffix string) string {
+	return PrefixHashTagKey(s.pool, s.keyPrefix, ip, suffix)
+}
+
 // CheckBanned returns true if the IP is currently banned.
 func (s *IPBanner) CheckBanned(ip string) (bool, error) {
 	ip = SetNullIfEmptyIP(ip)
 
-	// Pool-level prefix (per-tenant) sits OUTSIDE the {ip} hash tag so the
-	// count/banned key pair still hashes to the same Redis Cluster slot
-	// regardless of any per-tenant prefix.
-	key := s.pool.KeyPrefix() + s.keyPrefix + "{" + ip + "}::banned"
+	key := s.k(ip, "::banned")
 
 	conn := s.pool.Get()
 	defer conn.Close()
@@ -118,13 +124,8 @@ func (s *IPBanner) CheckBanned(ip string) (bool, error) {
 func (s *IPBanner) RunRequest(ip string, success bool) error {
 	ip = SetNullIfEmptyIP(ip)
 
-	// Pool-level prefix (per-tenant) sits OUTSIDE the {ip} hash tag so that
-	// count/banned still co-locate on the same Redis Cluster slot — the Lua
-	// script touches both KEYS[1] and KEYS[2] atomically and would fail with
-	// CROSSSLOT if they hashed differently.
-	poolPrefix := s.pool.KeyPrefix()
-	ipCountKey := poolPrefix + s.keyPrefix + "{" + ip + "}::count"
-	ipBannedKey := poolPrefix + s.keyPrefix + "{" + ip + "}::banned"
+	ipCountKey := s.k(ip, "::count")
+	ipBannedKey := s.k(ip, "::banned")
 
 	conn := s.pool.Get()
 	defer conn.Close()

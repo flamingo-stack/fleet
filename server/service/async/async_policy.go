@@ -26,15 +26,15 @@ const (
 // KeyPrefix is prepended outside any hash-tag braces so that the per-host
 // list+timestamp pair still co-locates on the same Redis Cluster slot.
 func policyPassHostIDsKey(pool fleet.RedisPool) string {
-	return pool.KeyPrefix() + "policy_pass:active_host_ids"
+	return redis.PrefixKey(pool, "policy_pass:active_host_ids")
 }
 
 func policyPassHostKey(pool fleet.RedisPool, hostID uint) string {
-	return fmt.Sprintf("%spolicy_pass:{%d}", pool.KeyPrefix(), hostID)
+	return redis.PrefixSprintf(pool, "policy_pass:{%d}", hostID)
 }
 
 func policyPassReportedKey(pool fleet.RedisPool, hostID uint) string {
-	return fmt.Sprintf("%spolicy_pass_reported:{%d}", pool.KeyPrefix(), hostID)
+	return redis.PrefixSprintf(pool, "policy_pass_reported:{%d}", hostID)
 }
 
 // redis list will be LTRIM'd if there are more policy IDs than this.
