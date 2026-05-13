@@ -118,7 +118,10 @@ type PoolConfig struct {
 // NewPool creates a Redis connection pool using the provided server
 // address, username, password and database.
 func NewPool(config PoolConfig) (fleet.RedisPool, error) {
-	prefix := normalizeKeyPrefix(config.KeyPrefix)
+	prefix, err := normalizeKeyPrefix(config.KeyPrefix)
+	if err != nil {
+		return nil, err
+	}
 	cluster, err := newCluster(config)
 	if err != nil {
 		return nil, err
@@ -165,15 +168,19 @@ func splitSeedNodes(server string) []string {
 	return out
 }
 
-// normalizeKeyPrefix appends ":" if missing; empty stays empty.
-func normalizeKeyPrefix(p string) string {
+// normalizeKeyPrefix appends ":" if missing; rejects '{'/'}' (would collapse
+// every key to one cluster slot via the hashtag rule).
+func normalizeKeyPrefix(p string) (string, error) {
 	if p == "" {
-		return ""
+		return "", nil
+	}
+	if strings.ContainsAny(p, "{}") {
+		return "", fmt.Errorf("redis: key prefix %q must not contain '{' or '}'", p)
 	}
 	if !strings.HasSuffix(p, ":") {
-		return p + ":"
+		return p + ":", nil
 	}
-	return p
+	return p, nil
 }
 
 // ReadOnlyConn turns conn into a connection that will try to connect to a

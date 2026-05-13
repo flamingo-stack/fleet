@@ -298,21 +298,8 @@ the way that the Fleet server works.
 				}
 			}
 
-			// Strip the redis:// scheme (Render free tier, etc). FLEET_REDIS_ADDRESS
-			// may also be a comma-separated seed list for Redis Cluster bootstrap;
-			// strip per-entry in that case.
-			redisAddress := config.Redis.Address
-			if strings.Contains(redisAddress, ",") {
-				parts := strings.Split(redisAddress, ",")
-				for i, p := range parts {
-					parts[i] = strings.TrimPrefix(strings.TrimSpace(p), "redis://")
-				}
-				redisAddress = strings.Join(parts, ",")
-			} else {
-				redisAddress = strings.TrimPrefix(redisAddress, "redis://")
-			}
 			redisPool, err := redis.NewPool(redis.PoolConfig{
-				Server:                    redisAddress,
+				Server:                    config.Redis.Address,
 				Username:                  config.Redis.Username,
 				Password:                  config.Redis.Password,
 				Database:                  config.Redis.Database,
