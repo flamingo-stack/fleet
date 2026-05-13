@@ -7,32 +7,9 @@ import (
 	"github.com/gomodule/redigo/redis"
 )
 
-// prefixedConn wraps a redigo.Conn and transparently prepends keyPrefix to
-// every key and pub/sub channel argument. It is the single point that makes
-// Fleet's per-tenant key namespace work when multiple Fleet servers share
-// one Redis (cluster).
-//
-// Policy is fail-CLOSED for tenant isolation: by default arg[0] is treated
-// as a key and prefixed. This is correct for the vast majority of Redis
-// commands (GET/SET/HSET/ZADD/LPUSH/EXPIRE/TTL/TYPE/INCR/...) — including
-// commands we have never heard of and commands future upstream commits will
-// introduce. Two explicit tables override the default:
-//
-//   - noPrefixCmds: commands whose args carry no keys/channels (admin,
-//     handshake, transactions, server info — PING/AUTH/CLUSTER/...).
-//   - specialCmds:  commands with keys in non-arg[0] positions (multi-key
-//     ops, EVAL, SCAN, pub/sub channel commands).
-//
-// If a new command appears that is not key-based and is missing from
-// noPrefixCmds, arg[0] gets prefixed and Redis usually rejects it with a
-// loud error (wrong type / syntax error). That is preferable to the
-// allowlist alternative, where a missed entry silently leaks keys between
-// tenants.
-//
-// Bind/ReadOnly are implemented so redisc.BindConn / ReadOnlyConn keep
-// working through interface assertion. redisc.RetryConn does a direct
-// *redisc.Conn type assertion and rejects the wrapper — callers must unwrap
-// before passing to RetryConn (see ConfigureDoer in redis.go).
+// prefixedConn prepends keyPrefix to keys/channels on every Do/Send. Policy
+// is fail-closed: default = prefix arg[0]; noPrefixCmds and specialCmds
+// override. redisc.RetryConn rejects the wrapper, so unwrap before passing in.
 type prefixedConn struct {
 	inner  redis.Conn
 	prefix string
@@ -68,9 +45,7 @@ func (p *prefixedConn) Send(cmd string, args ...interface{}) error {
 	return p.inner.Send(cmd, prefixArgs(cmd, args, p.prefix)...)
 }
 
-// Bind makes redisc.BindConn(p, keys...) work — it asserts the
-// interface{ Bind(...string) error } on the conn. We prefix the keys and
-// forward to the inner conn's Bind, which is the real cluster-routing call.
+// Bind prefixes the keys and forwards to inner conn so redisc.BindConn works.
 func (p *prefixedConn) Bind(keys ...string) error {
 	prefixed := make([]string, len(keys))
 	for i, k := range keys {
@@ -85,7 +60,7 @@ func (p *prefixedConn) Bind(keys ...string) error {
 	return cc.Bind(prefixed...)
 }
 
-// ReadOnly makes redisc.ReadOnlyConn(p) work.
+// ReadOnly forwards to inner conn so redisc.ReadOnlyConn works.
 func (p *prefixedConn) ReadOnly() error {
 	cc, ok := p.inner.(interface {
 		ReadOnly() error
@@ -96,9 +71,7 @@ func (p *prefixedConn) ReadOnly() error {
 	return cc.ReadOnly()
 }
 
-// prefixArgs rewrites args so that any element that represents a key or
-// pub/sub channel gets keyPrefix prepended. See the type-level comment on
-// prefixedConn for the policy.
+// prefixArgs prepends keyPrefix to key/channel args per the policy above.
 func prefixArgs(cmd string, args []interface{}, prefix string) []interface{} {
 	if prefix == "" {
 		return args
@@ -113,8 +86,7 @@ func prefixArgs(cmd string, args []interface{}, prefix string) []interface{} {
 		rule(out, prefix)
 		return out
 	}
-	// Default: arg[0] is the key. Correct for the vast majority of Redis
-	// commands; safe-by-default for unknown / future commands.
+	// Default: arg[0] is the key — safe for unknown/future commands too.
 	if len(out) > 0 {
 		prefixOne(out, 0, prefix)
 	}
@@ -141,22 +113,20 @@ func toString(v interface{}) string {
 
 type prefixRule func(args []interface{}, prefix string)
 
-// allArgs: every arg is a key/channel. Used by DEL/UNLINK/MGET/EXISTS/WATCH
-// and by SUBSCRIBE/UNSUBSCRIBE/PSUBSCRIBE-family channel commands.
+// allArgs: every arg is a key/channel (DEL, MGET, SUBSCRIBE, ...).
 func allArgs(args []interface{}, prefix string) {
 	for i := range args {
 		prefixOne(args, i, prefix)
 	}
 }
 
-// twoKeys: args[0] and args[1] are both keys. Used by RENAME/SMOVE/COPY/
-// LMOVE/RPOPLPUSH/LCS/ZRANGESTORE.
+// twoKeys: args[0] and args[1] are both keys (RENAME, SMOVE, COPY, ...).
 func twoKeys(args []interface{}, prefix string) {
 	prefixOne(args, 0, prefix)
 	prefixOne(args, 1, prefix)
 }
 
-// evalArgs: EVAL/EVALSHA/FCALL — args = [script, numKeys, k1, ..., kN, arg1, ...].
+// evalArgs: args = [script, numKeys, k1, ..., kN, arg1, ...].
 func evalArgs(args []interface{}, prefix string) {
 	if len(args) < 2 {
 		return
@@ -170,9 +140,8 @@ func evalArgs(args []interface{}, prefix string) {
 	}
 }
 
-// scanArgs: SCAN cursor [MATCH pattern] [COUNT n] [TYPE t]. Find MATCH and
-// prefix the pattern. SCAN without MATCH would see every tenant's keys —
-// callers should always pass MATCH (ScanKeys in redis.go does).
+// scanArgs: prefix the MATCH pattern. Callers must pass MATCH or SCAN sees
+// all tenants' keys (ScanKeys in redis.go always passes it).
 func scanArgs(args []interface{}, prefix string) {
 	for i := 0; i < len(args)-1; i++ {
 		if strings.EqualFold(toString(args[i]), "MATCH") {
@@ -182,16 +151,14 @@ func scanArgs(args []interface{}, prefix string) {
 	}
 }
 
-// bitopArgs: BITOP op dst src [src ...]. args[0] is the operation (AND/OR/
-// XOR/NOT), args[1..] are keys.
+// bitopArgs: BITOP op dst src... — args[0] is the op, args[1..] are keys.
 func bitopArgs(args []interface{}, prefix string) {
 	for i := 1; i < len(args); i++ {
 		prefixOne(args, i, prefix)
 	}
 }
 
-// objectArgs: OBJECT <subcommand> [key]. Subcommands ENCODING/IDLETIME/FREQ/
-// REFCOUNT take a key at args[1]; HELP takes no key.
+// objectArgs: OBJECT ENCODING/IDLETIME/FREQ/REFCOUNT key — key at args[1].
 func objectArgs(args []interface{}, prefix string) {
 	if len(args) < 2 {
 		return
@@ -203,8 +170,7 @@ func objectArgs(args []interface{}, prefix string) {
 	}
 }
 
-// pubsubArgs: PUBSUB <subcommand> [args...]. Only NUMSUB/CHANNELS/SHARD*
-// take channel/pattern args (at index 1..).
+// pubsubArgs: only NUMSUB/CHANNELS/SHARD* take channel args (at args[1..]).
 func pubsubArgs(args []interface{}, prefix string) {
 	if len(args) < 1 {
 		return
@@ -218,8 +184,7 @@ func pubsubArgs(args []interface{}, prefix string) {
 	}
 }
 
-// blockingKeysArgs: BLPOP/BRPOP/BZPOPMIN/BZPOPMAX key [key ...] timeout.
-// All args except the trailing timeout are keys.
+// blockingKeysArgs: BLPOP/BRPOP/BZPOP* key... timeout — all but last are keys.
 func blockingKeysArgs(args []interface{}, prefix string) {
 	if len(args) < 2 {
 		return
@@ -229,10 +194,8 @@ func blockingKeysArgs(args []interface{}, prefix string) {
 	}
 }
 
-// sortArgs: SORT key [BY pat] [LIMIT off cnt] [GET pat...] [ASC|DESC]
-// [ALPHA] [STORE dst]. Always prefix the source key; if STORE is present,
-// prefix the destination too. BY/GET patterns reference external keys but
-// Fleet doesn't use them — left unprefixed deliberately.
+// sortArgs: prefix the source key and, if present, the STORE destination.
+// BY/GET patterns are left unprefixed — Fleet doesn't use them.
 func sortArgs(args []interface{}, prefix string) {
 	if len(args) == 0 {
 		return
@@ -267,13 +230,8 @@ func toInt(v interface{}) int {
 	}
 }
 
-// noPrefixCmds enumerates commands that contain NO keys or channels. These
-// pass through verbatim. Membership here is the closed set of Redis admin/
-// connection/info/transaction commands — it changes very rarely between
-// Redis versions and is safe to maintain by hand.
-//
-// NOTE: commands not listed here AND not in specialCmds get arg[0] prefixed
-// by default. This is intentional fail-closed behavior for tenant isolation.
+// noPrefixCmds: commands with no key/channel args (admin/connection/info/
+// transactions). Anything not here and not in specialCmds gets arg[0] prefixed.
 var noPrefixCmds = map[string]bool{
 	// connection / handshake
 	"PING":      true,
@@ -322,8 +280,8 @@ var noPrefixCmds = map[string]bool{
 	"UNWATCH": true,
 }
 
-// specialCmds enumerates commands whose key/channel arguments are NOT at
-// arg[0]. Everything else falls through to the default "prefix arg[0]" rule.
+// specialCmds: commands with keys/channels NOT at arg[0]. Everything else
+// falls through to the default "prefix arg[0]" rule.
 var specialCmds = map[string]prefixRule{
 	// every arg is a key
 	"DEL":    allArgs,

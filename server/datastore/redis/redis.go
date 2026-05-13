@@ -70,8 +70,7 @@ func (p *clusterPool) Mode() fleet.RedisMode {
 
 func (p *clusterPool) KeyPrefix() string { return p.keyPrefix }
 
-// keyPrefixOf returns the per-tenant key prefix configured on the pool, or
-// "" if the pool is untyped (e.g. a test pool).
+// keyPrefixOf returns the pool's key prefix, or "" for untyped/test pools.
 func keyPrefixOf(pool fleet.RedisPool) string {
 	if kp, ok := pool.(interface{ KeyPrefix() string }); ok {
 		return kp.KeyPrefix()
@@ -87,10 +86,8 @@ type PoolConfig struct {
 	Username                  string
 	Password                  string
 	Database                  int
-	// KeyPrefix, if non-empty, is prepended to every Redis key and pub/sub
-	// channel written or read by this pool. Used for multi-tenant Fleet
-	// deployments that share one Redis (cluster). A trailing ":" is added
-	// automatically if missing so generated keys remain readable.
+	// KeyPrefix namespaces every Redis key/channel for multi-tenant deployments
+	// sharing one Redis (cluster). A trailing ":" is appended if missing.
 	KeyPrefix string
 	UseTLS                    bool
 	StsAssumeRoleArn          string
@@ -128,8 +125,7 @@ func NewPool(config PoolConfig) (fleet.RedisPool, error) {
 	}
 	if err := cluster.Refresh(); err != nil {
 		if isClusterDisabled(err) || isClusterCommandUnknown(err) {
-			// not a Redis Cluster setup, use a standalone Redis pool. When
-			// multiple seeds are configured, pick the first non-empty one.
+			// Standalone Redis fallback — use the first seed.
 			seeds := splitSeedNodes(config.Server)
 			var addr string
 			if len(seeds) > 0 {
@@ -150,16 +146,9 @@ func NewPool(config PoolConfig) (fleet.RedisPool, error) {
 	}, nil
 }
 
-// splitSeedNodes parses FLEET_REDIS_ADDRESS into a list of host:port seed
-// nodes for redisc.Cluster.StartupNodes. The input may be:
-//   - a single host:port              ("redis-0:6379")
-//   - a redis:// URL                  ("redis://host:6379", e.g. Render free tier)
-//   - a comma-separated list of seeds ("a:6379,redis://b:6379,c:6379")
-//
-// Whitespace and the redis:// scheme are stripped from each entry; empty
-// entries are dropped. With multiple seeds, redisc tries them in turn until
-// cluster discovery succeeds — useful when a single seed pod is unhealthy
-// at boot.
+// splitSeedNodes parses FLEET_REDIS_ADDRESS into seed host:port entries.
+// Accepts single addr, redis:// URL, or comma-separated mix; trims scheme
+// and whitespace per entry.
 func splitSeedNodes(server string) []string {
 	if server == "" {
 		return nil
@@ -176,8 +165,7 @@ func splitSeedNodes(server string) []string {
 	return out
 }
 
-// normalizeKeyPrefix ensures the prefix ends with ":" so generated keys read
-// as "<tenant>:<original-key>". An empty prefix stays empty (no-op wrapper).
+// normalizeKeyPrefix appends ":" if missing; empty stays empty.
 func normalizeKeyPrefix(p string) string {
 	if p == "" {
 		return ""
@@ -198,9 +186,7 @@ func ReadOnlyConn(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 	if p, isCluster := pool.(*clusterPool); isCluster && p.readReplica {
 		// it only fails if the connection is not a redisc connection or the
 		// connection is already bound, in which case we just return the connection
-		// as-is. Our prefixedConn implements ReadOnly() and forwards to the
-		// inner redisc.Conn, so the interface assertion in redisc.ReadOnlyConn
-		// keeps working through the wrapper.
+		// as-is. prefixedConn forwards ReadOnly() so the wrapper is transparent.
 		_ = redisc.ReadOnlyConn(conn)
 	}
 	return conn
@@ -213,9 +199,8 @@ func ReadOnlyConn(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 func ConfigureDoer(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 	if p, isCluster := pool.(*clusterPool); isCluster {
 		if err := conn.Err(); err == nil && p.followRedirs {
-			// redisc.RetryConn does a direct *redisc.Conn type assertion and
-			// rejects our prefixedConn wrapper. Unwrap, wrap the retrying conn,
-			// then re-wrap with the same prefix.
+			// redisc.RetryConn rejects prefixedConn (direct *redisc.Conn assertion);
+			// unwrap → wrap retrying conn → re-wrap with prefix.
 			inner, prefix := unwrapConn(conn)
 			rc, err := redisc.RetryConn(inner, 3, 300*time.Millisecond)
 			if err == nil {
@@ -233,10 +218,8 @@ func ConfigureDoer(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 // simply returns all keys in the same group (i.e. the top-level slice has a
 // length of 1).
 //
-// Slot is computed from the on-wire (prefixed) key so the groupings match
-// what Redis Cluster will actually route. The returned keys are the original
-// (unprefixed) ones — they get re-prefixed automatically when sent through a
-// connection from this pool.
+// Slot is computed from the prefixed key (what Redis Cluster actually sees).
+// Returned keys are unprefixed; conns from this pool re-prefix on Do/Send.
 func SplitKeysBySlot(pool fleet.RedisPool, keys ...string) [][]string {
 	if _, isCluster := pool.(*clusterPool); !isCluster {
 		return [][]string{keys}
@@ -245,8 +228,6 @@ func SplitKeysBySlot(pool fleet.RedisPool, keys ...string) [][]string {
 	if prefix == "" {
 		return redisc.SplitBySlot(keys...)
 	}
-	// Group raw keys by the slot of their prefixed form so cluster routing
-	// stays correct even for keys without an explicit {hash-tag}.
 	bySlot := make(map[int][]string)
 	order := make([]int, 0)
 	for _, k := range keys {
@@ -282,8 +263,7 @@ func EachNode(pool fleet.RedisPool, replicas bool, fn func(conn redis.Conn) erro
 	prefix := keyPrefixOf(pool)
 	if cluster, isCluster := pool.(*clusterPool); isCluster {
 		return cluster.EachNode(replicas, func(_ string, conn redis.Conn) error {
-			// per-node conns come from redisc directly — wrap so callers see
-			// the same key/channel prefixing as conns from pool.Get().
+			// wrap raw redisc per-node conn so prefixing matches pool.Get().
 			return fn(newPrefixedConn(conn, prefix))
 		})
 	}
@@ -517,9 +497,7 @@ func ScanKeys(pool fleet.RedisPool, pattern string, count int) ([]string, error)
 	err := EachNode(pool, false, func(conn redis.Conn) error {
 		cursor := 0
 		for {
-			// conn.Do prefixes the MATCH pattern automatically; the returned
-			// key names come back from Redis in their on-wire form (prefixed),
-			// so strip the prefix before handing keys to callers.
+			// conn.Do auto-prefixes MATCH; strip prefix from returned keys below.
 			res, err := redis.Values(conn.Do("SCAN", cursor, "MATCH", pattern, "COUNT", count))
 			if err != nil {
 				return fmt.Errorf("scan keys: %w", err)

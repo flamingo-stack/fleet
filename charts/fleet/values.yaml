@@ -300,11 +300,8 @@ cache:
   usePassword: false
   secretName: redis
   passwordKey: redis-password
-  # Optional per-tenant Redis key prefix, sourced from a ConfigMap. When set,
-  # FLEET_REDIS_KEY_PREFIX is wired up and every Redis key/channel is namespaced
-  # by this value — required when sharing one Redis (cluster) across multiple
-  # Fleet servers. Leave keyPrefixConfigMap empty to disable.
-  keyPrefixConfigMap: ""
+  # When set, wires FLEET_REDIS_KEY_PREFIX from existingConfigMap[keyPrefixKey].
+  # Required when sharing one Redis across multiple Fleet servers (multi-tenant).
   keyPrefixKey: ""
 
 ## Section: GKE

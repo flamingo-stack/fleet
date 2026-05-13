@@ -85,10 +85,8 @@ type RedisConfig struct {
 	ConnWaitTimeout time.Duration `yaml:"conn_wait_timeout"`
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	ReadTimeout     time.Duration `yaml:"read_timeout"`
-	// KeyPrefix is prepended to every Redis key and pub/sub channel name so a
-	// single Redis (cluster) can be safely shared between multiple Fleet
-	// servers (e.g. one per tenant). Set via FLEET_REDIS_KEY_PREFIX, typically
-	// to the tenant ID. A trailing ":" is appended automatically.
+	// KeyPrefix namespaces Redis keys/channels when sharing one Redis across
+	// tenants (FLEET_REDIS_KEY_PREFIX, typically the tenant ID).
 	KeyPrefix string `yaml:"key_prefix"`
 }
 
