@@ -85,6 +85,11 @@ type RedisConfig struct {
 	ConnWaitTimeout time.Duration `yaml:"conn_wait_timeout"`
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	// KeyPrefix is prepended to every Redis key and pub/sub channel name so a
+	// single Redis (cluster) can be safely shared between multiple Fleet
+	// servers (e.g. one per tenant). Set via FLEET_REDIS_KEY_PREFIX, typically
+	// to the tenant ID. A trailing ":" is appended automatically.
+	KeyPrefix string `yaml:"key_prefix"`
 }
 
 const (
@@ -1147,6 +1152,7 @@ func (man Manager) addConfigs() {
 	man.addConfigDuration("redis.read_timeout", 10*time.Second, "Redis maximum amount of time to wait for a read (receive) on a connection")
 	man.addConfigString("redis.sts_assume_role_arn", "", "ARN of role to assume for AWS authentication")
 	man.addConfigString("redis.sts_external_id", "", "Optional unique identifier that can be used by the principal assuming the role to assert its identity")
+	man.addConfigString("redis.key_prefix", "", "Prepended to every Redis key and pub/sub channel; set to the tenant ID when sharing Redis across tenants")
 
 	// Server
 	man.addConfigString("server.address", "0.0.0.0:8080",
@@ -1621,6 +1627,7 @@ func (man Manager) LoadConfig() FleetConfig {
 			ReadTimeout:               man.getConfigDuration("redis.read_timeout"),
 			StsAssumeRoleArn:          man.getConfigString("redis.sts_assume_role_arn"),
 			StsExternalID:             man.getConfigString("redis.sts_external_id"),
+			KeyPrefix:                 man.getConfigString("redis.key_prefix"),
 		},
 		Server: ServerConfig{
 			Address:                          man.getConfigString("server.address"),

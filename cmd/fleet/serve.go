@@ -301,7 +301,20 @@ the way that the Fleet server works.
 			// Strip the Redis URI scheme if it's present. Scheme docs are at: https://www.iana.org/assignments/uri-schemes/uri-schemes.xhtml
 			// This allows us to use Render's Redis service in render.yaml, including the free tier.
 			// In the future, we could support the full Redis URI if needed (including username, password, database, etc.)
-			redisAddress := strings.TrimPrefix(config.Redis.Address, "redis://")
+			//
+			// FLEET_REDIS_ADDRESS may also be a comma-separated list of
+			// host:port seeds for a Redis Cluster bootstrap. Strip the
+			// scheme per-entry so the downstream parser sees clean addrs.
+			redisAddress := config.Redis.Address
+			if strings.Contains(redisAddress, ",") {
+				parts := strings.Split(redisAddress, ",")
+				for i, p := range parts {
+					parts[i] = strings.TrimPrefix(strings.TrimSpace(p), "redis://")
+				}
+				redisAddress = strings.Join(parts, ",")
+			} else {
+				redisAddress = strings.TrimPrefix(redisAddress, "redis://")
+			}
 			redisPool, err := redis.NewPool(redis.PoolConfig{
 				Server:                    redisAddress,
 				Username:                  config.Redis.Username,
@@ -329,6 +342,7 @@ the way that the Fleet server works.
 				ConnWaitTimeout:           config.Redis.ConnWaitTimeout,
 				WriteTimeout:              config.Redis.WriteTimeout,
 				ReadTimeout:               config.Redis.ReadTimeout,
+				KeyPrefix:                 config.Redis.KeyPrefix,
 			})
 			if err != nil {
 				initFatal(err, "initialize Redis")
