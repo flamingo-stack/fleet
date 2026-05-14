@@ -3,6 +3,7 @@ package redis
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 )
@@ -43,6 +44,16 @@ func (p *prefixedConn) Do(cmd string, args ...interface{}) (interface{}, error) 
 
 func (p *prefixedConn) Send(cmd string, args ...interface{}) error {
 	return p.inner.Send(cmd, prefixArgs(cmd, args, p.prefix)...)
+}
+
+// DoWithTimeout / ReceiveWithTimeout satisfy redigo.ConnWithTimeout so callers
+// (e.g. PubSubConn.ReceiveWithTimeout) work through the wrapper.
+func (p *prefixedConn) DoWithTimeout(timeout time.Duration, cmd string, args ...interface{}) (interface{}, error) {
+	return redis.DoWithTimeout(p.inner, timeout, cmd, prefixArgs(cmd, args, p.prefix)...)
+}
+
+func (p *prefixedConn) ReceiveWithTimeout(timeout time.Duration) (interface{}, error) {
+	return redis.ReceiveWithTimeout(p.inner, timeout)
 }
 
 // Bind prefixes the keys and forwards to inner conn so redisc.BindConn works.
