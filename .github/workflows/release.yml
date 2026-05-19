@@ -193,7 +193,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY: ${{ env.REGISTRY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          DOCKER_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || 'latest' }}
+          DOCKER_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || 'dev' }}
           DOCKER_PUSH: "true"
         run: goreleaser release --clean
 
