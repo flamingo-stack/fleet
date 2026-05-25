@@ -730,15 +730,22 @@ func (oc *OrbitClient) writeNodeKeyFileWindows(nodeKey string) error {
 		return nil
 	}
 
-	if err := os.WriteFile(oc.nodeKeyFilePath, []byte(nodeKey), constant.DefaultFileMode); err == nil {
+	writeErr := os.WriteFile(oc.nodeKeyFilePath, []byte(nodeKey), constant.DefaultFileMode)
+	if writeErr == nil {
 		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("orbit node key written to file")
 		return nil
 	}
+	log.Warn().Err(writeErr).Str("node_key_file", oc.nodeKeyFilePath).
+		Msg("direct write failed, attempting rename fallback")
 
 	// Rename the locked file out of the way and create a fresh one.
 	// MoveFile often succeeds on Windows when WriteFile/DeleteFile cannot.
 	stalePath := oc.nodeKeyFilePath + ".stale"
 	if err := os.Rename(oc.nodeKeyFilePath, stalePath); err != nil {
+		log.Error().Err(err).
+			AnErr("write_err", writeErr).
+			Str("node_key_file", oc.nodeKeyFilePath).
+			Msg("all file operations failed: cannot write, rename, or delete node key file")
 		return fmt.Errorf("cannot overwrite or rename locked node key file: %w", err)
 	}
 	log.Info().Str("stale_path", stalePath).Msg("renamed locked node key file out of the way")
@@ -756,6 +763,13 @@ func (oc *OrbitClient) writeNodeKeyFileWindows(nodeKey string) error {
 }
 
 func (oc *OrbitClient) logNodeKeyFileDiagnostics() {
+	log.Error().
+		Str("os", runtime.GOOS).
+		Str("arch", runtime.GOARCH).
+		Int("pid", os.Getpid()).
+		Str("node_key_file", oc.nodeKeyFilePath).
+		Msg("node key file diagnostics start")
+
 	info, err := os.Stat(oc.nodeKeyFilePath)
 	if err != nil {
 		log.Warn().Err(err).Str("path", oc.nodeKeyFilePath).Msg("node key file stat failed")
@@ -765,6 +779,7 @@ func (oc *OrbitClient) logNodeKeyFileDiagnostics() {
 			Int64("size_bytes", info.Size()).
 			Str("mode", info.Mode().String()).
 			Time("modified", info.ModTime()).
+			Bool("is_dir", info.IsDir()).
 			Msg("stale node key file details")
 	}
 
@@ -781,9 +796,11 @@ func (oc *OrbitClient) logNodeKeyFileDiagnostics() {
 
 	probe := filepath.Join(dir, ".orbit-write-probe")
 	if err := os.WriteFile(probe, []byte("probe"), constant.DefaultFileMode); err != nil {
-		log.Warn().Err(err).Str("path", probe).Msg("directory write probe failed — directory may not be writable")
+		log.Error().Err(err).Str("path", probe).
+			Msg("directory write probe failed — directory is not writable, check ACLs/antivirus/group policy")
 	} else {
 		_ = os.Remove(probe)
+		log.Info().Str("path", probe).Msg("directory write probe succeeded — directory is writable, file itself is locked")
 	}
 }
 
@@ -817,7 +834,8 @@ func (oc *OrbitClient) authenticatedRequest(verb string, path string, params int
 		oc.setEnrolled(false)
 
 		if err := os.Remove(oc.nodeKeyFilePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			log.Warn().Err(err).Msg("could not remove node key file, will be overwritten on re-enrollment")
+			log.Warn().Err(err).Str("node_key_file", oc.nodeKeyFilePath).
+				Msg("could not remove node key file, will be overwritten on re-enrollment")
 		}
 
 		if oc.hostIdentityCertPath != "" {
