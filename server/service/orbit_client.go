@@ -41,6 +41,11 @@ type OrbitClient struct {
 	enrolledMu sync.Mutex
 	enrolled   bool
 
+	// nodeKey is the in-memory node key, authoritative while the process is
+	// running. The on-disk file is a persistent cache for surviving restarts.
+	nodeKeyMu sync.Mutex
+	nodeKey   string
+
 	lastRecordedErrMu sync.Mutex
 	lastRecordedErr   error
 
@@ -587,23 +592,32 @@ func (oc *OrbitClient) enroll() (string, error) {
 // want to re-enroll at the same time.
 var enrollLock sync.Mutex
 
-// getNodeKeyOrEnroll attempts to read the orbit node key if the file exists on disk
-// otherwise it enrolls the host with Fleet and saves the node key to disk
+// getNodeKeyOrEnroll returns the orbit node key. It checks in-memory cache,
+// then the on-disk file, and enrolls with the server as a last resort.
 func (oc *OrbitClient) getNodeKeyOrEnroll() (string, error) {
 	if oc.TestNodeKey != "" {
 		return oc.TestNodeKey, nil
 	}
 
+	if cached := oc.getNodeKey(); cached != "" {
+		return cached, nil
+	}
+
 	enrollLock.Lock()
 	defer enrollLock.Unlock()
+
+	if cached := oc.getNodeKey(); cached != "" {
+		return cached, nil
+	}
 
 	orbitNodeKey, err := os.ReadFile(oc.nodeKeyFilePath)
 	switch {
 	case err == nil:
-		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("Orbit node key loaded from file, skipping enrollment")
+		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("orbit node key loaded from file")
+		oc.setNodeKey(string(orbitNodeKey))
 		return string(orbitNodeKey), nil
 	case errors.Is(err, fs.ErrNotExist):
-		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("No orbit node key file found, proceeding to enroll")
+		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("no orbit node key file found, proceeding to enroll")
 	default:
 		return "", fmt.Errorf("read orbit node key file: %w", err)
 	}
@@ -659,6 +673,7 @@ func (oc *OrbitClient) getNodeKeyOrEnroll() (string, error) {
 		}
 		return "", fmt.Errorf("orbit node key enroll failed, attempts=%d", constant.OrbitEnrollMaxRetries)
 	}
+	oc.setNodeKey(orbitNodeKey_)
 	return orbitNodeKey_, nil
 }
 
@@ -677,27 +692,116 @@ func (oc *OrbitClient) enrollAndWriteNodeKeyFile() (string, error) {
 		return "", fmt.Errorf("enroll request: %w", err)
 	}
 
-	if runtime.GOOS == "windows" {
-
-		// creating the secret file with empty content
-		if err := os.WriteFile(oc.nodeKeyFilePath, nil, constant.DefaultFileMode); err != nil {
-			return "", fmt.Errorf("create orbit node key file: %w", err)
-		}
-
-		// restricting file access
-		if err := platform.ChmodRestrictFile(oc.nodeKeyFilePath); err != nil {
-			return "", fmt.Errorf("apply ACLs: %w", err)
-		}
+	// Persist to disk; non-fatal since the in-memory cache keeps the key
+	// available while the process is alive.
+	if err := oc.persistNodeKeyFile(orbitNodeKey); err != nil {
+		log.Error().Err(err).Str("node_key_file", oc.nodeKeyFilePath).
+			Msg("failed to persist node key to disk, cached in memory until restart")
+		oc.logNodeKeyFileDiagnostics()
 	}
-
-	// writing raw key material to the acl-ready secret file
-	if err := os.WriteFile(oc.nodeKeyFilePath, []byte(orbitNodeKey), constant.DefaultFileMode); err != nil {
-		return "", fmt.Errorf("write orbit node key file: %w", err)
-	}
-
-	log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("Orbit node key written to file")
 
 	return orbitNodeKey, nil
+}
+
+// persistNodeKeyFile writes the node key to disk. On Windows, if a direct
+// write fails it falls back to renaming the locked file and creating a new one.
+func (oc *OrbitClient) persistNodeKeyFile(nodeKey string) error {
+	if runtime.GOOS == "windows" {
+		return oc.writeNodeKeyFileWindows(nodeKey)
+	}
+	if err := os.WriteFile(oc.nodeKeyFilePath, []byte(nodeKey), constant.DefaultFileMode); err != nil {
+		return fmt.Errorf("write orbit node key file: %w", err)
+	}
+	log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("orbit node key written to file")
+	return nil
+}
+
+func (oc *OrbitClient) writeNodeKeyFileWindows(nodeKey string) error {
+	writeNew := func() error {
+		if err := os.WriteFile(oc.nodeKeyFilePath, nil, constant.DefaultFileMode); err != nil {
+			return fmt.Errorf("create orbit node key file: %w", err)
+		}
+		if err := platform.ChmodRestrictFile(oc.nodeKeyFilePath); err != nil {
+			return fmt.Errorf("apply ACLs to orbit node key file: %w", err)
+		}
+		if err := os.WriteFile(oc.nodeKeyFilePath, []byte(nodeKey), constant.DefaultFileMode); err != nil {
+			return fmt.Errorf("write orbit node key file: %w", err)
+		}
+		return nil
+	}
+
+	writeErr := os.WriteFile(oc.nodeKeyFilePath, []byte(nodeKey), constant.DefaultFileMode)
+	if writeErr == nil {
+		log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("orbit node key written to file")
+		return nil
+	}
+	log.Warn().Err(writeErr).Str("node_key_file", oc.nodeKeyFilePath).
+		Msg("direct write failed, attempting rename fallback")
+
+	// Rename the locked file out of the way and create a fresh one.
+	// MoveFile often succeeds on Windows when WriteFile/DeleteFile cannot.
+	stalePath := oc.nodeKeyFilePath + ".stale"
+	if err := os.Rename(oc.nodeKeyFilePath, stalePath); err != nil {
+		log.Error().Err(err).
+			AnErr("write_err", writeErr).
+			Str("node_key_file", oc.nodeKeyFilePath).
+			Msg("all file operations failed: cannot write, rename, or delete node key file")
+		return fmt.Errorf("cannot overwrite or rename locked node key file: %w", err)
+	}
+	log.Info().Str("stale_path", stalePath).Msg("renamed locked node key file out of the way")
+
+	if err := writeNew(); err != nil {
+		if renameBackErr := os.Rename(stalePath, oc.nodeKeyFilePath); renameBackErr != nil {
+			log.Warn().Err(renameBackErr).Msg("could not restore renamed node key file")
+		}
+		return err
+	}
+
+	_ = os.Remove(stalePath)
+	log.Info().Str("node_key_file", oc.nodeKeyFilePath).Msg("orbit node key written to file after rename fallback")
+	return nil
+}
+
+func (oc *OrbitClient) logNodeKeyFileDiagnostics() {
+	log.Error().
+		Str("os", runtime.GOOS).
+		Str("arch", runtime.GOARCH).
+		Int("pid", os.Getpid()).
+		Str("node_key_file", oc.nodeKeyFilePath).
+		Msg("node key file diagnostics start")
+
+	info, err := os.Stat(oc.nodeKeyFilePath)
+	if err != nil {
+		log.Warn().Err(err).Str("path", oc.nodeKeyFilePath).Msg("node key file stat failed")
+	} else {
+		log.Warn().
+			Str("path", oc.nodeKeyFilePath).
+			Int64("size_bytes", info.Size()).
+			Str("mode", info.Mode().String()).
+			Time("modified", info.ModTime()).
+			Bool("is_dir", info.IsDir()).
+			Msg("stale node key file details")
+	}
+
+	dir := filepath.Dir(oc.nodeKeyFilePath)
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		log.Warn().Err(err).Str("path", dir).Msg("node key directory stat failed")
+	} else {
+		log.Warn().
+			Str("path", dir).
+			Str("mode", dirInfo.Mode().String()).
+			Msg("node key directory details")
+	}
+
+	probe := filepath.Join(dir, ".orbit-write-probe")
+	if err := os.WriteFile(probe, []byte("probe"), constant.DefaultFileMode); err != nil {
+		log.Error().Err(err).Str("path", probe).
+			Msg("directory write probe failed — directory is not writable, check ACLs/antivirus/group policy")
+	} else {
+		_ = os.Remove(probe)
+		log.Info().Str("path", probe).Msg("directory write probe succeeded — directory is writable, file itself is locked")
+	}
 }
 
 func (oc *OrbitClient) authenticatedRequest(verb string, path string, params interface{}, resp interface{}) error {
@@ -724,12 +828,15 @@ func (oc *OrbitClient) authenticatedRequest(verb string, path string, params int
 			Str("path", path).
 			Bool("has_node_key", hasNodeKey).
 			Bool("has_auth_token", hasAuthToken).
-			Msg("Authenticated request got 401 — removing orbit node key and marking as unenrolled")
+			Msg("authenticated request got 401, invalidating node key")
 
-		if err := os.Remove(oc.nodeKeyFilePath); err != nil {
-			log.Info().Err(err).Msg("remove orbit node key")
-		}
+		oc.setNodeKey("")
 		oc.setEnrolled(false)
+
+		if err := os.Remove(oc.nodeKeyFilePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			log.Warn().Err(err).Str("node_key_file", oc.nodeKeyFilePath).
+				Msg("could not remove node key file, will be overwritten on re-enrollment")
+		}
 
 		if oc.hostIdentityCertPath != "" {
 			if err := os.Remove(oc.hostIdentityCertPath); err != nil {
@@ -756,6 +863,20 @@ func (oc *OrbitClient) setEnrolled(v bool) {
 	defer oc.enrolledMu.Unlock()
 
 	oc.enrolled = v
+}
+
+func (oc *OrbitClient) getNodeKey() string {
+	oc.nodeKeyMu.Lock()
+	defer oc.nodeKeyMu.Unlock()
+
+	return oc.nodeKey
+}
+
+func (oc *OrbitClient) setNodeKey(v string) {
+	oc.nodeKeyMu.Lock()
+	defer oc.nodeKeyMu.Unlock()
+
+	oc.nodeKey = v
 }
 
 func (oc *OrbitClient) LastRecordedError() error {
