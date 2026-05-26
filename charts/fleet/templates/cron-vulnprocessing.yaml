@@ -254,6 +254,13 @@ spec:
                     name: "{{ .Values.cache.secretName }}"
                     key: "{{ .Values.cache.passwordKey }}"
               {{- end }}
+              {{- if .Values.cache.keyPrefixKey }}
+              - name: FLEET_REDIS_KEY_PREFIX
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
+                    key: {{ .Values.cache.keyPrefixKey }}
+              {{- end }}
               ## END REDIS SECTION
               ## APPEND ENVIRONMENT VARIABLES FROM VALUES
               {{- range $key, $value := .Values.environments }}

@@ -300,6 +300,9 @@ cache:
   usePassword: false
   secretName: redis
   passwordKey: redis-password
+  # When set, wires FLEET_REDIS_KEY_PREFIX from existingConfigMap[keyPrefixKey].
+  # Required when sharing one Redis across multiple Fleet servers (multi-tenant).
+  keyPrefixKey: ""
 
 ## Section: GKE
 # Settings that make running on Google Kubernetes Engine easier
