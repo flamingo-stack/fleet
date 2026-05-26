@@ -15,7 +15,6 @@ metadata:
   {{- end }}
 
 spec:
-  ttlSecondsAfterFinished: 100
   template:
     metadata:
 {{- with .Values.podAnnotations }}
