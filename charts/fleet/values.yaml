@@ -75,6 +75,10 @@ fleet:
   autoApplySQLMigrations: true
   # Add extra annotations to the migration Job
   migrationJobAnnotations:
+  # Init container that blocks the migration Job until MySQL accepts TCP connections.
+  waitForMysql:
+    enabled: true
+    image: busybox:1.36
   tls:
     enabled: true
     # Set to true if you need a separate secret for just TLS data.

@@ -9,15 +9,11 @@ metadata:
     release: {{ .Release.Name }}
   name: fleet-migration
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.fleet.migrationJobAnnotations }}
   annotations:
-    {{- if not .Values.mysql.enabled }}
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "1"
-    "helm.sh/hook-delete-policy": hook-succeeded
-    {{- end }}
-    {{- with .Values.fleet.migrationJobAnnotations }}
     {{- toYaml . | trim | nindent 4 }}
-    {{- end }}
+  {{- end }}
+
 spec:
   ttlSecondsAfterFinished: 100
   template:
@@ -31,9 +27,29 @@ spec:
         chart: fleet
         heritage: {{ .Release.Service }}
         release: {{ .Release.Name }}
+
     spec:
       restartPolicy: Never
       shareProcessNamespace: true
+
+      {{- if .Values.fleet.waitForMysql.enabled }}
+      initContainers:
+      - name: wait-for-mysql
+        image: {{ .Values.fleet.waitForMysql.image | quote }}
+        command: ['sh', '-c', 'until nc -z -w 2 "$HOST" "$PORT"; do sleep 5; done']
+        env:
+          - name: HOST
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.hostKey }}
+          - name: PORT
+            valueFrom:
+              configMapKeyRef:
+                name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                key: {{ .Values.database.portKey }}
+      {{- end }}
+
       containers:
       - name: fleet-migration
         command: ["/bin/sh", "-c"]
