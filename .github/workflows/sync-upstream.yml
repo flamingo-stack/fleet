@@ -1,0 +1,49 @@
+name: Sync from upstream fleet
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BRANCH: sync/upstream-main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync
+        run: |
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')" -gt 0 ]; then
+            echo "::notice::open sync PR exists for $BRANCH — skipping"
+            exit 0
+          fi
+
+          git config user.name  "flamingo-sync-bot"
+          git config user.email "sync-bot@users.noreply.github.com"
+          git remote add upstream https://github.com/fleetdm/fleet.git
+          git fetch upstream main
+
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "::notice::main already contains upstream/main"
+            exit 0
+          fi
+
+          git checkout -B "$BRANCH" origin/main
+          git merge --no-ff --no-edit upstream/main || {
+            git add -A
+            git -c core.hooksPath=/dev/null commit -m "WIP: upstream merge has conflicts — needs manual resolution"
+          }
+          git push -f origin "$BRANCH"
+
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "Sync from Fork" \
+            --body "Automatic weekly sync from \`fleetdm/fleet@main\`."
