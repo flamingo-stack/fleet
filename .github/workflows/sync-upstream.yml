@@ -4,129 +4,46 @@ on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
-    inputs:
-      upstream_ref:
-        description: "Upstream sync"
-        default: "main"
 
 permissions:
   contents: write
   pull-requests: write
 
-env:
-  UPSTREAM_REPO: fleetdm/fleet
-  UPSTREAM_REF: ${{ github.event.inputs.upstream_ref || 'main' }}
-  BOT_EMAIL: sync-bot@users.noreply.github.com
-
 jobs:
-  sync-upstream:
+  sync:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BRANCH: sync/upstream-main
     steps:
-      - name: Checkout fork
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure git identity
+      - name: Sync
         run: |
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')" -gt 0 ]; then
+            echo "::notice::open sync PR exists for $BRANCH — skipping"
+            exit 0
+          fi
+
           git config user.name  "flamingo-sync-bot"
-          git config user.email "${BOT_EMAIL}"
+          git config user.email "sync-bot@users.noreply.github.com"
+          git remote add upstream https://github.com/fleetdm/fleet.git
+          git fetch upstream main
 
-      - name: Fetch upstream
-        run: |
-          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git fetch upstream "${UPSTREAM_REF}" --tags --no-recurse-submodules
-
-      - name: Compute stable branch name
-        id: branch
-        run: |
-          SAFE_REF="${UPSTREAM_REF//[^a-zA-Z0-9._-]/_}"
-          echo "name=sync/upstream-${SAFE_REF}" >> "$GITHUB_OUTPUT"
-
-      - name: Inspect upstream state
-        id: upstream
-        run: |
-          UPSTREAM_SHA=$(git rev-parse "upstream/${UPSTREAM_REF}")
-          UPSTREAM_SHORT=$(git rev-parse --short "upstream/${UPSTREAM_REF}")
-          UPSTREAM_DATE=$(git show -s --format=%cs "upstream/${UPSTREAM_REF}")
-          echo "sha=${UPSTREAM_SHA}"     >> "$GITHUB_OUTPUT"
-          echo "short=${UPSTREAM_SHORT}" >> "$GITHUB_OUTPUT"
-          echo "date=${UPSTREAM_DATE}"   >> "$GITHUB_OUTPUT"
-
-      - name: Check if fork is already up to date
-        id: check
-        run: |
-          if git merge-base --is-ancestor "upstream/${UPSTREAM_REF}" HEAD; then
-            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Fork already contains upstream/${UPSTREAM_REF}, nothing to sync"
-          else
-            COUNT=$(git rev-list "HEAD..upstream/${UPSTREAM_REF}" --count)
-            echo "up_to_date=false"        >> "$GITHUB_OUTPUT"
-            echo "commits_behind=${COUNT}" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "::notice::main already contains upstream/main"
+            exit 0
           fi
 
-      - name: Checkout or create sync branch, then merge upstream
-        if: steps.check.outputs.up_to_date == 'false'
-        id: merge
-        run: |
-          BRANCH="${{ steps.branch.outputs.name }}"
-          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
-            echo "::notice::Sync branch ${BRANCH} exists on origin, fetching"
-            git fetch origin "${BRANCH}:${BRANCH}"
-            git checkout "${BRANCH}"
-          else
-            echo "::notice::Sync branch ${BRANCH} does not exist, creating from main"
-            git checkout -b "${BRANCH}" origin/main
-          fi
-          if git merge --no-edit --no-ff "upstream/${UPSTREAM_REF}"; then
-            echo "status=clean" >> "$GITHUB_OUTPUT"
-          else
+          git checkout -B "$BRANCH" origin/main
+          git merge --no-ff --no-edit upstream/main || {
             git add -A
             git -c core.hooksPath=/dev/null commit -m "WIP: upstream merge has conflicts — needs manual resolution"
-            echo "status=conflicts" >> "$GITHUB_OUTPUT"
-          fi
+          }
+          git push -f origin "$BRANCH"
 
-      - name: Push sync branch
-        if: steps.check.outputs.up_to_date == 'false'
-        run: git push origin "${{ steps.branch.outputs.name }}"
-
-      - name: Open or update PR
-        if: steps.check.outputs.up_to_date == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          BRANCH="${{ steps.branch.outputs.name }}"
-          STATUS="${{ steps.merge.outputs.status }}"
-          if [ "${STATUS}" = "conflicts" ]; then
-            LABELS="sync,upstream,needs-conflict-resolution"
-            STATUS_NOTE="**Merge has conflicts.** Latest WIP commit on the branch contains conflict markers"
-          else
-            LABELS="sync,upstream,clean-merge"
-            STATUS_NOTE="Clean merge — no conflicts."
-          fi
-
-          TITLE="chore(sync): upstream ${UPSTREAM_REPO}@${{ steps.upstream.outputs.short }}"
-          BODY=$(cat <<EOF
-          Automatic sync from upstream \`${UPSTREAM_REPO}@${UPSTREAM_REF}\`.
-
-          - **Upstream commit:** \`${{ steps.upstream.outputs.sha }}\` (${{ steps.upstream.outputs.date }})
-          - **Behind by:** ${{ steps.check.outputs.commits_behind }} commits
-          - **Merge status:** \`${STATUS}\`
-
-          ${STATUS_NOTE}
-
-          ---
-          Auto-updated weekly. Close this PR to reset.
-          EOF
-          )
-
-          EXISTING=$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' || true)
-          if [ -n "${EXISTING}" ]; then
-            echo "::notice::Updating existing PR #${EXISTING} for ${BRANCH}"
-            gh pr edit "${EXISTING}" --title "${TITLE}" --body "${BODY}"
-            gh pr edit "${EXISTING}" --add-label "${LABELS}"
-          else
-            echo "::notice::Creating new PR for ${BRANCH}"
-            gh pr create --base main --head "${BRANCH}" --title "${TITLE}" --label "${LABELS}" --body "${BODY}"
-          fi
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "Sync from Fork" \
+            --body "Automatic weekly sync from \`fleetdm/fleet@main\`."
