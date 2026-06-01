@@ -38,10 +38,10 @@ jobs:
           fi
 
           git checkout -B "$BRANCH" origin/main
-          git merge --no-ff --no-edit upstream/main || {
-            git add -A
-            git -c core.hooksPath=/dev/null commit -m "WIP: upstream merge has conflicts — needs manual resolution"
-          }
+          if ! git merge --no-ff --no-edit upstream/main; then
+            echo "::notice::merge has conflicts — skipping, will retry next run"
+            exit 0
+          fi
           git push -f origin "$BRANCH"
 
           gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
