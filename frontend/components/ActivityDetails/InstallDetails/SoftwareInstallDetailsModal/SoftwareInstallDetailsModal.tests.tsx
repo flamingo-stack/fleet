@@ -9,6 +9,7 @@ import {
   getSoftwareInstallHandlerOnlyInstallOutput,
   getSoftwareInstallHandlerWithPreInstall,
   getSoftwareInstallHandlerOnlyPreInstallOutput,
+  getSoftwareInstallResultHandlerPremiumRequired,
 } from "test/handlers/software-handlers";
 import mockServer from "test/mock-server";
 import { noop } from "lodash";
@@ -95,6 +96,25 @@ describe("SoftwareInstallDetailsModal", () => {
       ).not.toBeInTheDocument();
     });
 
+    it("treats failed_install as installed when host still reports installed versions", () => {
+      render(
+        <StatusMessage
+          softwareName="CoolApp"
+          installResult={createMockSoftwareInstallResult({
+            status: "failed_install",
+          })}
+          isMyDevicePage={false}
+          canOverrideFailureWithInstalled
+        />
+      );
+
+      expect(screen.getByText(/CoolApp/)).toBeInTheDocument();
+      expect(screen.getByText(/is installed\./i)).toBeInTheDocument();
+      expect(screen.getByTestId("success-icon")).toBeInTheDocument();
+      expect(screen.queryByText(/failed to install/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("failed-icon")).not.toBeInTheDocument();
+    });
+
     it("on host details page, renders failed install without retry", () => {
       render(
         <StatusMessage
@@ -161,16 +181,16 @@ describe("SoftwareInstallDetailsModal", () => {
       expect(onCancel).toHaveBeenCalledTimes(2);
     });
 
-    it("shows Done button for pending install", () => {
+    it("shows Close button for pending install", () => {
       const onCancel = jest.fn();
       render(<ModalButtons status="pending_install" onCancel={onCancel} />);
-      expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Retry" })
       ).not.toBeInTheDocument();
     });
 
-    it("on device user page, shows Done button for installed software", () => {
+    it("on device user page, shows Close button for installed software", () => {
       const onCancel = jest.fn();
       render(
         <ModalButtons
@@ -179,7 +199,7 @@ describe("SoftwareInstallDetailsModal", () => {
           onCancel={onCancel}
         />
       );
-      expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
     });
   });
 
@@ -362,6 +382,36 @@ describe("SoftwareInstallDetailsModal", () => {
           name: /Details/i,
         })
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("API error states", () => {
+    afterEach(() => {
+      mockServer.resetHandlers();
+    });
+
+    it("renders the Fleet Premium upsell when the results request returns 402", async () => {
+      mockServer.use(getSoftwareInstallResultHandlerPremiumRequired);
+      const renderWithServer = createCustomRenderer({ withBackendMock: true });
+
+      renderWithServer(
+        <SoftwareInstallDetailsModal
+          details={baseDetails}
+          hostSoftware={baseHostSoftware}
+          onCancel={noop}
+        />
+      );
+
+      expect(
+        await screen.findByText("Couldn't get install details.")
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/This feature is included in Fleet Premium/i)
+      ).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Learn more/i })).toHaveAttribute(
+        "href",
+        "https://fleetdm.com/upgrade"
+      );
     });
   });
 });

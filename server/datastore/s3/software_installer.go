@@ -36,6 +36,7 @@ func NewTestSoftwareInstallerStore(conf config.S3Config) (*SoftwareInstallerStor
 			SigningPublicKeyID: conf.SoftwareInstallersCloudFrontURLSigningPublicKeyID,
 			Signer:             conf.SoftwareInstallersCloudFrontSigner,
 		},
+		gcs: isGCS(conf.EndpointURL),
 	}
 	return &SoftwareInstallerStore{
 		&commonFileStore{

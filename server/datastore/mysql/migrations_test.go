@@ -6,18 +6,16 @@ import (
 	"testing"
 
 	"github.com/fleetdm/fleet/v4/server/config"
-	"github.com/fleetdm/fleet/v4/server/datastore/mysql/common_mysql/testing_utils"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/data"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/tables"
 	"github.com/fleetdm/fleet/v4/server/fleet"
+	"github.com/fleetdm/fleet/v4/server/platform/mysql/testing_utils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMigrationStatus(t *testing.T) {
-	t.Skip("Skipping test: requires MySQL database connection")
-
 	ds := createMySQLDSForMigrationTests(t, t.Name())
 	t.Cleanup(func() {
 		ds.Close()
@@ -61,8 +59,6 @@ func TestMigrationStatus(t *testing.T) {
 }
 
 func TestV4732MigrationFix(t *testing.T) {
-	t.Skip("Skipping test: requires MySQL database connection")
-
 	ds := createMySQLDSForMigrationTests(t, t.Name())
 	t.Cleanup(func() {
 		ds.Close()
@@ -152,8 +148,6 @@ func recreate4732BadState(t *testing.T, ds *Datastore) {
 }
 
 func TestMigrations(t *testing.T) {
-	t.Skip("Skipping test: requires MySQL database connection")
-
 	// Create the database (must use raw MySQL client to do this)
 	ds := createMySQLDSForMigrationTests(t, t.Name())
 	defer ds.Close()

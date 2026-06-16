@@ -1,6 +1,5 @@
 import React, { useContext, useState, useEffect } from "react";
-import { InjectedRouter } from "react-router";
-import { useQuery } from "react-query";
+import { useQuery, useQueryClient } from "react-query";
 import classnames from "classnames";
 
 import { ILabelSummary } from "interfaces/label";
@@ -11,11 +10,8 @@ import {
   InstallerType,
 } from "interfaces/software";
 import { NotificationContext } from "context/notification";
-import { AppContext } from "context/app";
-import softwareAPI, {
-  MAX_FILE_SIZE_BYTES,
-  MAX_FILE_SIZE_MB,
-} from "services/entities/software";
+import useGitOpsMode from "hooks/useGitOpsMode";
+import softwareAPI from "services/entities/software";
 import labelsAPI, { getCustomLabels } from "services/entities/labels";
 
 import { DEFAULT_USE_QUERY_OPTIONS } from "utilities/constants";
@@ -52,12 +48,13 @@ interface IEditSoftwareModalProps {
   refetchSoftwareTitle: () => void;
   onExit: () => void;
   installerType: InstallerType;
-  router: InjectedRouter;
   openViewYamlModal: () => void;
+  isFleetMaintainedApp?: boolean;
   isIosOrIpadosApp?: boolean;
   name: string;
   displayName: string;
   source?: string;
+  iconUrl?: string | null;
 }
 
 const EditSoftwareModal = ({
@@ -67,17 +64,23 @@ const EditSoftwareModal = ({
   onExit,
   refetchSoftwareTitle,
   installerType,
-  router,
   openViewYamlModal,
+  isFleetMaintainedApp = false,
   isIosOrIpadosApp = false,
   name,
   displayName,
   source,
+  iconUrl = undefined,
 }: IEditSoftwareModalProps) => {
   const { renderFlash } = useContext(NotificationContext);
-  const { config } = useContext(AppContext);
+  const queryClient = useQueryClient();
+  const { gitOpsModeEnabled } = useGitOpsMode("software");
+  // Viewing an FMA in GitOps mode only allows viewing options, not editing
+  const isGitOpsCompatible = gitOpsModeEnabled && isFleetMaintainedApp;
 
-  const gitOpsModeEnabled = config?.gitops.gitops_mode_enabled || false;
+  const formClassNames = classnames(`${baseClass}__package-form`, {
+    [`${baseClass}__package-form--disabled`]: isGitOpsCompatible,
+  });
 
   const [editSoftwareModalClasses, setEditSoftwareModalClasses] = useState(
     baseClass
@@ -201,15 +204,6 @@ const EditSoftwareModal = ({
   const onEditPackage = async (formData: IEditPackageFormData) => {
     setIsUpdatingSoftware(true);
 
-    if (formData.software && formData.software.size > MAX_FILE_SIZE_BYTES) {
-      renderFlash(
-        "error",
-        `Couldn't edit software. The maximum file size is ${MAX_FILE_SIZE_MB} MB.`
-      );
-      setIsUpdatingSoftware(false);
-      return;
-    }
-
     try {
       await softwareAPI.editSoftwarePackage({
         data: formData,
@@ -242,6 +236,14 @@ const EditSoftwareModal = ({
           </>
         );
       }
+      // Invalidate both list caches so edits (e.g. self-service toggle)
+      // are reflected when navigating back to Inventory or Library tabs
+      queryClient.invalidateQueries({
+        queryKey: [{ scope: "software-titles" }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [{ scope: "software-library" }],
+      });
       refetchSoftwareTitle();
       onExit();
     } catch (e) {
@@ -307,6 +309,14 @@ const EditSoftwareModal = ({
             : ""}
         </>
       );
+      // Invalidate both list caches so edits (e.g. self-service toggle)
+      // are reflected when navigating back to Inventory or Library tabs
+      queryClient.invalidateQueries({
+        queryKey: [{ scope: "software-titles" }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [{ scope: "software-library" }],
+      });
       onExit();
       refetchSoftwareTitle();
     } catch (e) {
@@ -352,8 +362,9 @@ const EditSoftwareModal = ({
       return (
         <PackageForm
           labels={labels || []}
-          className={`${baseClass}__package-form`}
+          className={formClassNames}
           isEditingSoftware
+          isFleetMaintainedApp={isFleetMaintainedApp}
           onCancel={onExit}
           onSubmit={onClickSavePackage}
           onClickPreviewEndUserExperience={togglePreviewEndUserExperienceModal}
@@ -364,6 +375,8 @@ const EditSoftwareModal = ({
           defaultUninstallScript={softwarePackage.uninstall_script}
           defaultSelfService={softwarePackage.self_service}
           defaultCategories={softwarePackage.categories}
+          gitopsCompatible={isGitOpsCompatible}
+          teamId={teamId}
         />
       );
     }
@@ -376,6 +389,7 @@ const EditSoftwareModal = ({
         onCancel={onExit}
         isLoading={isUpdatingSoftware}
         onClickPreviewEndUserExperience={togglePreviewEndUserExperienceModal}
+        teamId={teamId}
       />
     );
   };
@@ -404,14 +418,20 @@ const EditSoftwareModal = ({
           name={name}
           displayName={displayName}
           source={source}
-          iconUrl={softwareInstaller.icon_url || undefined}
+          iconUrl={iconUrl} // Must be software title icon url not installer icon url
           onCancel={togglePreviewEndUserExperienceModal}
+          teamId={teamId}
           isIosOrIpadosApp={isIosOrIpadosApp}
+          mobileVersion={
+            ("latest_version" in softwareInstaller &&
+              softwareInstaller.latest_version) ||
+            softwareInstaller.version
+          }
         />
       )}
       {!!pendingPackageUpdates.software && showFileProgressModal && (
         <FileProgressModal
-          fileDetails={getFileDetails(pendingPackageUpdates.software, true)}
+          fileDetails={getFileDetails(pendingPackageUpdates.software)}
           fileProgress={uploadProgress}
         />
       )}

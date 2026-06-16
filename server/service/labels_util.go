@@ -22,6 +22,8 @@ func loadLabelsFromNames(ctx context.Context, ds fleet.Datastore, labelNames []s
 	return labelsMap, nil
 }
 
+// verifyHostsToAssociate validates that every host ID exists before assigning it to a
+// policy/query (OpenFrame host targeting). De-dupes the input first.
 func verifyHostsToAssociate(ctx context.Context, ds fleet.Datastore, hostIDs []uint) error {
 	if len(hostIDs) == 0 {
 		return nil

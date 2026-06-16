@@ -1,25 +1,24 @@
 import React, { useContext, useEffect, useState } from "react";
 import { InjectedRouter } from "react-router";
-import { useQuery } from "react-query";
+import { useQuery, useQueryClient } from "react-query";
 
 import PATHS from "router/paths";
 import { DEFAULT_USE_QUERY_OPTIONS } from "utilities/constants";
 import { getFileDetails, IFileDetails } from "utilities/file/fileUtils";
 import { getPathWithQueryParams, QueryParams } from "utilities/url";
-import softwareAPI, {
-  MAX_FILE_SIZE_BYTES,
-  MAX_FILE_SIZE_MB,
-} from "services/entities/software";
+import softwareAPI from "services/entities/software";
 import labelsAPI, { getCustomLabels } from "services/entities/labels";
 
 import { NotificationContext } from "context/notification";
 import { AppContext } from "context/app";
+import useGitOpsMode from "hooks/useGitOpsMode";
 import { ILabelSummary } from "interfaces/label";
 
 import FileProgressModal from "components/FileProgressModal";
 import PremiumFeatureMessage from "components/PremiumFeatureMessage";
 import Spinner from "components/Spinner";
 import DataError from "components/DataError";
+import InfoBanner from "components/InfoBanner";
 import CategoriesEndUserExperienceModal from "pages/SoftwarePage/components/modals/CategoriesEndUserExperienceModal";
 
 import PackageForm from "pages/SoftwarePage/components/forms/PackageForm";
@@ -43,8 +42,9 @@ const SoftwareCustomPackage = ({
   setSidePanelOpen,
 }: ISoftwarePackageProps) => {
   const { renderFlash } = useContext(NotificationContext);
-  const { isPremiumTier, config } = useContext(AppContext);
-  const gitOpsModeEnabled = config?.gitops.gitops_mode_enabled;
+  const { isPremiumTier } = useContext(AppContext);
+  const queryClient = useQueryClient();
+  const { gitOpsModeEnabled } = useGitOpsMode("software");
 
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadDetails, setUploadDetails] = useState<IFileDetails | null>(null);
@@ -101,8 +101,8 @@ const SoftwareCustomPackage = ({
 
   const onCancel = () => {
     router.push(
-      getPathWithQueryParams(PATHS.SOFTWARE_TITLES, {
-        team_id: currentTeamId,
+      getPathWithQueryParams(PATHS.SOFTWARE_LIBRARY, {
+        fleet_id: currentTeamId,
       })
     );
   };
@@ -116,15 +116,7 @@ const SoftwareCustomPackage = ({
       return;
     }
 
-    if (formData.software && formData.software.size > MAX_FILE_SIZE_BYTES) {
-      renderFlash(
-        "error",
-        `Couldn't add. The maximum file size is ${MAX_FILE_SIZE_MB} MB.`
-      );
-      return;
-    }
-
-    setUploadDetails(getFileDetails(formData.software, true));
+    setUploadDetails(getFileDetails(formData.software));
 
     // Note: This TODO is copied to onSaveSoftwareChanges in EditSoftwareModal
     // TODO: confirm we are deleting the second sentence (not modifying it) for non-self-service installers
@@ -154,8 +146,15 @@ const SoftwareCustomPackage = ({
         );
       }
 
+      queryClient.invalidateQueries({
+        queryKey: [{ scope: "software-titles" }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: [{ scope: "software-library" }],
+      });
+
       const newQueryParams: QueryParams = {
-        team_id: currentTeamId,
+        fleet_id: currentTeamId,
         gitops_yaml: gitOpsModeEnabled ? "true" : undefined,
       };
       router.push(
@@ -181,6 +180,13 @@ const SoftwareCustomPackage = ({
 
     return (
       <>
+        {gitOpsModeEnabled && (
+          <InfoBanner borderRadius="medium">
+            Add custom packages in GitOps mode so Fleet can host your software.
+            After adding, copy its SHA-256 hash into your YAML so the next
+            GitOps workflow doesn&apos;t delete it.
+          </InfoBanner>
+        )}
         <PackageForm
           labels={labels || []}
           showSchemaButton={!isSidePanelOpen}
@@ -199,6 +205,7 @@ const SoftwareCustomPackage = ({
         {showPreviewEndUserExperience && (
           <CategoriesEndUserExperienceModal
             onCancel={onClickPreviewEndUserExperience}
+            teamId={currentTeamId}
             isIosOrIpadosApp={isIpadOrIphoneSoftwareSource}
           />
         )}

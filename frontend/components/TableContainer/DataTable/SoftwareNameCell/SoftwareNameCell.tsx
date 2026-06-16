@@ -1,7 +1,10 @@
 import React from "react";
 import { InjectedRouter } from "react-router";
 
-import { getSelfServiceTooltip } from "pages/SoftwarePage/helpers";
+import {
+  getSelfServiceTooltip,
+  getDisplayedSoftwareName,
+} from "pages/SoftwarePage/helpers";
 
 import TooltipWrapper from "components/TooltipWrapper";
 import Icon from "components/Icon";
@@ -97,7 +100,7 @@ const getInstallIconType = (
   return isSelfService ? "selfService" : "manual";
 };
 
-const InstallIconWithTooltip = ({
+export const InstallIconWithTooltip = ({
   isSelfService,
   automaticInstallPoliciesCount,
   pageContext,
@@ -130,6 +133,7 @@ const InstallIconWithTooltip = ({
         underline={false}
         position="top"
         tipOffset={12}
+        fixedPositionStrategy
       >
         <Icon
           name={iconName}
@@ -158,6 +162,8 @@ interface ISoftwareNameCellProps {
   iconUrl?: string | null;
   isIosOrIpadosApp?: boolean;
   isAndroidPlayStoreApp?: boolean;
+  /** Only used on Edit icon modal to render a preview of the chosen unsaved icon */
+  previewIcon?: JSX.Element;
 }
 
 const SoftwareNameCell = ({
@@ -173,12 +179,16 @@ const SoftwareNameCell = ({
   iconUrl,
   isIosOrIpadosApp = false,
   isAndroidPlayStoreApp = false,
+  previewIcon,
 }: ISoftwareNameCellProps) => {
-  const icon = <SoftwareIcon name={name} source={source} url={iconUrl} />;
+  const softwareDisplayName = getDisplayedSoftwareName(name, display_name);
+  const icon = previewIcon || (
+    <SoftwareIcon name={name} source={source} url={iconUrl} />
+  );
   // My device page > Software fake link as entire row opens a modal
   if (pageContext === "deviceUser" && !isSelfService) {
     return (
-      <LinkCell tooltipTruncate prefix={icon} value={display_name || name} />
+      <LinkCell tooltipTruncate prefix={icon} value={softwareDisplayName} />
     );
   }
 
@@ -188,7 +198,7 @@ const SoftwareNameCell = ({
       <div className={baseClass}>
         <TooltipTruncatedTextCell
           prefix={icon}
-          value={display_name || name}
+          value={softwareDisplayName}
           className="software-name"
         />
       </div>
@@ -208,7 +218,7 @@ const SoftwareNameCell = ({
       tooltipTruncate
       customOnClick={onClickSoftware}
       prefix={icon}
-      value={display_name || name}
+      value={softwareDisplayName}
       suffix={
         hasInstaller ? (
           <InstallIconWithTooltip
