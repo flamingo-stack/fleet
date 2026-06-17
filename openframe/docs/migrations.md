@@ -169,6 +169,27 @@ When rebasing onto a newer upstream release:
 2. Resolve any conflicts in Go source files (datastore methods, service handlers, etc.) as usual.
 3. **Scan `migrations/tables/` for duplicate-named migrations** and make the new upstream copies idempotent — see [Duplicate-migration collisions](#duplicate-migration-collisions-after-an-upstream-sync) below. This is the one way an upstream sync *can* break migrations on existing tenants.
 4. Run `fleet prepare db` against a **dump of a real tenant database** (not an empty one) to verify all three pipelines complete — an empty DB will not surface collisions with already-applied migrations.
+5. **Run the fork-invariant check** (see [Verifying a sync](#verifying-a-sync)) and resolve every `FAIL` before merging.
+
+## Verifying a sync
+
+After resolving merge conflicts, run the fork-invariant harness. It codifies the manual
+post-sync verification — fork-owned file presence, the host-targeting feature (`policy_hosts` /
+`query_hosts`), the fork CI/build configs, and a guard that **no upstream-only workflows were
+re-introduced** — into a single command:
+
+```bash
+bash openframe/scripts/verify_fork.sh                  # check the working tree
+bash openframe/scripts/verify_fork.sh --ref <branch>   # check a branch without checking it out
+bash openframe/scripts/verify_fork.sh --check-openapi   # also smoke-test gen_openapi.py
+```
+
+A non-zero exit means the merge dropped a fork-owned file or feature — **do not merge until every
+`FAIL` is resolved**. This is not hypothetical: past syncs silently dropped fork frontend
+components, clobbered the fork's `.goreleaser` configs, and re-introduced ~40 upstream workflows;
+the harness flags all of those. It also runs the duplicate-migration scan below as an
+informational `NOTE`. When the fork legitimately adds or moves a feature, update the expected
+lists at the top of the script.
 
 ## Duplicate-migration collisions after an upstream sync
 
