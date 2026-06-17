@@ -26,11 +26,14 @@ func Up_20251229000010(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`
+	// Idempotent: a fork-timestamped copy of this migration
+	// (20251219201524) may already have added the column on existing tenants.
+	if !columnExists(tx, "hosts", "timezone") {
+		if _, err = tx.Exec(`
 				ALTER TABLE hosts ADD COLUMN timezone VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-	`)
-	if err != nil {
-		return err
+	`); err != nil {
+			return err
+		}
 	}
 	return nil
 }
