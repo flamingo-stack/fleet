@@ -21,8 +21,8 @@ export default {
   getSecrets(
     params: IListSecretsRequestApiParams
   ): Promise<IListSecretsResponse> {
-    const { SECRETS } = endpoints;
-    const path = `${SECRETS}?${buildQueryStringFromParams({
+    const { VARIABLES } = endpoints;
+    const path = `${VARIABLES}?${buildQueryStringFromParams({
       page: params.page,
       per_page: params.per_page,
     })}`;
@@ -31,12 +31,12 @@ export default {
   },
 
   addSecret(secret: ISecretPayload) {
-    const { SECRETS } = endpoints;
-    return sendRequest("POST", SECRETS, secret);
+    const { VARIABLES } = endpoints;
+    return sendRequest("POST", VARIABLES, secret);
   },
 
   deleteSecret(secretId: number) {
-    const { SECRETS } = endpoints;
-    return sendRequest("DELETE", `${SECRETS}/${secretId}`);
+    const { VARIABLES } = endpoints;
+    return sendRequest("DELETE", `${VARIABLES}/${secretId}`);
   },
 };
