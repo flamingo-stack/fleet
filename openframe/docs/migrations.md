@@ -165,9 +165,45 @@ SELECT * FROM migration_status_openframe;
 
 When rebasing onto a newer upstream release:
 
-1. **No migration changes needed.** Our migrations live in `migrations/openframe/` and use independent numbering — upstream changes to `migrations/tables/` don't affect us.
+1. **Openframe migrations need no changes.** Our migrations live in `migrations/openframe/` and use independent numbering — upstream changes to `migrations/tables/` don't affect them.
 2. Resolve any conflicts in Go source files (datastore methods, service handlers, etc.) as usual.
-3. Run `fleet prepare db` on a test database to verify all three migration pipelines complete successfully.
+3. **Scan `migrations/tables/` for duplicate-named migrations** and make the new upstream copies idempotent — see [Duplicate-migration collisions](#duplicate-migration-collisions-after-an-upstream-sync) below. This is the one way an upstream sync *can* break migrations on existing tenants.
+4. Run `fleet prepare db` against a **dump of a real tenant database** (not an empty one) to verify all three pipelines complete — an empty DB will not surface collisions with already-applied migrations.
+
+## Duplicate-migration collisions after an upstream sync
+
+The fork carries its **own copies of some upstream `tables/` migrations** under their *original* timestamps — they were captured during the squashed upstream re-import (commit `01a6bb8a63`) and made idempotent in a later pass. Upstream sometimes **re-timestamps or re-adds the same migration** under a *new* (often round) timestamp — e.g. upstream PR #37993 "Re-timestamp migrations due to 4.79 cherry pick" renumbered a batch to `20251229000010`, `20251229000020`, … . A merge keeps **both** files (different filenames → no textual conflict), so the same schema change is registered twice.
+
+**Symptom:** on any DB that already applied the fork's copy (i.e. every existing tenant), `prepare db` aborts mid-run when it reaches upstream's re-timestamped copy:
+
+```
+FAIL 20251229000010_AddSoftwareAutoUpdateTable.go (Error 1060 (42S21): Duplicate column name 'timezone'), quitting migration.
+```
+
+An **empty** test DB never hits this — the fork copy and the upstream copy both apply once, in timestamp order. The collision only appears against a DB that is *already past* the fork copy's timestamp. Always test `prepare db` against a real tenant dump.
+
+**Detect** duplicate-named migrations after every sync:
+
+```bash
+ls server/datastore/mysql/migrations/tables/*.go \
+  | sed -E 's#.*/[0-9]+_##; s#\.go$##' | grep -v '_test$' \
+  | sort | uniq -d
+```
+
+Any name printed is a migration the fork carries under two timestamps. For each, the **fork copy** (older timestamp, already applied on tenants) is already idempotent; the **upstream copy** (newer timestamp) usually is not.
+
+**Fix:** make the upstream copy idempotent, mirroring the fork copy's guard. Use the helpers in `migrations/tables/migration.go` — `columnExists`, `tableExists`, `constraintExists`, `indexExistsTx`:
+
+```go
+// 20251229000010_AddSoftwareAutoUpdateTable.go (upstream copy)
+if !columnExists(tx, "hosts", "timezone") {
+    if _, err = tx.Exec(`ALTER TABLE hosts ADD COLUMN timezone ...`); err != nil {
+        return err
+    }
+}
+```
+
+This no-ops on existing tenants (column/table already present) while still creating the schema on fresh DBs — the same idempotency pass the fork already applied to ~477 upstream migrations. Down migrations stay no-ops.
 
 ## Known issue: `prepare db` early return (fixed)
 
