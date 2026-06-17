@@ -169,6 +169,11 @@ func (q *Query) Copy() *Query {
 		clone.LabelsIncludeAll = make([]LabelIdent, len(q.LabelsIncludeAll))
 		copy(clone.LabelsIncludeAll, q.LabelsIncludeAll)
 	}
+	// OpenFrame fork: deep-copy host targeting so a cloned query keeps its host assignments.
+	if q.HostsIncludeAny != nil {
+		clone.HostsIncludeAny = make([]HostIdent, len(q.HostsIncludeAny))
+		copy(clone.HostsIncludeAny, q.HostsIncludeAny)
+	}
 	return &clone
 }
 

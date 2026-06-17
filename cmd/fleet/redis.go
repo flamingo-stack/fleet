@@ -50,6 +50,9 @@ func buildRedisPoolConfig(cfg config.RedisConfig) redis.PoolConfig {
 		ConnWaitTimeout:           cfg.ConnWaitTimeout,
 		WriteTimeout:              cfg.WriteTimeout,
 		ReadTimeout:               cfg.ReadTimeout,
+		// OpenFrame fork: namespace every Redis key/channel per tenant
+		// (FLEET_REDIS_KEY_PREFIX, typically the tenant ID).
+		KeyPrefix: cfg.KeyPrefix,
 	}
 }
 
