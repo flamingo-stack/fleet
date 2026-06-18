@@ -12,14 +12,22 @@ func init() {
 }
 
 func Up_20260609104220(tx *sql.Tx) error {
+	// Idempotent migration.
 	// First we modify the abm_tokens table to add the column for BYOD default team id, and a unique token for ADUE enrollments
-	_, err := tx.Exec(`ALTER TABLE abm_tokens
-    ADD COLUMN byod_default_team_id INT UNSIGNED NULL,
-    ADD COLUMN enrollment_url_token VARBINARY(64) NOT NULL DEFAULT '',
-    ADD CONSTRAINT abm_tokens_byod_team_fk
-        FOREIGN KEY (byod_default_team_id) REFERENCES teams(id) ON DELETE SET NULL;`)
-	if err != nil {
-		return fmt.Errorf("altering abm_tokens for BYOD and ADUE: %w", err)
+	if !columnExists(tx, "abm_tokens", "byod_default_team_id") {
+		if _, err := tx.Exec(`ALTER TABLE abm_tokens ADD COLUMN byod_default_team_id INT UNSIGNED NULL`); err != nil {
+			return fmt.Errorf("altering abm_tokens for BYOD and ADUE: %w", err)
+		}
+	}
+	if !columnExists(tx, "abm_tokens", "enrollment_url_token") {
+		if _, err := tx.Exec(`ALTER TABLE abm_tokens ADD COLUMN enrollment_url_token VARBINARY(64) NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("altering abm_tokens for BYOD and ADUE: %w", err)
+		}
+	}
+	if !constraintExists(tx, "abm_tokens", "abm_tokens_byod_team_fk") {
+		if _, err := tx.Exec(`ALTER TABLE abm_tokens ADD CONSTRAINT abm_tokens_byod_team_fk FOREIGN KEY (byod_default_team_id) REFERENCES teams(id) ON DELETE SET NULL`); err != nil {
+			return fmt.Errorf("altering abm_tokens for BYOD and ADUE: %w", err)
+		}
 	}
 	var abmTokens []struct {
 		ID uint `db:"id"`
@@ -59,17 +67,24 @@ func Up_20260609104220(tx *sql.Tx) error {
 
 	// Drop the default, and force uniqueness so we always force a new enrollment URL token when adding an ABM token
 	// We add a small constraint check to ensure the length is more than 32 bytes.
-	_, err = tx.Exec(`ALTER TABLE abm_tokens 
-	ALTER COLUMN enrollment_url_token DROP DEFAULT,
-	ADD UNIQUE KEY idx_abm_tokens_enrollment_url_token (enrollment_url_token),
-	ADD CONSTRAINT abm_tokens_enroll_url_length CHECK (LENGTH(enrollment_url_token) > 32);`)
-	if err != nil {
+	// ALTER COLUMN ... DROP DEFAULT is naturally idempotent (no-op if the default is already gone).
+	if _, err = tx.Exec(`ALTER TABLE abm_tokens ALTER COLUMN enrollment_url_token DROP DEFAULT`); err != nil {
 		return fmt.Errorf("dropping default for enrollment_url_token: %w", err)
+	}
+	if !indexExistsTx(tx, "abm_tokens", "idx_abm_tokens_enrollment_url_token") {
+		if _, err = tx.Exec(`ALTER TABLE abm_tokens ADD UNIQUE KEY idx_abm_tokens_enrollment_url_token (enrollment_url_token)`); err != nil {
+			return fmt.Errorf("dropping default for enrollment_url_token: %w", err)
+		}
+	}
+	if !constraintExists(tx, "abm_tokens", "abm_tokens_enroll_url_length") {
+		if _, err = tx.Exec(`ALTER TABLE abm_tokens ADD CONSTRAINT abm_tokens_enroll_url_length CHECK (LENGTH(enrollment_url_token) > 32)`); err != nil {
+			return fmt.Errorf("dropping default for enrollment_url_token: %w", err)
+		}
 	}
 
 	// Create ADUE enrollments table to track challenges and accompanying information
 	// such as IdP account and ABM token (for default team enrollment)
-	_, err = tx.Exec(`CREATE TABLE mdm_adue_enrollment_challenges (
+	_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS mdm_adue_enrollment_challenges (
 		id               INT UNSIGNED NOT NULL AUTO_INCREMENT,
 		challenge        VARBINARY(64)   NOT NULL,
 		idp_account_uuid VARCHAR(255)  COLLATE utf8mb4_unicode_ci  NOT NULL,

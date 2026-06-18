@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20260603101320(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Pre-check: ensure no orphaned label_id values exist that would cause the
 	// new RESTRICT constraint to fail. In practice this shouldn't happen since
 	// the previous ON DELETE SET NULL would have nulled them out, but guard
@@ -29,33 +30,41 @@ func Up_20260603101320(tx *sql.Tx) error {
 	}
 
 	// mdm_configuration_profile_labels
-	cpConstraints, err := constraintsForTable(tx, "mdm_configuration_profile_labels", map[string]struct{}{"labels": {}})
-	if err != nil {
-		return err
-	}
-	if len(cpConstraints) != 1 {
-		return errors.New("mdm_configuration_profile_labels foreign key to labels not found")
-	}
-	if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE mdm_configuration_profile_labels DROP FOREIGN KEY %s`, cpConstraints[0])); err != nil {
-		return fmt.Errorf("dropping mdm_configuration_profile_labels label_id foreign key: %w", err)
-	}
-	if _, err := tx.Exec(`ALTER TABLE mdm_configuration_profile_labels ADD CONSTRAINT mdm_configuration_profile_labels_ibfk_label FOREIGN KEY (label_id) REFERENCES labels (id) ON DELETE RESTRICT`); err != nil {
-		return fmt.Errorf("adding mdm_configuration_profile_labels RESTRICT foreign key: %w", err)
+	if !constraintExists(tx, "mdm_configuration_profile_labels", "mdm_configuration_profile_labels_ibfk_label") {
+		cpConstraints, err := constraintsForTable(tx, "mdm_configuration_profile_labels", map[string]struct{}{"labels": {}})
+		if err != nil {
+			return err
+		}
+		if len(cpConstraints) != 1 {
+			return errors.New("mdm_configuration_profile_labels foreign key to labels not found")
+		}
+		if constraintExists(tx, "mdm_configuration_profile_labels", cpConstraints[0]) {
+			if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE mdm_configuration_profile_labels DROP FOREIGN KEY %s`, cpConstraints[0])); err != nil {
+				return fmt.Errorf("dropping mdm_configuration_profile_labels label_id foreign key: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`ALTER TABLE mdm_configuration_profile_labels ADD CONSTRAINT mdm_configuration_profile_labels_ibfk_label FOREIGN KEY (label_id) REFERENCES labels (id) ON DELETE RESTRICT`); err != nil {
+			return fmt.Errorf("adding mdm_configuration_profile_labels RESTRICT foreign key: %w", err)
+		}
 	}
 
 	// mdm_declaration_labels
-	declConstraints, err := constraintsForTable(tx, "mdm_declaration_labels", map[string]struct{}{"labels": {}})
-	if err != nil {
-		return err
-	}
-	if len(declConstraints) != 1 {
-		return errors.New("mdm_declaration_labels foreign key to labels not found")
-	}
-	if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE mdm_declaration_labels DROP FOREIGN KEY %s`, declConstraints[0])); err != nil {
-		return fmt.Errorf("dropping mdm_declaration_labels label_id foreign key: %w", err)
-	}
-	if _, err := tx.Exec(`ALTER TABLE mdm_declaration_labels ADD CONSTRAINT mdm_declaration_labels_ibfk_label FOREIGN KEY (label_id) REFERENCES labels (id) ON DELETE RESTRICT`); err != nil {
-		return fmt.Errorf("adding mdm_declaration_labels RESTRICT foreign key: %w", err)
+	if !constraintExists(tx, "mdm_declaration_labels", "mdm_declaration_labels_ibfk_label") {
+		declConstraints, err := constraintsForTable(tx, "mdm_declaration_labels", map[string]struct{}{"labels": {}})
+		if err != nil {
+			return err
+		}
+		if len(declConstraints) != 1 {
+			return errors.New("mdm_declaration_labels foreign key to labels not found")
+		}
+		if constraintExists(tx, "mdm_declaration_labels", declConstraints[0]) {
+			if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE mdm_declaration_labels DROP FOREIGN KEY %s`, declConstraints[0])); err != nil {
+				return fmt.Errorf("dropping mdm_declaration_labels label_id foreign key: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`ALTER TABLE mdm_declaration_labels ADD CONSTRAINT mdm_declaration_labels_ibfk_label FOREIGN KEY (label_id) REFERENCES labels (id) ON DELETE RESTRICT`); err != nil {
+			return fmt.Errorf("adding mdm_declaration_labels RESTRICT foreign key: %w", err)
+		}
 	}
 
 	return nil

@@ -10,9 +10,12 @@ func init() {
 }
 
 func Up_20260314120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add a secondary index on software_id to speed up queries that join or filter host_software by software_id.
-	if _, err := tx.Exec(`ALTER TABLE host_software ADD INDEX idx_host_software_software_id (software_id)`); err != nil {
-		return fmt.Errorf("adding software_id index to host_software: %w", err)
+	if !indexExistsTx(tx, "host_software", "idx_host_software_software_id") {
+		if _, err := tx.Exec(`ALTER TABLE host_software ADD INDEX idx_host_software_software_id (software_id)`); err != nil {
+			return fmt.Errorf("adding software_id index to host_software: %w", err)
+		}
 	}
 	return nil
 }

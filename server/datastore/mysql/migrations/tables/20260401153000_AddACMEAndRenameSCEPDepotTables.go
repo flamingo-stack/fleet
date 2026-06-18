@@ -11,30 +11,38 @@ func init() {
 }
 
 func Up_20260401153000(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	var err error
+	if !columnExists(tx, "nano_enrollments", "hardware_attested") {
+		_, err = tx.Exec(`
         ALTER TABLE nano_enrollments
         ADD COLUMN hardware_attested TINYINT(1) NOT NULL DEFAULT 0
     `)
-	if err != nil {
-		return errors.Wrap(err, "add nano_enrollments hardware_attested column")
+		if err != nil {
+			return errors.Wrap(err, "add nano_enrollments hardware_attested column")
+		}
 	}
 
-	_, err = tx.Exec(`
+	if tableExists(tx, "scep_serials") {
+		_, err = tx.Exec(`
         ALTER TABLE scep_serials RENAME TO identity_serials
     `)
-	if err != nil {
-		return errors.Wrap(err, "rename scep_serials to identity_serials")
+		if err != nil {
+			return errors.Wrap(err, "rename scep_serials to identity_serials")
+		}
 	}
 
-	_, err = tx.Exec(`
+	if tableExists(tx, "scep_certificates") {
+		_, err = tx.Exec(`
         ALTER TABLE scep_certificates RENAME TO identity_certificates
     `)
-	if err != nil {
-		return errors.Wrap(err, "rename scep_certificates to identity_certificates")
+		if err != nil {
+			return errors.Wrap(err, "rename scep_certificates to identity_certificates")
+		}
 	}
 
 	_, err = tx.Exec(`
-        CREATE TABLE acme_enrollments (
+        CREATE TABLE IF NOT EXISTS acme_enrollments (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   path_identifier VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   host_identifier VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -51,7 +59,7 @@ func Up_20260401153000(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-        CREATE TABLE acme_accounts (
+        CREATE TABLE IF NOT EXISTS acme_accounts (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   acme_enrollment_id INT UNSIGNED NOT NULL,
   json_web_key json NOT NULL,
@@ -69,7 +77,7 @@ func Up_20260401153000(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-        CREATE TABLE acme_orders (
+        CREATE TABLE IF NOT EXISTS acme_orders (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   acme_account_id INT UNSIGNED NOT NULL,
   finalized TINYINT(1) NOT NULL DEFAULT '0',
@@ -89,7 +97,7 @@ func Up_20260401153000(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-        CREATE TABLE acme_authorizations (
+        CREATE TABLE IF NOT EXISTS acme_authorizations (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     identifier_type varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     identifier_value varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -106,7 +114,7 @@ func Up_20260401153000(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-        CREATE TABLE acme_challenges (
+        CREATE TABLE IF NOT EXISTS acme_challenges (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     challenge_type varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     token varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,

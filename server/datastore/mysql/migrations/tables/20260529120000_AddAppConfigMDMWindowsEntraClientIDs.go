@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20260529120000(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Initialize windows_entra_client_ids to an empty array so GET /config returns [] (not null) on upgraded
 	// installations and GitOps diffs stay stable, mirroring windows_entra_tenant_ids (migration 20260205184907).
 	if err := updateAppConfigJSON(tx, func(config *fleet.AppConfig) error {

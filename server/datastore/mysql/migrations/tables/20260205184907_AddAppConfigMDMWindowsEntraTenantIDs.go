@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20260205184907(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	if err := updateAppConfigJSON(tx, func(config *fleet.AppConfig) error {
 		if config != nil {
 			config.MDM.WindowsEntraTenantIDs = optjson.SetSlice([]string{})

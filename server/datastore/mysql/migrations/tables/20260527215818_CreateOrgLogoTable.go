@@ -10,7 +10,8 @@ func init() {
 }
 
 func Up_20260527215818(tx *sql.Tx) error {
-	if _, err := tx.Exec(`CREATE TABLE org_logo (
+	// Idempotent migration.
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS org_logo (
 		mode        VARCHAR(10)  NOT NULL,
 		data        MEDIUMBLOB   NOT NULL,
 		uploaded_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

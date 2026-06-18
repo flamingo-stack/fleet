@@ -7,6 +7,7 @@ func init() {
 }
 
 func Up_20260326210603(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Update software_titles to use FMA canonical names where there's a matching
 	// bundle_identifier. This fixes existing titles that were created with
 	// osquery-reported names (e.g., "Code") instead of the FMA name

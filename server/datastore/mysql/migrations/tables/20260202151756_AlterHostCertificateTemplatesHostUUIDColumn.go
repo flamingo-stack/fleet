@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260202151756(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	_, err := tx.Exec(`ALTER TABLE host_certificate_templates
 		CHANGE COLUMN host_uuid host_uuid VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL;`)
 	if err != nil {

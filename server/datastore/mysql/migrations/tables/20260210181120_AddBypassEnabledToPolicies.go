@@ -10,8 +10,11 @@ func init() {
 }
 
 func Up_20260210181120(tx *sql.Tx) error {
-	if _, err := tx.Exec(`ALTER TABLE policies ADD COLUMN conditional_access_bypass_enabled TINYINT(1) NOT NULL DEFAULT 1`); err != nil {
-		return fmt.Errorf("adding bypass_enabled to policies table: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "policies", "conditional_access_bypass_enabled") {
+		if _, err := tx.Exec(`ALTER TABLE policies ADD COLUMN conditional_access_bypass_enabled TINYINT(1) NOT NULL DEFAULT 1`); err != nil {
+			return fmt.Errorf("adding bypass_enabled to policies table: %w", err)
+		}
 	}
 	return nil
 }

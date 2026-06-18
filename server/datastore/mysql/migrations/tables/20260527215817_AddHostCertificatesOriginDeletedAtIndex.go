@@ -9,10 +9,14 @@ func init() {
 }
 
 func Up_20260527215817(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Supports the unenrolled-host MDM cert sweep, which filters on
 	// (origin, deleted_at) and orders by id. InnoDB appends the PK (id) to
 	// the secondary index, so this also satisfies the ORDER BY id LIMIT
 	// without a filesort.
+	if indexExistsTx(tx, "host_certificates", "idx_host_certs_origin_deleted") {
+		return nil
+	}
 	return withSteps([]migrationStep{
 		basicMigrationStep(
 			`CREATE INDEX idx_host_certs_origin_deleted ON host_certificates (origin, deleted_at);`,

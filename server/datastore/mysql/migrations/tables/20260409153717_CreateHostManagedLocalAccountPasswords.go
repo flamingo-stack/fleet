@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260409153717(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
-		CREATE TABLE host_managed_local_account_passwords (
+		CREATE TABLE IF NOT EXISTS host_managed_local_account_passwords (
 			host_uuid          VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 			encrypted_password BLOB NOT NULL,
 			command_uuid       VARCHAR(127) COLLATE utf8mb4_unicode_ci NOT NULL,

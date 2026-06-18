@@ -9,6 +9,7 @@ func init() {
 }
 
 func Up_20260217141240(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	_, err := tx.Exec(`UPDATE labels SET platform = '' WHERE platform NOT IN ('', 'centos', 'darwin', 'windows', 'ubuntu')`)
 	if err != nil {
 		return err

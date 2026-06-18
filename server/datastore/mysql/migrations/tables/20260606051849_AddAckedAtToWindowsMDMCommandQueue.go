@@ -18,11 +18,25 @@ func Up_20260606051849(tx *sql.Tx) error {
 	// acked_at) and the GC into an index range delete. Two indexes: the composite serves the hot-path pending probes (WHERE
 	// enrollment_id = ? AND acked_at IS NULL, index-only), and the single-column index serves the GC's range delete (WHERE acked_at <
 	// ?), which cannot use the second column of the composite.
-	if _, err := tx.Exec(`ALTER TABLE windows_mdm_command_queue
-		ADD COLUMN acked_at DATETIME(6) NULL DEFAULT NULL,
-		ADD INDEX idx_win_mdm_cmd_queue_enrollment_acked (enrollment_id, acked_at),
+	if !columnExists(tx, "windows_mdm_command_queue", "acked_at") {
+		if _, err := tx.Exec(`ALTER TABLE windows_mdm_command_queue
+		ADD COLUMN acked_at DATETIME(6) NULL DEFAULT NULL`); err != nil {
+			return fmt.Errorf("add acked_at to windows_mdm_command_queue: %w", err)
+		}
+	}
+
+	if !indexExistsTx(tx, "windows_mdm_command_queue", "idx_win_mdm_cmd_queue_enrollment_acked") {
+		if _, err := tx.Exec(`ALTER TABLE windows_mdm_command_queue
+		ADD INDEX idx_win_mdm_cmd_queue_enrollment_acked (enrollment_id, acked_at)`); err != nil {
+			return fmt.Errorf("add acked_at to windows_mdm_command_queue: %w", err)
+		}
+	}
+
+	if !indexExistsTx(tx, "windows_mdm_command_queue", "idx_win_mdm_cmd_queue_acked") {
+		if _, err := tx.Exec(`ALTER TABLE windows_mdm_command_queue
 		ADD INDEX idx_win_mdm_cmd_queue_acked (acked_at)`); err != nil {
-		return fmt.Errorf("add acked_at to windows_mdm_command_queue: %w", err)
+			return fmt.Errorf("add acked_at to windows_mdm_command_queue: %w", err)
+		}
 	}
 
 	// Backfill: rows acknowledged before this migration (result row exists) must not become visible as pending under the

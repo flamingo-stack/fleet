@@ -10,13 +10,16 @@ func init() {
 }
 
 func Up_20260522195230(tx *sql.Tx) error {
-	_, err := tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "certificate_templates", "subject_alternative_name") {
+		_, err := tx.Exec(`
 		ALTER TABLE certificate_templates
 		ADD COLUMN subject_alternative_name TEXT
 		CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
 	`)
-	if err != nil {
-		return fmt.Errorf("add subject_alternative_name column to certificate_templates: %w", err)
+		if err != nil {
+			return fmt.Errorf("add subject_alternative_name column to certificate_templates: %w", err)
+		}
 	}
 	return nil
 }

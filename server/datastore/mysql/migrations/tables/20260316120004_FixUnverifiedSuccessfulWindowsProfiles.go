@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20260316120004(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	return withSteps([]migrationStep{
 		basicMigrationStepWithArgs(
 			"UPDATE host_mdm_windows_profiles SET status = ? WHERE status = ?",

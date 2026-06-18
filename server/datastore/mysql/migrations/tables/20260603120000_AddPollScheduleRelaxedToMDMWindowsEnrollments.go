@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260603120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Three columns on mdm_windows_enrollments support the Windows MDM on-demand sync (issue #43773):
 	//   - poll_schedule_relaxed: the intended DMClient poll schedule (true once a host whose fleetd can be woken is
 	//     relaxed). The management session reconciles against it so it does not re-send the poll Replace each session.
@@ -20,11 +21,13 @@ func Up_20260603120000(tx *sql.Tx) error {
 	//     orbit-config endpoint. The OMA-DM management session has no capability header, so it gates poll relaxation
 	//     on this column instead of re-deriving the capability from host_orbit_info. Default 0; populated on the next
 	//     config poll, so no backfill is needed.
-	if _, err := tx.Exec(`ALTER TABLE mdm_windows_enrollments
+	if !columnsExists(tx, "mdm_windows_enrollments", "poll_schedule_relaxed", "has_pending_commands", "fleetd_sync_capable") {
+		if _, err := tx.Exec(`ALTER TABLE mdm_windows_enrollments
 		ADD COLUMN poll_schedule_relaxed TINYINT(1) NOT NULL DEFAULT 0,
 		ADD COLUMN has_pending_commands TINYINT(1) NOT NULL DEFAULT 0,
 		ADD COLUMN fleetd_sync_capable TINYINT(1) NOT NULL DEFAULT 0`); err != nil {
-		return fmt.Errorf("add poll_schedule_relaxed, has_pending_commands and fleetd_sync_capable to mdm_windows_enrollments: %w", err)
+			return fmt.Errorf("add poll_schedule_relaxed, has_pending_commands and fleetd_sync_capable to mdm_windows_enrollments: %w", err)
+		}
 	}
 
 	// Backfill has_pending_commands so commands queued before this migration are not missed. has_pending_commands

@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260319120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add installation_type column to differentiate Windows Server Core from
 	// full desktop installations for MSRC vulnerability matching.
 	// Values: "" (unknown), "Client", "Server", "Server Core".
@@ -25,14 +26,28 @@ func Up_20260319120000(tx *sql.Tx) error {
 		return fmt.Errorf("truncating arch values: %w", err)
 	}
 
+	// MODIFY COLUMN is naturally idempotent (re-applying the same column
+	// definition is a no-op).
 	if _, err := tx.Exec(`
 		ALTER TABLE operating_systems
-			MODIFY COLUMN arch VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+			MODIFY COLUMN arch VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
+	`); err != nil {
+		return fmt.Errorf("adding installation_type to operating_systems: %w", err)
+	}
+
+	// Adding the column and rebuilding idx_unique_os to include it are tied
+	// together: the index only needs rebuilding because installation_type was
+	// added. Gate both on the column not yet existing so a re-run is a no-op
+	// and we never drop the already-rebuilt index.
+	if !columnExists(tx, "operating_systems", "installation_type") {
+		if _, err := tx.Exec(`
+		ALTER TABLE operating_systems
 			ADD COLUMN installation_type VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 			DROP INDEX idx_unique_os,
 			ADD UNIQUE INDEX idx_unique_os (name, version, arch, kernel_version, platform, display_version, installation_type)
 	`); err != nil {
-		return fmt.Errorf("adding installation_type to operating_systems: %w", err)
+			return fmt.Errorf("adding installation_type to operating_systems: %w", err)
+		}
 	}
 	return nil
 }

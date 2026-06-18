@@ -35,25 +35,33 @@ func init() {
 //     makes this index covering for the inner query in the refactored
 //     ListVulnerabilities path.
 func Up_20260608202705(tx *sql.Tx) error {
+	// Idempotent migration.
 	stmts := []struct {
-		name string
-		sql  string
+		table string
+		name  string
+		sql   string
 	}{
 		{
-			name: "idx_cve_meta_exploit",
-			sql:  `ALTER TABLE cve_meta ADD INDEX idx_cve_meta_exploit (cisa_known_exploit, cve), ALGORITHM=INPLACE, LOCK=NONE`,
+			table: "cve_meta",
+			name:  "idx_cve_meta_exploit",
+			sql:   `ALTER TABLE cve_meta ADD INDEX idx_cve_meta_exploit (cisa_known_exploit, cve), ALGORITHM=INPLACE, LOCK=NONE`,
 		},
 		{
-			name: "idx_cve_meta_cvss_score",
-			sql:  `ALTER TABLE cve_meta ADD INDEX idx_cve_meta_cvss_score (cvss_score, cve), ALGORITHM=INPLACE, LOCK=NONE`,
+			table: "cve_meta",
+			name:  "idx_cve_meta_cvss_score",
+			sql:   `ALTER TABLE cve_meta ADD INDEX idx_cve_meta_cvss_score (cvss_score, cve), ALGORITHM=INPLACE, LOCK=NONE`,
 		},
 		{
-			name: "idx_vhc_scope_cve",
-			sql:  `ALTER TABLE vulnerability_host_counts ADD INDEX idx_vhc_scope_cve (global_stats, team_id, host_count, cve), ALGORITHM=INPLACE, LOCK=NONE`,
+			table: "vulnerability_host_counts",
+			name:  "idx_vhc_scope_cve",
+			sql:   `ALTER TABLE vulnerability_host_counts ADD INDEX idx_vhc_scope_cve (global_stats, team_id, host_count, cve), ALGORITHM=INPLACE, LOCK=NONE`,
 		},
 	}
 
 	for _, s := range stmts {
+		if indexExistsTx(tx, s.table, s.name) {
+			continue
+		}
 		if _, err := tx.Exec(s.sql); err != nil {
 			return fmt.Errorf("failed to add %s: %w", s.name, err)
 		}

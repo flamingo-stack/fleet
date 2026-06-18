@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260522195232(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
-		CREATE TABLE vpp_client_users (
+		CREATE TABLE IF NOT EXISTS vpp_client_users (
 			id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
 			vpp_token_id      INT UNSIGNED NOT NULL,
 			managed_apple_id  VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,

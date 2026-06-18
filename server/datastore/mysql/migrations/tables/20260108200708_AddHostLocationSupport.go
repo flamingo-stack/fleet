@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260108200708(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-	CREATE TABLE host_last_known_locations (
+	CREATE TABLE IF NOT EXISTS host_last_known_locations (
 		host_id INT UNSIGNED NOT NULL,
 		latitude DECIMAL(10, 8),
 		longitude DECIMAL(11, 8),

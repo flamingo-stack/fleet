@@ -10,9 +10,11 @@ func init() {
 }
 
 func Up_20260210155109(tx *sql.Tx) error {
-	_, err := tx.Exec(`ALTER TABLE host_mdm_android_profiles ADD COLUMN can_reverify tinyint(1) NOT NULL DEFAULT '0'`)
-	if err != nil {
-		return fmt.Errorf("failed to add reverify to host_mdm_android_profiles: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "host_mdm_android_profiles", "can_reverify") {
+		if _, err := tx.Exec(`ALTER TABLE host_mdm_android_profiles ADD COLUMN can_reverify tinyint(1) NOT NULL DEFAULT '0'`); err != nil {
+			return fmt.Errorf("failed to add reverify to host_mdm_android_profiles: %w", err)
+		}
 	}
 	return nil
 }

@@ -17,8 +17,9 @@ func init() {
 // The operation_name column holds the full AMAPI operation name (enterprises/X/devices/Y/operations/Z, ~70+ chars)
 // which is the key used to correlate Pub/Sub COMMAND notifications back to the originating Fleet command.
 func Up_20260528201143(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE mdm_android_commands (
+CREATE TABLE IF NOT EXISTS mdm_android_commands (
 	command_uuid     VARCHAR(36)                            NOT NULL,
 	host_uuid        VARCHAR(255)                           NOT NULL,
 	operation_name   VARCHAR(255)                           NOT NULL,

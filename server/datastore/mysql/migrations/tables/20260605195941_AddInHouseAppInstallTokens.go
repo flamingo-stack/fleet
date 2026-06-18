@@ -11,8 +11,9 @@ func init() {
 }
 
 func Up_20260605195941(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE in_house_app_install_tokens (
+CREATE TABLE IF NOT EXISTS in_house_app_install_tokens (
   token             VARCHAR(36)  COLLATE utf8mb4_unicode_ci NOT NULL,
   software_title_id INT UNSIGNED NOT NULL,
   team_id           INT UNSIGNED NOT NULL,

@@ -14,6 +14,7 @@ func init() {
 }
 
 func Up_20260316120006(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Update app config to set this new value to true if End User Auth is enabled
 	err := updateAppConfigJSON(tx, func(config *fleet.AppConfig) error {
 		if config != nil {

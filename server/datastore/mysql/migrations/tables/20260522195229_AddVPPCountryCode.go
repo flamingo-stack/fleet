@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260522195229(tx *sql.Tx) error {
+	// Idempotent migration.
 	// country_code is the App Store storefront country (lowercase ISO 3166-1
 	// alpha-2 such as "us", "de", "fr") associated with the row.
 	//
@@ -24,12 +25,16 @@ func Up_20260522195229(tx *sql.Tx) error {
 	//
 	// Both columns are nullable so existing rows survive the migration; values
 	// are then populated lazily by the API/service layer.
-	if _, err := tx.Exec(`ALTER TABLE vpp_tokens ADD COLUMN country_code VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL`); err != nil {
-		return fmt.Errorf("add country_code to vpp_tokens: %w", err)
+	if !columnExists(tx, "vpp_tokens", "country_code") {
+		if _, err := tx.Exec(`ALTER TABLE vpp_tokens ADD COLUMN country_code VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL`); err != nil {
+			return fmt.Errorf("add country_code to vpp_tokens: %w", err)
+		}
 	}
 
-	if _, err := tx.Exec(`ALTER TABLE vpp_apps ADD COLUMN country_code VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL`); err != nil {
-		return fmt.Errorf("add country_code to vpp_apps: %w", err)
+	if !columnExists(tx, "vpp_apps", "country_code") {
+		if _, err := tx.Exec(`ALTER TABLE vpp_apps ADD COLUMN country_code VARCHAR(4) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL`); err != nil {
+			return fmt.Errorf("add country_code to vpp_apps: %w", err)
+		}
 	}
 
 	return nil

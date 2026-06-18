@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260522195226(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-	CREATE TABLE vpp_app_configurations (
+	CREATE TABLE IF NOT EXISTS vpp_app_configurations (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 		application_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 		team_id INT UNSIGNED NOT NULL,
@@ -32,7 +33,7 @@ func Up_20260522195226(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-	CREATE TABLE in_house_app_configurations (
+	CREATE TABLE IF NOT EXISTS in_house_app_configurations (
 		id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 		in_house_app_id INT UNSIGNED NOT NULL,
 		configuration MEDIUMTEXT NOT NULL,

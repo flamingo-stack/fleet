@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20260522195234(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Allow NULL and remove the 'ndes' default on host_mdm_managed_certificates.type
 	// so rows created from cert ingestion (PR 2.2) — for non-proxied flows where
 	// Fleet isn't in the issuance path and doesn't know the CA type — can be

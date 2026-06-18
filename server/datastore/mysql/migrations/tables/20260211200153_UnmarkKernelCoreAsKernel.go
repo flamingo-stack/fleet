@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260211200153(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Previously, both "kernel" and "kernel-core" were marked as kernels for RPM-based distributions.
 	// However, on RHEL-family systems (RHEL, AlmaLinux, CentOS, Rocky, Fedora), both packages exist:
 	// - "kernel-core"

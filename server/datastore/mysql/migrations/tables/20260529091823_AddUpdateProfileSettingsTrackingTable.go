@@ -13,9 +13,10 @@ func init() {
 }
 
 func Up_20260529091823(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Create the table
 	_, err := tx.Exec(`
-	CREATE TABLE mdm_configuration_profile_update_settings (
+	CREATE TABLE IF NOT EXISTS mdm_configuration_profile_update_settings (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   windows_profile_uuid VARCHAR(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   apple_declaration_uuid VARCHAR(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -52,7 +53,7 @@ func Up_20260529091823(tx *sql.Tx) error {
 			continue
 		}
 
-		if _, err := tx.Exec(`INSERT INTO mdm_configuration_profile_update_settings (apple_declaration_uuid) VALUES (?)`, decl.DeclarationUUID); err != nil {
+		if _, err := tx.Exec(`INSERT IGNORE INTO mdm_configuration_profile_update_settings (apple_declaration_uuid) VALUES (?)`, decl.DeclarationUUID); err != nil {
 			return err
 		}
 	}
@@ -76,7 +77,7 @@ func Up_20260529091823(tx *sql.Tx) error {
 			continue
 		}
 
-		if _, err := tx.Exec(`INSERT INTO mdm_configuration_profile_update_settings (windows_profile_uuid) VALUES (?)`, profile.ProfileUUID); err != nil {
+		if _, err := tx.Exec(`INSERT IGNORE INTO mdm_configuration_profile_update_settings (windows_profile_uuid) VALUES (?)`, profile.ProfileUUID); err != nil {
 			return err
 		}
 	}

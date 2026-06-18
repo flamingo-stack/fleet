@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260126210724(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
-		CREATE TABLE host_conditional_access (
+		CREATE TABLE IF NOT EXISTS host_conditional_access (
 			id int unsigned NOT NULL AUTO_INCREMENT,
 			host_id int unsigned NOT NULL,
 			bypassed_at timestamp,

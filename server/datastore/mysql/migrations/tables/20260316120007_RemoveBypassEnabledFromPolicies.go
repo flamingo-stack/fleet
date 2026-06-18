@@ -10,6 +10,12 @@ func init() {
 }
 
 func Up_20260316120007(tx *sql.Tx) error {
+	// Idempotent migration.
+	// The UPDATE below references conditional_access_bypass_enabled, which this
+	// migration then drops. If the column is already gone (re-run), skip both.
+	if !columnExists(tx, "policies", "conditional_access_bypass_enabled") {
+		return nil
+	}
 	// Promote bypass=true policies to critical for teams that have Okta conditional
 	// access enabled, but only when Okta is globally configured.
 	_, err := tx.Exec(`

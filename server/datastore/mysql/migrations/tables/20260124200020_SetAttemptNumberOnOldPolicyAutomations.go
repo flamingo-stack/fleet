@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20260124200020(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	_, err := tx.Exec(`
 		UPDATE host_script_results
 		SET attempt_number = 0

@@ -12,6 +12,7 @@ func init() {
 }
 
 func Up_20260522195224(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Defaults to true for upgraded installations (where users already exist) so
 	// that prior behavior is preserved, and false for fresh installations.
 	var usersCount int

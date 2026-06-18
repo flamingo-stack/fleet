@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260615135619(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE setup_experience_software_installers (
+CREATE TABLE IF NOT EXISTS setup_experience_software_installers (
   software_installer_id INT UNSIGNED NOT NULL,
   platform              VARCHAR(32)  NOT NULL,
   global_or_team_id     INT UNSIGNED NOT NULL,

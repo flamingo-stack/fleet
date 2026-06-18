@@ -9,10 +9,11 @@ func init() {
 }
 
 func Up_20260601200727(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Singleton settings row holding the runtime tunable trace sampling configuration. Operators flip these via PATCH
 	// /debug/trace_sampler. The /debug auth log and the PATCH access log already record who made the change.
 	_, err := tx.Exec(`
-		CREATE TABLE trace_sampler_settings (
+		CREATE TABLE IF NOT EXISTS trace_sampler_settings (
 			id                TINYINT UNSIGNED NOT NULL PRIMARY KEY,
 			high_volume_ratio DOUBLE NOT NULL DEFAULT 0.001,
 			standard_ratio    DOUBLE NOT NULL DEFAULT 0.02,
@@ -30,7 +31,7 @@ func Up_20260601200727(tx *sql.Tx) error {
 	// Insert the seed row with an explicit fixed updated_at instead of letting the column default to CURRENT_TIMESTAMP.
 	// schema.sql captures the row's data; if updated_at varied per migration run, every developer would get a different schema
 	// dump and `make test-schema` would never pass.
-	_, err = tx.Exec(`INSERT INTO trace_sampler_settings (id, updated_at) VALUES (1, '2026-06-01 00:00:00')`)
+	_, err = tx.Exec(`INSERT IGNORE INTO trace_sampler_settings (id, updated_at) VALUES (1, '2026-06-01 00:00:00')`)
 	return err
 }
 

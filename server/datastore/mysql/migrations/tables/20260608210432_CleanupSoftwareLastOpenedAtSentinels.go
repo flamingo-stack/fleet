@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260608210432(tx *sql.Tx) error {
+	// Idempotent migration. Naturally re-runnable (UPDATE/MODIFY/JSON-config only).
 	// Some macOS apps report the sentinel last_opened_time 315532800.0
 	// (1980-01-01 UTC, the DOS/FAT epoch) for apps that were never opened. Older
 	// Fleet versions stored this as a genuine timestamp, which the UI then

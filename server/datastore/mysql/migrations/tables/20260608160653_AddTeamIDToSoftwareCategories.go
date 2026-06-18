@@ -11,27 +11,45 @@ func init() {
 }
 
 func Up_20260608160653(tx *sql.Tx) error {
+	// Idempotent migration.
 	return withSteps([]migrationStep{
 		// Table update: add team scoping columns, swap unique index, rename defaults.
 		func(tx *sql.Tx) error {
+			// MODIFY COLUMN is naturally idempotent; run it unconditionally.
 			if _, err := tx.Exec(`
 ALTER TABLE software_categories
-	MODIFY COLUMN name VARCHAR(255) NOT NULL,
+	MODIFY COLUMN name VARCHAR(255) NOT NULL
+`); err != nil {
+				return errors.Wrap(err, "adding team scoping columns to software_categories")
+			}
+			if !columnsExists(tx, "software_categories", "team_id", "created_at", "updated_at") {
+				if _, err := tx.Exec(`
+ALTER TABLE software_categories
 	ADD COLUMN team_id INT UNSIGNED NOT NULL DEFAULT 0,
 	ADD COLUMN created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 	ADD COLUMN updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
 `); err != nil {
-				return errors.Wrap(err, "adding team scoping columns to software_categories")
+					return errors.Wrap(err, "adding team scoping columns to software_categories")
+				}
 			}
 
 			// Index changes: drop the old name-only unique index (names will repeat
 			// across teams) and add the new (team_id, name) unique index.
-			if _, err := tx.Exec(`
+			if indexExistsTx(tx, "software_categories", "idx_software_categories_name") {
+				if _, err := tx.Exec(`
 ALTER TABLE software_categories
-	DROP INDEX idx_software_categories_name,
+	DROP INDEX idx_software_categories_name
+`); err != nil {
+					return errors.Wrap(err, "swapping uniqueness scope to (team_id, name)")
+				}
+			}
+			if !indexExistsTx(tx, "software_categories", "idx_software_categories_team_id_name") {
+				if _, err := tx.Exec(`
+ALTER TABLE software_categories
 	ADD UNIQUE KEY idx_software_categories_team_id_name (team_id, name)
 `); err != nil {
-				return errors.Wrap(err, "swapping uniqueness scope to (team_id, name)")
+					return errors.Wrap(err, "swapping uniqueness scope to (team_id, name)")
+				}
 			}
 
 			// Rename the previously seeded defaults to their emoji-prefixed forms.
@@ -65,7 +83,7 @@ WHERE team_id = 0
 		func(tx *sql.Tx) error {
 			// give every existing fleet its own copy of the 6 defaults.
 			if _, err := tx.Exec(`
-INSERT INTO software_categories (name, team_id)
+INSERT IGNORE INTO software_categories (name, team_id)
 SELECT sc.name, t.id
 FROM software_categories sc
 CROSS JOIN teams t

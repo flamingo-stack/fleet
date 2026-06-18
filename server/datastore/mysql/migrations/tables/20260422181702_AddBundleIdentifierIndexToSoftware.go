@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260422181702(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add an index on software.bundle_identifier so the hourly FMA sync cron
 	// (UpsertMaintainedApp -> UPDATE software ... WHERE bundle_identifier = ?)
 	// performs an indexed lookup instead of a full-table scan.
@@ -19,9 +20,11 @@ func Up_20260422181702(tx *sql.Tx) error {
 	// happen only during a one-time migration and rare FMA additions. The FMA
 	// sync cron actually runs hourly and issues the UPDATE per darwin FMA
 	// (~224 full scans/hour today), which justifies the index.
-	_, err := tx.Exec(`ALTER TABLE software ADD INDEX idx_software_bundle_identifier (bundle_identifier)`)
-	if err != nil {
-		return fmt.Errorf("failed to add bundle_identifier index to software: %w", err)
+	if !indexExistsTx(tx, "software", "idx_software_bundle_identifier") {
+		_, err := tx.Exec(`ALTER TABLE software ADD INDEX idx_software_bundle_identifier (bundle_identifier)`)
+		if err != nil {
+			return fmt.Errorf("failed to add bundle_identifier index to software: %w", err)
+		}
 	}
 	return nil
 }

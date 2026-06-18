@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20260522195235(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add an `origin` column tracking which ingestion source created the
 	// host_certificates row. This scopes deletion semantics so each ingestion
 	// source only soft-deletes rows it owns: an osquery sync that omits a row
@@ -19,12 +20,14 @@ func Up_20260522195235(tx *sql.Tx) error {
 	//
 	// Existing rows default to 'osquery' since osquery has been the only
 	// ingestion source until this change.
-	_, err := tx.Exec(`
+	if !columnExists(tx, "host_certificates", "origin") {
+		_, err := tx.Exec(`
 		ALTER TABLE host_certificates
 		ADD COLUMN origin ENUM('osquery', 'mdm') NOT NULL DEFAULT 'osquery'
 	`)
-	if err != nil {
-		return errors.Wrap(err, "add origin column to host_certificates")
+		if err != nil {
+			return errors.Wrap(err, "add origin column to host_certificates")
+		}
 	}
 	return nil
 }
