@@ -202,6 +202,31 @@ re-patched to match. Two options when rebasing:
 > idempotency convention (see *Guidelines* above), but the bulk rewrite here is a
 > distinct, upstream-facing change.
 
+### Misses are inevitable — pin them with a test
+
+The bulk idempotency pass is mechanical and can miss a file. The post-sync
+follow-up (`5b931dbdab`) guarded 78 migrations but **missed
+`20251229000010_AddSoftwareAutoUpdateTable.go`**, whose unconditional
+`ALTER TABLE hosts ADD COLUMN timezone` failed with `Error 1060: Duplicate column
+name 'timezone'` against a dev database that already had the column. It is now
+guarded with `columnExists` and pinned by
+`20251229000010_AddSoftwareAutoUpdateTable_test.go`.
+
+When you find and fix a missed migration, add a regression test in the same shape:
+it simulates the divergent DB (pre-creates the object the migration adds), applies
+the migration, and asserts the `Up` body is a no-op on a second direct call. Note
+two gotchas that test works around:
+
+- `applyUpToPrev` **skips migrations older than 60 days**, so an old-timestamped
+  upstream migration we modified would never be exercised — inline the apply loop
+  to bypass the skip.
+- A fresh forward sequence never has the conflicting object yet (the migration is
+  what adds it), so the bug only reproduces if the test **pre-creates** it first.
+
+These `tables/` tests run in the standard `mysql` CI bundle
+(`./server/datastore/mysql/...`), not in `openframe-verify`'s deep tier (which
+filters to `MigrateOpenframeIdempotent`, covering only the openframe pipeline).
+
 ## Rebase workflow
 
 When rebasing onto a newer upstream release:
