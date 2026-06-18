@@ -1,0 +1,66 @@
+# Tests the `fleetctl preview` command with latest npm released version of fleetctl.
+name: Test fleetctl preview
+
+on:
+  workflow_dispatch: # Manual
+  pull_request:
+    paths:
+      - '.github/workflows/fleetctl-preview.yml'
+  schedule:
+  - cron: '0 2 * * *' # Nightly 2AM UTC
+
+# This allows a subsequently queued workflow run to interrupt previous runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id}}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Supply-chain guard: refuse npm packages younger than 12 hours. See .npmrc.
+  NPM_CONFIG_MIN_RELEASE_AGE: 0.5
+
+jobs:
+  test-preview:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Harden Runner
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      with:
+        egress-policy: audit
+
+    - name: Test fleetctl preview
+      env:
+        GITHUB_TOKEN: ${{ secrets.FLEET_RELEASE_GITHUB_PAT }}
+      run: |
+        npm install -g fleetctl
+        fleetctl preview --disable-open-browser
+        sleep 10
+        fleetctl get hosts | tee hosts.txt
+        [ $( cat hosts.txt | grep online | wc -l) -eq 8 ]
+      shell: bash
+
+    - name: Get fleet logs
+      if: always()
+      run: |
+        FLEET_LICENSE_KEY=foo docker compose -f ~/.fleet/preview/docker-compose.yml logs fleet01 fleet02 > fleet-logs.txt
+        # Copying logs, otherwise the upload-artifact action uploads the logs in a hidden folder (.fleet)
+        # Old location of orbit logs before v4.43.0
+        cp ~/.fleet/preview/orbit.log orbit.log || true
+        # New location of orbit logs since v4.43.0
+        cp ~/.fleet/preview/orbit/orbit.log orbit.log || true
+        cp -r ~/.fleet/preview/logs osquery_result_status_logs
+      shell: bash
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
+      with:
+        name: ${{ matrix.os }}-log
+        path: |
+          fleet-logs.txt
+          orbit.log
+          osquery_result_status_logs

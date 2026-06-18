@@ -2,7 +2,7 @@
   "name": "Cloudflare WARP",
   "slug": "cloudflare-warp/windows",
   "package_identifier": "Cloudflare.Warp",
-  "unique_identifier": "Cloudflare WARP",
+  "unique_identifier": "Cloudflare One Client",
   "installer_arch": "x64",
   "installer_type": "msi",
   "installer_scope": "machine",

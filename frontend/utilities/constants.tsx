@@ -10,6 +10,8 @@ import { IHost } from "interfaces/host";
 const { origin } = global.window.location;
 export const BASE_URL = `${origin}${URL_PREFIX}/api`;
 
+export const UNCHANGED_PASSWORD_API_RESPONSE = "********";
+
 export enum PolicyResponse {
   PASSING = "passing",
   FAILING = "failing",
@@ -88,6 +90,8 @@ export const MAX_OSQUERY_SCHEDULED_QUERY_INTERVAL = 604800;
 
 export const MIN_OSQUERY_VERSION_OPTIONS = [
   { label: "All", value: "" },
+  { label: "5.23.0 +", value: "5.23.0" },
+  { label: "5.22.1 +", value: "5.22.1" },
   { label: "5.21.0 +", value: "5.21.0" },
   { label: "5.20.0 +", value: "5.20.0" },
   { label: "5.19.0 +", value: "5.19.0" },
@@ -334,13 +338,23 @@ export const SCHEDULE_PLATFORM_DROPDOWN_OPTIONS = [
 ] as const;
 
 export const HOSTS_SEARCH_BOX_PLACEHOLDER =
-  "Search name, hostname, UUID, serial number, or private IP address";
+  "Search name, user email, hostname, UUID, serial number, or private IP address";
 
-export const HOSTS_SEARCH_BOX_TOOLTIP =
-  "Search hosts by name, hostname, UUID, serial number, or private IP address";
+export const HOSTS_SEARCH_BOX_TOOLTIP = (
+  <>
+    Search hosts by name, user email, hostname,
+    <br />
+    UUID, serial number, or private IP address.
+  </>
+);
 
-export const VULNERABILITIES_SEARCH_BOX_TOOLTIP =
-  'To search for an exact CVE, surround the string in double quotes (e.g. "CVE-2024-1234")';
+export const VULNERABILITIES_SEARCH_BOX_TOOLTIP = (
+  <>
+    To search for an exact CVE, surround the string
+    <br />
+    in double quotes (e.g. &quot;CVE-2024-1234&quot;).
+  </>
+);
 
 // Keys from API
 export const MDM_STATUS_TOOLTIP: Record<
@@ -349,26 +363,31 @@ export const MDM_STATUS_TOOLTIP: Record<
 > = {
   "On (automatic)": (
     <span>
-      MDM was turned on automatically. IT admins can block end users from
-      turning MDM off.
+      MDM was turned on automatically (Apple ADE, Windows Autopilot, or
+      fully-managed Android). IT admins can block end users from turning MDM
+      off.
     </span>
   ),
   "On (manual)": (
-    <span>MDM was turned on manually. End users can turn MDM off.</span>
+    <span>
+      On Apple hosts, the enrollment profile was installed manually. Windows
+      hosts were enrolled without Autopilot. End users can turn MDM off.
+    </span>
   ),
   "On (personal)": (
     <span>
-      MDM was turned on by signing in with Managed Apple Account on iPhone/iPad,
-      or by creating a work profile on Android. End users can turn MDM off.
+      MDM was turned on by signing in with a Managed Apple Account on
+      iOS/iPadOS, or by adding a work profile on Android. End users can turn MDM
+      off.
     </span>
   ),
   "On (company-owned)": null,
   Off: undefined, // no tooltip specified
   Pending: (
     <span>
-      Hosts ordered via Apple Business Manager <br /> (ABM). These will
-      automatically enroll to Fleet <br /> and turn on MDM when they&apos;re
-      unboxed.
+      Hosts ordered via Apple Business (AB).
+      <br /> These will automatically enroll to Fleet <br /> and turn on MDM
+      when they&apos;re unboxed.
     </span>
   ),
 };
@@ -394,7 +413,7 @@ export const BATTERY_TOOLTIP: Record<string, string | React.ReactNode> = {
   ),
 };
 
-export const PRIMO_TOOLTIP = "Teams are disabled while using Primo";
+export const PRIMO_TOOLTIP = "Fleets are disabled while using Primo";
 
 /** Must pass agent options config as empty object */
 export const EMPTY_AGENT_OPTIONS = {
@@ -414,6 +433,8 @@ export const HOST_SUMMARY_DATA: (keyof IHost)[] = [
   "team_name",
   "display_name", // Not rendered on my device page
   "maintenance_window", // Not rendered on my device page
+  "os_version",
+  "mdm",
 ];
 
 export const HOST_VITALS_DATA = [
@@ -442,6 +463,8 @@ export const HOST_VITALS_DATA = [
   "cpu_type",
   "os_version",
   "timezone",
+  "mdm_enrollment_hardware_attested",
+  "primary_mac",
 ];
 
 export const HOST_OSQUERY_DATA = [
@@ -466,7 +489,7 @@ export const INVALID_PLATFORMS_REASON =
   "query payload verification: query's platform must be a comma-separated list of 'darwin', 'linux', 'windows', and/or 'chrome' in a single string";
 
 export const INVALID_PLATFORMS_FLASH_MESSAGE =
-  "Couldn't save query. Please update platforms and try again.";
+  "Couldn't save report. Please update platforms and try again.";
 
 export const DATE_FNS_FORMAT_STRINGS = {
   dateAtTime: "E, MMM d 'at' p",

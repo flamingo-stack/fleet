@@ -42,7 +42,6 @@ GENERATE_PKG_TAR_ZST=1 \
 GENERATE_PKG_TAR_ZST_ARM64=1 \
 ENROLL_SECRET=6/EzU/+jPkxfTamWnRv1+IJsO4T9Etju \
 FLEET_DESKTOP=1 \
-USE_FLEET_SERVER_CERTIFICATE=1 \
 DEBUG=1 \
 ./tools/tuf/test/main.sh
 ```
@@ -70,6 +69,16 @@ To build for a specific architecture, you can pass the `GOARCH` environment vari
 [...]
 # defaults to amd64
 GOARCH=arm64 \
+[...]
+./tools/tuf/test/main.sh
+```
+
+To include Escrow Buddy, Nudge, or Swift Dialog on the TUF repository you can use the following variables:
+```sh
+[...]
+ESCROW_BUDDY=1 \
+NUDGE=1 \
+SWIFT_DIALOG=1 \
 [...]
 ./tools/tuf/test/main.sh
 ```
@@ -102,7 +111,7 @@ source ./tools/tuf/test/load_orbit_version_vars.sh
 # Compile a new version of Orbit:
 GOOS=windows GOARCH=amd64 go build \
     -o orbit-windows.exe \
-    -ldflags="-X github.com/fleetdm/fleet/v4/orbit/pkg/build.Version=$ORBIT_VERSION \
+    -ldflags="-s -w -X github.com/fleetdm/fleet/v4/orbit/pkg/build.Version=$ORBIT_VERSION \
     -X github.com/fleetdm/fleet/v4/orbit/pkg/build.Commit=$ORBIT_COMMIT" \
     ./orbit/cmd/orbit
 
@@ -126,7 +135,7 @@ go run ./orbit/tools/build/build.go
 ./tools/tuf/test/push_target.sh macos orbit orbit-macos $ORBIT_VERSION
 ```
 
-E.g. to add a new version of `osqueryd` for macOS:
+E.g. to add a new released version of `osqueryd` for macOS:
 ```sh
 # Generate osqueryd app bundle.
 make osqueryd-app-tar-gz version=5.5.1 out-path=.
@@ -135,6 +144,39 @@ make osqueryd-app-tar-gz version=5.5.1 out-path=.
 ./tools/tuf/test/push_target.sh macos-app osqueryd osqueryd.app.tar.gz 5.5.1
 ```
 NOTE: Contributors on macOS with Apple silicon ran into issues running osqueryd downloaded from GitHub. Until this issue is root caused, the workaround is to download osqueryd from [Fleet's TUF](https://updates.fleetdm.com/).
+
+E.g. to add a custom `osqueryd` version from an osquery PR for macOS:
+```sh
+# Generate osqueryd app bundle from pull request https://github.com/osquery/osquery/pull/8815.
+make osqueryd-app-tar-gz pr=8815 out-path=.
+
+# Push the osqueryd target as a new version.
+./tools/tuf/test/push_target.sh macos-app osqueryd osqueryd.app.tar.gz 5.23.0
+```
+
+E.g. to add a custom `osqueryd` version built locally for macOS:
+```sh
+# Generate osqueryd app bundle from a locally built osqueryd executable.
+make osqueryd-app-tar-gz osqueryd_path=/path/to/osqueryd out-path=.
+
+# Push the osqueryd target as a new version.
+./tools/tuf/test/push_target.sh macos-app osqueryd osqueryd.app.tar.gz 5.23.0
+```
+
+E.g. to add a custom `osqueryd` version from an osquery PR for Linux (amd64 and arm64):
+```sh
+# Grab osqueryd linux amd64 executable from pull request https://github.com/osquery/osquery/pull/8844.
+make osqueryd-linux pr=8844 arch=amd64 out-path=.
+
+# Push the osqueryd amd64 target as a new version.
+./tools/tuf/test/push_target.sh linux osqueryd osqueryd 5.23.0
+
+# Grab osqueryd linux arm64 executable from pull request https://github.com/osquery/osquery/pull/8844.
+make osqueryd-linux pr=8844 arch=arm64 out-path=.
+
+# Push the osqueryd arm64 target as a new version.
+./tools/tuf/test/push_target.sh linux-arm64 osqueryd osqueryd 5.23.0
+```
 
 E.g. to add a new version of `desktop` for macOS:
 ```sh
@@ -182,7 +224,6 @@ If you decide that you want to run your local fleet server with the `--server_tl
 
 ```
 + INSECURE=1 \
-- USE_FLEET_SERVER_CERTIFICATE=1 \
 
 + PKG_FLEET_URL=http://localhost:8080 \
 - PKG_FLEET_URL=https://localhost:8080 \

@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fleetdm/fleet/v4/server/mdm"
+	"github.com/fleetdm/fleet/v4/server/variables"
 	"google.golang.org/api/androidmanagement/v1"
 )
+
+const AndroidWebAppPrefix = "com.google.enterprise.webapp"
 
 // MDMAndroidConfigProfile represents an Android MDM profile in Fleet. This does not map
 // directly to a specific policy in the Android API, rather the policy applied is the
@@ -21,7 +25,7 @@ type MDMAndroidConfigProfile struct {
 	// ProfileUUID is the unique identifier of the configuration profile in
 	// Fleet. For Android profiles, it is the letter "g" followed by a uuid.
 	ProfileUUID      string                      `db:"profile_uuid" json:"profile_uuid"`
-	TeamID           *uint                       `db:"team_id" json:"team_id"`
+	TeamID           *uint                       `db:"team_id" json:"team_id" renameto:"fleet_id"`
 	Name             string                      `db:"name" json:"name"`
 	RawJSON          []byte                      `db:"raw_json" json:"-"`
 	AutoIncrement    int64                       `db:"auto_increment" json:"auto_increment"`
@@ -124,6 +128,9 @@ type MDMAndroidProfilePayload struct {
 	DeviceRequestUUID       *string            `db:"device_request_uuid"`
 	RequestFailCount        int                `db:"request_fail_count"`
 	IncludedInPolicyVersion *int               `db:"included_in_policy_version"`
+	Checksum                []byte             `db:"checksum"`
+	LastErrorDetails        string             `db:"last_error_details"`
+	CanReverify             bool               `db:"can_reverify"`
 }
 
 // HostMDMAndroidProfile represents the status of an MDM profile for a Android host.
@@ -189,6 +196,20 @@ func IsAndroidPolicyFieldValid(fieldName string) bool {
 	return policyFieldsCache[fieldName]
 }
 
+// FleetVarsSupportedInAndroidAppConfig is the allow-list of Fleet variables that
+// can appear in an Android managed app configuration JSON.
+var FleetVarsSupportedInAndroidAppConfig = []FleetVarName{
+	FleetVarHostUUID,
+	FleetVarHostHardwareSerial,
+	FleetVarHostPlatform,
+	FleetVarHostEndUserEmailIDP,
+	FleetVarHostEndUserIDPUsername,
+	FleetVarHostEndUserIDPUsernameLocalPart,
+	FleetVarHostEndUserIDPGroups,
+	FleetVarHostEndUserIDPDepartment,
+	FleetVarHostEndUserIDPFullname,
+}
+
 var validAndroidWorkProfileWidgets = map[string]struct{}{
 	"WORK_PROFILE_WIDGETS_UNSPECIFIED": {},
 	"WORK_PROFILE_WIDGETS_ALLOWED":     {},
@@ -225,6 +246,14 @@ func ValidateAndroidAppConfiguration(config json.RawMessage) error {
 
 	if _, validVal := validAndroidWorkProfileWidgets[cfg.WorkProfileWidgets]; cfg.WorkProfileWidgets != "" && !validVal {
 		return &BadRequestError{Message: fmt.Sprintf(`Couldn't update configuration. "%s" is not a supported value for "workProfileWidget".`, cfg.WorkProfileWidgets)}
+	}
+
+	for _, name := range variables.Find(string(config)) {
+		if !slices.Contains(FleetVarsSupportedInAndroidAppConfig, FleetVarName(name)) {
+			return &BadRequestError{
+				Message: fmt.Sprintf("Couldn't update configuration. Unsupported variable $FLEET_VAR_%s.", name),
+			}
+		}
 	}
 
 	return nil

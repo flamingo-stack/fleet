@@ -1,0 +1,85 @@
+# This workflow tests packaging of fleetd with the
+# `fleetctl package` command using locally built fleetdm/wix and fleetdm/bomutils images.
+#
+# It fetches the targets: orbit, osquery and fleet-desktop from the default
+# (Fleet's) TUF server, https://tuf.fleetctl.com.
+name: Test packaging with local fleetdm/wix and fleetdm/bomutils
+
+on:
+  push:
+    branches:
+      - main
+      - patch-*
+      - prepare-*
+    paths:
+      - "tools/bomutils-docker/**"
+      - "tools/wix-docker/**"
+      - ".github/workflows/test-packaging-build-docker-deps.yml"
+  pull_request:
+    paths:
+      - "tools/bomutils-docker/**"
+      - "tools/wix-docker/**"
+      - ".github/workflows/test-packaging-build-docker-deps.yml"
+  workflow_dispatch: # Manual
+
+# This allows a subsequently queued workflow run to interrupt previous runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id}}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # fail-fast using bash -eo pipefail. See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#exit-codes-and-error-action-preference
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  test-packaging:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-4core]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout Code
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: "go.mod"
+
+      - name: Build fleetctl
+        run: make fleetctl
+
+      - name: Build fleetdm/wix
+        run: make wix-docker
+
+      - name: Build fleetdm/bomutils
+        run: make bomutils-docker
+
+      #
+      # Only testing MSI and PKG because RPM/DEB have no docker dependency.
+      #
+
+      - name: Build MSI
+        run: ./build/fleetctl package --type msi --enroll-secret=foo --fleet-url=https://localhost:8080
+
+      - name: Build MSI with Fleet Desktop
+        run: ./build/fleetctl package --type msi --enroll-secret=foo --fleet-url=https://localhost:8080 --fleet-desktop
+
+      - name: Build PKG
+        run: ./build/fleetctl package --type pkg --enroll-secret=foo --fleet-url=https://localhost:8080
+
+      - name: Build PKG with Fleet Desktop
+        run: ./build/fleetctl package --type pkg --enroll-secret=foo --fleet-url=https://localhost:8080 --fleet-desktop

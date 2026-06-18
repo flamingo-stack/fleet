@@ -25,19 +25,18 @@ type standalonePool struct {
 }
 
 func (p *standalonePool) Get() redis.Conn {
-	var conn redis.Conn
 	if p.connWaitTimeout <= 0 {
-		conn = p.Pool.Get()
-	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), p.connWaitTimeout)
-		defer cancel()
-
-		// GetContext always returns an "errorConn" as valid connection when there is
-		// an error, so there's no need to care about the second return value (as for
-		// the no-wait case, the errorConn will fail on first use with the actual
-		// error).
-		conn, _ = p.Pool.GetContext(ctx)
+		return newPrefixedConn(p.Pool.Get(), p.keyPrefix) // OPENFRAME(redis-key-prefix): wrap conn to namespace keys
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), p.connWaitTimeout)
+	defer cancel()
+
+	// GetContext always returns an "errorConn" as valid connection when there is
+	// an error, so there's no need to care about the second return value (as for
+	// the no-wait case, the errorConn will fail on first use with the actual
+	// error).
+	conn, _ := p.Pool.GetContext(ctx)
 	return newPrefixedConn(conn, p.keyPrefix) // OPENFRAME(redis-key-prefix): wrap conn to namespace keys
 }
 
@@ -135,15 +134,10 @@ func NewPool(config PoolConfig) (fleet.RedisPool, error) {
 	}
 	if err := cluster.Refresh(); err != nil {
 		if isClusterDisabled(err) || isClusterCommandUnknown(err) {
-			// Standalone Redis fallback — use the first seed.
-			seeds := splitSeedNodes(config.Server)
-			var addr string
-			if len(seeds) > 0 {
-				addr = seeds[0]
-			}
-			pool, _ := cluster.CreatePool(addr, cluster.DialOptions...)
+			// not a Redis Cluster setup, use a standalone Redis pool
+			pool, _ := cluster.CreatePool(config.Server, cluster.DialOptions...)
 			cluster.Close()
-			return &standalonePool{pool, addr, config.ConnWaitTimeout, prefix}, nil
+			return &standalonePool{pool, config.Server, config.ConnWaitTimeout, prefix}, nil // OPENFRAME(redis-key-prefix): thread normalized prefix
 		}
 		return nil, fmt.Errorf("refresh cluster: %w", err)
 	}
@@ -152,27 +146,8 @@ func NewPool(config PoolConfig) (fleet.RedisPool, error) {
 		cluster,
 		config.ClusterFollowRedirections,
 		config.ClusterReadFromReplica,
-		prefix,
+		prefix, // OPENFRAME(redis-key-prefix): thread normalized prefix
 	}, nil
-}
-
-// splitSeedNodes parses FLEET_REDIS_ADDRESS into seed host:port entries.
-// Accepts single addr, redis:// URL, or comma-separated mix; trims scheme
-// and whitespace per entry.
-func splitSeedNodes(server string) []string {
-	if server == "" {
-		return nil
-	}
-	parts := strings.Split(server, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		p = strings.TrimPrefix(p, "redis://")
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 // >>> OPENFRAME(redis-key-prefix): normalize/validate the key prefix string — openframe/docs/redis-key-prefix.md
@@ -210,11 +185,16 @@ func ReadOnlyConn(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 	return conn
 }
 
+// Simplified interface for the ConfigureDoer function.
+type getPool interface {
+	Get() redis.Conn
+}
+
 // ConfigureDoer configures conn to follow redirections if the redis
 // configuration requested it and the pool is a Redis Cluster pool. If the conn
 // is already in error, or if it is not a redisc cluster connection, it is
 // returned unaltered.
-func ConfigureDoer(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
+func ConfigureDoer(pool getPool, conn redis.Conn) redis.Conn {
 	if p, isCluster := pool.(*clusterPool); isCluster {
 		if err := conn.Err(); err == nil && p.followRedirs {
 			// >>> OPENFRAME(redis-key-prefix): unwrap prefixed conn for redisc.RetryConn, then re-wrap — openframe/docs/redis-key-prefix.md
@@ -427,7 +407,7 @@ func newCluster(conf PoolConfig) (*redisc.Cluster, error) {
 	}
 
 	return &redisc.Cluster{
-		StartupNodes: splitSeedNodes(conf.Server),
+		StartupNodes: []string{conf.Server},
 		PoolWaitTime: conf.ConnWaitTimeout,
 		DialOptions:  opts,
 		CreatePool: func(server string, opts ...redis.DialOption) (*redis.Pool, error) {

@@ -156,7 +156,7 @@ func createMacOSApp(version, authority string, notarize bool) error {
 	/* #nosec G204 -- arguments are actually well defined */
 	buildExec := exec.Command("go", "build",
 		"-o", amdBinaryPath,
-		"-ldflags", os.ExpandEnv("-X=main.version=$FLEET_DESKTOP_VERSION"),
+		"-ldflags", os.ExpandEnv("-s -w -X=main.version=$FLEET_DESKTOP_VERSION"),
 		"./"+filepath.Join("orbit", "cmd", "desktop"),
 	)
 	buildExec.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=darwin", "GOARCH=amd64")
@@ -172,7 +172,7 @@ func createMacOSApp(version, authority string, notarize bool) error {
 	/* #nosec G204 -- arguments are actually well defined */
 	buildExec = exec.Command("go", "build",
 		"-o", armBinaryPath,
-		"-ldflags", os.ExpandEnv("-X=main.version=$FLEET_DESKTOP_VERSION"),
+		"-ldflags", os.ExpandEnv("-s -w -X=main.version=$FLEET_DESKTOP_VERSION"),
 		"./"+filepath.Join("orbit", "cmd", "desktop"),
 	)
 	buildExec.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=darwin", "GOARCH=arm64")
@@ -195,18 +195,22 @@ func createMacOSApp(version, authority string, notarize bool) error {
 		return fmt.Errorf("remove arm64 binary: %w", err)
 	}
 
-	// Check that executable is not dirty (see #35006).
-	info, err := buildinfo.ReadFile(binaryPath)
-	if err != nil {
-		return fmt.Errorf("failed to read build info of %q: %w", binaryPath, err)
-	}
-	if strings.Contains(info.Main.Version, "dirty") {
-		gitStatus, err := exec.Command("git", "status").Output()
+	if os.Getenv("DISABLE_DIRTY_CHECK") == "1" {
+		zlog.Info().Msg("executable dirty check disabled")
+	} else {
+		// Check that executable is not dirty (see #35006).
+		info, err := buildinfo.ReadFile(binaryPath)
 		if err != nil {
-			zlog.Info().Str("command", "git status").Err(err).Msg("Failed to execute")
+			return fmt.Errorf("failed to read build info of %q: %w", binaryPath, err)
 		}
-		zlog.Info().Str("output", string(gitStatus)).Msg("git status")
-		return fmt.Errorf("detected dirty executable: %+v", info.Main)
+		if strings.Contains(info.Main.Version, "dirty") {
+			gitStatus, err := exec.Command("git", "status").Output()
+			if err != nil {
+				zlog.Info().Str("command", "git status").Err(err).Msg("Failed to execute")
+			}
+			zlog.Info().Str("output", string(gitStatus)).Msg("git status")
+			return fmt.Errorf("detected dirty executable: %+v", info.Main)
+		}
 	}
 
 	if authority != "" {

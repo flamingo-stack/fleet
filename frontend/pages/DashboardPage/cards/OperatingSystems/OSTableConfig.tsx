@@ -23,6 +23,7 @@ import HeaderCell from "components/TableContainer/DataTable/HeaderCell";
 import ViewAllHostsLink from "components/ViewAllHostsLink";
 import LinkCell from "components/TableContainer/DataTable/LinkCell";
 import TooltipWrapper from "components/TooltipWrapper";
+import CustomLink from "components/CustomLink";
 
 import VulnerabilitiesCell from "pages/SoftwarePage/components/tables/VulnerabilitiesCell";
 import OSIcon from "pages/SoftwarePage/components/icons/OSIcon";
@@ -30,7 +31,7 @@ import {
   INumberCellProps,
   IStringCellProps,
 } from "interfaces/datatable_config";
-import { isLinuxLike } from "interfaces/platform";
+import { isVulnUnsupportedPlatform } from "interfaces/platform";
 import TooltipWrapperArchLinuxRolling from "components/TooltipWrapperArchLinuxRolling";
 
 type ITableColumnConfig = Column<IOperatingSystemVersion>;
@@ -75,7 +76,7 @@ const generateDefaultTableHeaders = (
 
       const softwareOsDetailsPath = getPathWithQueryParams(
         PATHS.SOFTWARE_OS_DETAILS(os_version_id),
-        { team_id: teamId }
+        { fleet_id: teamId }
       );
 
       const onClickSoftware = (e: React.MouseEvent) => {
@@ -113,35 +114,35 @@ const generateDefaultTableHeaders = (
     },
   },
   {
-    Header: (): JSX.Element => {
-      const titleWithTooltip = (
-        <TooltipWrapper
-          tipContent={
-            <>
-              Vulnerabilities on Linux are currently supported <br />
-              for Ubuntu, Debian, and Amazon Linux.
-            </>
-          }
-        >
-          Vulnerabilities
-        </TooltipWrapper>
-      );
-      return (
-        <>
-          <HeaderCell value={titleWithTooltip} disableSortBy />
-        </>
-      );
-    },
+    Header: "Vulnerabilities",
     disableSortBy: true,
     accessor: "vulnerabilities",
     Cell: (cellProps: IVulnCellProps) => {
       const platform = cellProps.row.original.platform;
-      if (
-        platform !== "darwin" &&
-        platform !== "windows" &&
-        !isLinuxLike(platform)
-      ) {
-        return <TextCell value="Not supported" grey />;
+      if (isVulnUnsupportedPlatform(platform)) {
+        return (
+          <TooltipWrapper
+            tipContent={
+              <>
+                Vulnerabilities are currently supported on
+                <br />
+                macOS, Windows, and Linux.{" "}
+                <CustomLink
+                  url="https://fleetdm.com/guides/vulnerability-processing#coverage"
+                  variant="tooltip-link"
+                  text="Learn more"
+                  newTab
+                />
+              </>
+            }
+            position="top"
+            underline={false}
+            showArrow
+            fixedPositionStrategy
+          >
+            <TextCell value="Not supported" grey />
+          </TooltipWrapper>
+        );
       }
       return (
         <VulnerabilitiesCell
@@ -181,7 +182,7 @@ const generateDefaultTableHeaders = (
         <ViewAllHostsLink
           queryParams={{
             os_version_id,
-            team_id: teamId,
+            fleet_id: teamId,
           }}
           className="os-hosts-link"
           rowHover

@@ -1,0 +1,135 @@
+name: Test latest changes in fleetctl preview
+
+# Tests the `fleetctl preview` command with the Fleet server and fleetctl
+# built from the same commit, ensuring the starter library and GitOps
+# pipeline work end-to-end.
+
+on:
+  push:
+    branches:
+      - main
+      - patch-*
+      - prepare-*
+    paths:
+      - 'cmd/fleetctl/**.go'
+      - 'pkg/**.go'
+      - 'server/service/**.go'
+      - 'server/context/**.go'
+      - 'orbit/**.go'
+      - 'ee/fleetctl/**.go'
+      - '.github/workflows/fleetctl-preview-latest.yml'
+      - 'tools/osquery/in-a-box'
+  pull_request:
+    paths:
+      - 'cmd/fleetctl/**.go'
+      - 'pkg/**.go'
+      - 'server/service/**.go'
+      - 'server/context/**.go'
+      - 'orbit/**.go'
+      - 'ee/fleetctl/**.go'
+      - '.github/workflows/fleetctl-preview-latest.yml'
+      - 'tools/osquery/in-a-box'
+  workflow_dispatch: # Manual
+
+# This allows a subsequently queued workflow run to interrupt previous runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id}}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # fail-fast using bash -eo pipefail. See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#exit-codes-and-error-action-preference
+    shell: bash
+
+permissions:
+  contents: read
+
+jobs:
+  test-preview:
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        # Only run on Linux because:
+        #   - Linux Docker containers are not supported in Windows.
+        #   - Unattended installation of Docker on macOS fails. (see
+        #   https://github.com/docker/for-mac/issues/6450)
+        os: [ubuntu-4core]
+    runs-on: ${{ matrix.os }}
+    steps:
+
+    - name: Harden Runner
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      with:
+        egress-policy: audit
+
+    - name: Checkout Code
+      uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
+      with:
+        persist-credentials: false
+
+    - name: Install Go
+      uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@5e21ff4d9bc1a8cf6de233a3057d20ec6b3fb69d # v3.8.1
+      with:
+        node-version-file: package.json
+        check-latest: true
+
+    - name: Install JS dependencies
+      run: make deps
+
+    - name: Generate assets
+      run: make generate
+
+    - name: Build Fleetctl
+      run: make fleetctl
+
+    - name: Build Fleet server Docker image
+      run: |
+        make fleet-static
+        cp ./build/fleet fleet
+        docker build -t fleetdm/fleet:dev -f tools/fleet-docker/Dockerfile .
+        rm fleet
+
+    - name: Prepare preview config
+      run: |
+        # Copy the in-a-box config and set pull_policy so Docker uses the
+        # locally built image instead of trying to pull from Docker Hub.
+        cp -a tools/osquery/in-a-box /tmp/preview-config
+        # Add pull_policy: never to fleet01 and fleet02 services
+        sed -i '/^  fleet01:/,/^  [^ ]/{s/^\(    image: fleetdm\/fleet.*\)/\1\n    pull_policy: never/}' /tmp/preview-config/docker-compose.yml
+        sed -i '/^  fleet02:/,/^  [^ ]/{s/^\(    image: fleetdm\/fleet.*\)/\1\n    pull_policy: never/}' /tmp/preview-config/docker-compose.yml
+
+    - name: Run fleetctl preview
+      run: |
+        ./build/fleetctl preview \
+          --tag dev \
+          --disable-open-browser \
+          --preview-config-path /tmp/preview-config
+        sleep 10
+        ./build/fleetctl get hosts | tee hosts.txt
+        [ $( cat hosts.txt | grep online | wc -l) -eq 8 ]
+
+    - name: Get fleet logs
+      if: always()
+      run: |
+        FLEET_LICENSE_KEY=foo docker compose -f ~/.fleet/preview/docker-compose.yml logs fleet01 fleet02 > fleet-logs.txt
+        # Copying logs, otherwise the upload-artifact action uploads the logs in a hidden folder (.fleet)
+        # Old location of orbit logs before v4.43.0
+        cp ~/.fleet/preview/orbit.log orbit.log || true
+        # New location of orbit logs since v4.43.0
+        cp ~/.fleet/preview/orbit/orbit.log orbit.log || true
+        cp -r ~/.fleet/preview/logs osquery_result_status_logs
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
+      with:
+        name: ${{ matrix.os }}-log
+        path: |
+          fleet-logs.txt
+          orbit.log
+          osquery_result_status_logs

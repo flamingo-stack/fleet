@@ -139,6 +139,25 @@ will be disabled and/or hidden in the UI.
       // ... Any other app-specific setup code that needs to run on lift,
       // even in production, goes here ...
 
+      // In non-production environments, make `builtStaticContent.testimonials` optional so pages that use the <scrollable-tweets> component still render before the build-static-content script has been run.
+      // To prevent the component from being empty whitespace on pages where it is used, we'll inject a single placeholder testimonial directing the user to run the build-static-content script.
+      if (sails.config.environment !== 'production') {
+        if (!_.isObject(sails.config.builtStaticContent)) {
+          sails.config.builtStaticContent = {};
+        }
+        if (!_.isArray(sails.config.builtStaticContent.testimonials) || sails.config.builtStaticContent.testimonials.length === 0) {
+          sails.config.builtStaticContent.testimonials = [{
+            quote: 'This placeholder appears because the website\'s static content has not been built. Run `sails run build-static-content` or `npm start-dev` to see real customer testimonials.',
+            quoteImageFilename: 'logo-blue-118x41@2x.png',
+            quoteAuthorName: 'Fleet',
+            quoteAuthorJobTitle: 'Placeholder testimonial',
+            quoteAuthorProfileImageFilename: 'fleet-profile-image.png',
+            quoteLinkUrl: '/',
+            productCategories: ['Device management', 'Observability', 'Software management'],
+          }];
+        }
+      }//ﬁ
+
     },
 
 
@@ -155,9 +174,7 @@ will be disabled and/or hidden in the UI.
         '/*': {
           skipAssets: true,
           fn: async function(req, res, next){
-
             var url = require('url');
-
             // First, if this is a GET request (and thus potentially a view) or a HEAD request,
             // attach a couple of guaranteed locals.
             if (req.method === 'GET' || req.method === 'HEAD') {
@@ -190,7 +207,7 @@ will be disabled and/or hidden in the UI.
             // Check for query parameters set by ad clicks.
             // This is used to track the reason behind a psychological stage change.
             // If the user performs any action that causes a stage change
-            // within 30 minutes of visiting the website from an ad, their psychological
+            // within 24 hour of visiting the website from an ad, their psychological
             // stage change will be attributed to the ad campaign that brought them here.
             if(req.param('utm_source') && req.param('creative_id') && req.param('campaign_id')){
               req.session.adAttributionString = `${req.param('utm_source')} ads - ${req.param('campaign_id')} - ${_.trim(req.param('creative_id'), '?')}`;// Trim questionmarks from the end of creative_id parameters.
@@ -198,6 +215,25 @@ will be disabled and/or hidden in the UI.
               req.session.visitedSiteFromAdAt = Date.now();
             }
 
+
+            // If a user does not have a marketingAttriution cookie set, check for UTM parameters
+            if(!req.cookies.marketingAttribution) {
+              let marketingAttributionCookieInformation = {
+                source: req.param('utm_source'),// will be undefined if this is not set
+                medium: req.param('utm_medium'),// will be undefined if this is not set
+                campaign: req.param('utm_campaign'),// will be undefined if this is not set
+                gclid: req.param('gclid'),// will be undefined if this is not set
+                referrer: req.get('referer'),
+                initialUrl: req.url,
+              };
+              // Add the information to a new cookie for this user that expires 30 days from when it is set.
+              res.cookie('marketingAttribution', marketingAttributionCookieInformation, {maxAge: (1000 * 60 * 60 * 24 * 30)});
+            }
+
+            // FUTURE: Remove this code used for testing
+            if(req.param('clearAttributionCookie')){
+              res.clearCookie('marketingAttribution');
+            }
             // Check for website personalization parameter, and if valid, absorb it in the session.
             // (This makes the experience simpler and less confusing for people, prioritizing showing things that matter for them)
             // [?] https://en.wikipedia.org/wiki/UTM_parameters
@@ -341,12 +377,14 @@ will be disabled and/or hidden in the UI.
                       sails.log.verbose('Skipping Salesforce integration...');
                       return;
                     }
-                    let recordIds = await sails.helpers.salesforce.updateOrCreateContactAndAccount.with({
+                    let attributionCookieOrUndefined = req.cookies.marketingAttribution;// Will be undefined if this is not set.
+
+                    let recordDetails = await sails.helpers.salesforce.updateOrCreateContactAndAccount.with({
                       emailAddress: sanitizedUser.emailAddress,
                       firstName: sanitizedUser.firstName,
                       lastName: sanitizedUser.lastName,
-                      organization: sanitizedUser.organization,
                       contactSource: 'Website - Sign up',// Note: this is only set on new contacts.
+                      marketingAttributionCookie: attributionCookieOrUndefined,
                     });
                     let websiteVisitReason;
                     if(req.session.adAttributionString && req.session.visitedSiteFromAdAt) {
@@ -358,11 +396,12 @@ will be disabled and/or hidden in the UI.
                     }
                     // Create the new Fleet website page view record.
                     await sails.helpers.salesforce.createHistoricalEvent.with({
-                      salesforceContactId: recordIds.salesforceContactId,
-                      salesforceAccountId: recordIds.salesforceAccountId,
+                      salesforceContactId: recordDetails.salesforceContactId,
+                      salesforceAccountId: recordDetails.salesforceAccountId,
                       fleetWebsitePageUrl: `https://fleetdm.com${req.url}`,
                       eventType: 'Website page view',
-                      websiteVisitReason: websiteVisitReason
+                      websiteVisitReason: websiteVisitReason,
+                      relatedCampaign: recordDetails.mostRecentCampaign,
                     }).intercept((err)=>{
                       return new Error(`Could not create new Fleet website page view record. Error: ${err}`);
                     });
@@ -370,9 +409,9 @@ will be disabled and/or hidden in the UI.
                   .exec((err)=>{
                     if(err && typeof err.errorCode !== 'undefined' && err.errorCode === 'DUPLICATES_DETECTED') {
                       // Swallow errors related to duplicate records.
-                      sails.log.verbose(`Background task failed: When a logged-in user (email: ${sanitizedUser.emailAddress} visited a page, a Contact/Account/website activity record could not be created/updated in the CRM.`, err);
+                      sails.log.verbose(`Background task failed: When a logged-in user (email: ${sanitizedUser.emailAddress} visited a page, a Contact/Account/website activity record could not be created/updated in the CRM.`, require('util').inspect(err));
                     } else if(err){
-                      sails.log.warn(`Background task failed: When a logged-in user (email: ${sanitizedUser.emailAddress} visited a page, a Contact/Account/website activity record could not be created/updated in the CRM.`, err);
+                      sails.log.warn(`Background task failed: When a logged-in user (email: ${sanitizedUser.emailAddress} visited a page, a Contact/Account/website activity record could not be created/updated in the CRM.`, require('util').inspect(err));
                     }
                     return;
                   });//_∏_

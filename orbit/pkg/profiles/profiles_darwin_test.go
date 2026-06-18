@@ -5,6 +5,7 @@ package profiles
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -17,41 +18,33 @@ import (
 func TestGetFleetdConfig(t *testing.T) {
 	testErr := errors.New("test error")
 	cases := []struct {
-		name        string
-		cmdOut      *string
-		cmdErr      error
-		wantOut     *fleet.MDMAppleFleetdConfig
-		wantErr     error
-		wantAnyErr  bool // if true, just check that an error occurred (for plist parse errors)
+		cmdOut  *string
+		cmdErr  error
+		wantOut *fleet.MDMAppleFleetdConfig
+		wantErr error
 	}{
-		{"command error", nil, testErr, nil, testErr, false},
-		{"invalid xml", ptr.String("invalid-xml"), nil, nil, nil, true},
-		{"empty output", &emptyOutput, nil, &fleet.MDMAppleFleetdConfig{}, nil, false},
-		{"with fleetd config", &withFleetdConfig, nil, &fleet.MDMAppleFleetdConfig{EnrollSecret: "ENROLL_SECRET", FleetURL: "https://test.example.com"}, nil, false},
+		{nil, testErr, nil, testErr},
+		{ptr.String("invalid-xml"), nil, nil, io.EOF},
+		{&emptyOutput, nil, &fleet.MDMAppleFleetdConfig{}, nil},
+		{&withFleetdConfig, nil, &fleet.MDMAppleFleetdConfig{EnrollSecret: "ENROLL_SECRET", FleetURL: "https://test.example.com"}, nil},
 	}
 
 	origExecProfileCmd := execProfileCmd
 	t.Cleanup(func() { execProfileCmd = origExecProfileCmd })
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			execProfileCmd = func() (*bytes.Buffer, error) {
-				if c.cmdOut == nil {
-					return nil, c.cmdErr
-				}
-
-				var buf bytes.Buffer
-				buf.WriteString(*c.cmdOut)
-				return &buf, nil
+		execProfileCmd = func() (*bytes.Buffer, error) {
+			if c.cmdOut == nil {
+				return nil, c.cmdErr
 			}
 
-			out, err := GetFleetdConfig()
-			if c.wantAnyErr {
-				require.Error(t, err)
-			} else {
-				require.ErrorIs(t, err, c.wantErr)
-			}
-			require.Equal(t, c.wantOut, out)
-		})
+			var buf bytes.Buffer
+			buf.WriteString(*c.cmdOut)
+			return &buf, nil
+		}
+
+		out, err := GetFleetdConfig()
+		require.ErrorIs(t, err, c.wantErr)
+		require.Equal(t, c.wantOut, out)
 	}
 }
 
@@ -331,6 +324,45 @@ MDM server: https://valid.com/mdm/apple/mdm
 		}
 		require.Equal(t, c.wantEnrolled, enrolled)
 		require.Equal(t, c.wantURL, url)
+	}
+}
+
+func TestParseMDMEnrollmentStatus(t *testing.T) {
+	cases := []struct {
+		cmdOut  *string
+		cmdErr  error
+		want    bool
+		wantErr bool
+	}{
+		{nil, errors.New("test error"), false, true},
+		{ptr.String(""), nil, false, true},
+		{ptr.String("Enrolled via DEP: No\nMDM Enrollment: No"), nil, false, false},
+		{ptr.String("Enrolled via DEP: Yes\nMDM Enrollment: No"), nil, true, false},
+		{ptr.String("Enrolled via DEP: No\nMDM Enrollment: Yes (User Approved)"), nil, false, false},
+		{ptr.String("Enrolled via DEP: No\nMDM Enrollment: Yes (User Approved)\nMDM Server: https://mdm.example.com"), nil, false, false},
+		{ptr.String("Enrolled via DEP: Yes\nMDM Enrollment: Yes\nMDM Server: https://mdm.example.com"), nil, true, false},
+	}
+
+	origCmd := getMDMInfoFromProfilesCmd
+	t.Cleanup(func() { getMDMInfoFromProfilesCmd = origCmd })
+	for _, c := range cases {
+		getMDMInfoFromProfilesCmd = func() ([]byte, error) {
+			if c.cmdOut == nil {
+				return nil, c.cmdErr
+			}
+
+			var buf bytes.Buffer
+			buf.WriteString(*c.cmdOut)
+			return buf.Bytes(), nil
+		}
+
+		got, err := ParseMDMEnrollmentStatus()
+		if c.wantErr {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+		require.Equal(t, c.want, got)
 	}
 }
 

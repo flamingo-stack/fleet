@@ -7,14 +7,25 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	"github.com/fleetdm/fleet/v4/server/fleet"
-	"github.com/go-kit/log/level"
+	common_mysql "github.com/fleetdm/fleet/v4/server/platform/mysql"
 	"github.com/jmoiron/sqlx"
 )
+
+// queryAllowedOrderKeys defines the allowed order keys for ListQueries.
+// SECURITY: This prevents information disclosure via arbitrary column sorting.
+var queryAllowedOrderKeys = common_mysql.OrderKeyAllowlist{
+	"id":         "q.id",
+	"name":       "q.name",
+	"team_id":    "q.team_id",
+	"created_at": "q.created_at",
+	"updated_at": "q.updated_at",
+}
 
 const (
 	statsScheduledQueryType = iota
@@ -223,7 +234,7 @@ func (ds *Datastore) QueryByName(
 	err := sqlx.GetContext(ctx, ds.reader(ctx), &query, stmt, args...)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ctxerr.Wrap(ctx, notFound("Query").WithName(name))
+			return nil, ctxerr.Wrap(ctx, notFound("Report").WithName(name))
 		}
 		return nil, ctxerr.Wrap(ctx, err, "selecting query by name")
 	}
@@ -243,6 +254,10 @@ func (ds *Datastore) NewQuery(
 	if err := query.Verify(); err != nil {
 		return nil, ctxerr.Wrap(ctx, err)
 	}
+	now := time.Now().UTC().Truncate(time.Second)
+	query.CreatedAt = now
+	query.UpdatedAt = now
+
 	queryStatement := `
 		INSERT INTO queries (
 			name,
@@ -258,8 +273,10 @@ func (ds *Datastore) NewQuery(
 			schedule_interval,
 			automations_enabled,
 			logging_type,
-			discard_data
-		) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+			discard_data,
+			created_at,
+			updated_at
+		) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
 	`
 
 	result, err := ds.writer(ctx).ExecContext(
@@ -279,6 +296,8 @@ func (ds *Datastore) NewQuery(
 		query.AutomationsEnabled,
 		query.Logging,
 		query.DiscardData,
+		query.CreatedAt,
+		query.UpdatedAt,
 	)
 
 	if err != nil && IsDuplicate(err) {
@@ -308,8 +327,10 @@ func (ds *Datastore) updateQueryLabels(ctx context.Context, query *fleet.Query) 
 	return nil
 }
 
-// updateQueryLabelsInTx updates the LabelsIncludeAny for a set of queries, using the string value of
-// the label. Labels IDs are populated
+// updateQueryLabelsInTx replaces the LabelsIncludeAny and LabelsIncludeAll
+// associations for a set of queries, using label names from each query's slices
+// to look up the corresponding label IDs. Resolved IDs are populated back onto
+// the query structs.
 func (ds *Datastore) updateQueryLabelsInTx(ctx context.Context, queries []*fleet.Query, tx sqlx.ExtContext) error {
 	if tx == nil {
 		return ctxerr.New(ctx, "updateQueryLabelsInTx called with nil tx")
@@ -321,6 +342,10 @@ func (ds *Datastore) updateQueryLabelsInTx(ctx context.Context, queries []*fleet
 	queriesIDs := make([]uint, 0, len(queries))
 	for _, q := range queries {
 		queriesIDs = append(queriesIDs, q.ID)
+		// Scopes are mutually exclusive
+		if len(q.LabelsIncludeAny) > 0 && len(q.LabelsIncludeAll) > 0 {
+			return ctxerr.Wrap(ctx, fleet.ErrQueryConflictingLabels)
+		}
 	}
 
 	deleteQueryLabelsStm, args, err := sqlx.In(`DELETE FROM query_labels WHERE query_id IN (?)`, queriesIDs)
@@ -334,6 +359,9 @@ func (ds *Datastore) updateQueryLabelsInTx(ctx context.Context, queries []*fleet
 	lblNamesMap := make(map[string]struct{})
 	for _, q := range queries {
 		for _, lbl := range q.LabelsIncludeAny {
+			lblNamesMap[lbl.LabelName] = struct{}{}
+		}
+		for _, lbl := range q.LabelsIncludeAll {
 			lblNamesMap[lbl.LabelName] = struct{}{}
 		}
 	}
@@ -374,28 +402,42 @@ func (ds *Datastore) updateQueryLabelsInTx(ctx context.Context, queries []*fleet
 		return ctxerr.New(ctx, "not all labels found for query")
 	}
 
+	// Each query has at most one non-empty scope (mutex enforced above).
+	// Populate IDs back onto the query struct for each bucket.
 	params := make([]string, 0, numLabelNames)
-	args = make([]interface{}, 0, numLabelNames*2)
-	for _, q := range queries {
-		lblIdents := make([]fleet.LabelIdent, 0, len(q.LabelsIncludeAny))
-		for _, lbl := range q.LabelsIncludeAny {
-			if lblID, ok := lblNameToID[lbl.LabelName]; ok {
-				params = append(params, "(?, ?)")
-				args = append(args, q.ID, lblID)
+	insertArgs := make([]any, 0, numLabelNames*3)
 
-				lblIdents = append(lblIdents, fleet.LabelIdent{
-					LabelID:   lblID,
-					LabelName: lbl.LabelName,
-				})
+	resolve := func(qID uint, src []fleet.LabelIdent, requireAll bool) []fleet.LabelIdent {
+		if len(src) == 0 {
+			return src
+		}
+		out := make([]fleet.LabelIdent, 0, len(src))
+		for _, lbl := range src {
+			lblID, ok := lblNameToID[lbl.LabelName]
+			if !ok {
+				continue
 			}
+			params = append(params, "(?, ?, ?)")
+			insertArgs = append(insertArgs, qID, lblID, requireAll)
+			out = append(out, fleet.LabelIdent{LabelID: lblID, LabelName: lbl.LabelName})
 		}
-		if len(lblIdents) != 0 {
-			q.LabelsIncludeAny = lblIdents
+		if len(out) == 0 {
+			return src
 		}
+		return out
 	}
 
-	insertSQL := fmt.Sprintf(`INSERT INTO query_labels (query_id, label_id) VALUES %s`, strings.Join(params, ", "))
-	if _, err := tx.ExecContext(ctx, insertSQL, args...); err != nil {
+	for _, q := range queries {
+		q.LabelsIncludeAny = resolve(q.ID, q.LabelsIncludeAny, false)
+		q.LabelsIncludeAll = resolve(q.ID, q.LabelsIncludeAll, true)
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+
+	insertSQL := fmt.Sprintf(`INSERT INTO query_labels (query_id, label_id, require_all) VALUES %s`, strings.Join(params, ", "))
+	if _, err := tx.ExecContext(ctx, insertSQL, insertArgs...); err != nil {
 		return ctxerr.Wrap(ctx, err, "creating query labels")
 	}
 
@@ -451,7 +493,7 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 		return ctxerr.Wrap(ctx, err, "rows affected updating query")
 	}
 	if rows == 0 {
-		return ctxerr.Wrap(ctx, notFound("Query").WithID(q.ID))
+		return ctxerr.Wrap(ctx, notFound("Report").WithID(q.ID))
 	}
 
 	if shouldDeleteStats {
@@ -470,98 +512,11 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 	}
 
 	if err := ds.updateQueryLabels(ctx, q); err != nil {
-		return ctxerr.Wrap(ctx, err, "updaing query labels")
+		return ctxerr.Wrap(ctx, err, "updating query labels")
 	}
 
 	return nil
 }
-
-// >>> OPENFRAME(host-assignments): per-host query assignment CRUD backed by the query_hosts table — openframe/docs/architecture-host-assignments.md
-func (ds *Datastore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
-	if len(hostIDs) == 0 {
-		return 0, nil
-	}
-	params := make([]string, 0, len(hostIDs))
-	args := make([]interface{}, 0, len(hostIDs)*2)
-	for _, hid := range hostIDs {
-		params = append(params, "(?, ?)")
-		args = append(args, queryID, hid)
-	}
-	stmt := fmt.Sprintf(`INSERT IGNORE INTO query_hosts (query_id, host_id) VALUES %s`, strings.Join(params, ", "))
-	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
-	if err != nil {
-		return 0, ctxerr.Wrap(ctx, err, "add query hosts")
-	}
-	n, _ := res.RowsAffected()
-	return uint(n), nil
-}
-
-func (ds *Datastore) RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
-	if len(hostIDs) == 0 {
-		return 0, nil
-	}
-	stmt, args, err := sqlx.In(`DELETE FROM query_hosts WHERE query_id = ? AND host_id IN (?)`, queryID, hostIDs)
-	if err != nil {
-		return 0, ctxerr.Wrap(ctx, err, "build remove query hosts query")
-	}
-	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
-	if err != nil {
-		return 0, ctxerr.Wrap(ctx, err, "remove query hosts")
-	}
-	n, _ := res.RowsAffected()
-	return uint(n), nil
-}
-
-func (ds *Datastore) ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error {
-	return ds.withRetryTxx(ctx, func(tx sqlx.ExtContext) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM query_hosts WHERE query_id = ?`, queryID); err != nil {
-			return ctxerr.Wrap(ctx, err, "delete all query hosts")
-		}
-		if len(hostIDs) == 0 {
-			return nil
-		}
-		params := make([]string, 0, len(hostIDs))
-		args := make([]interface{}, 0, len(hostIDs)*2)
-		for _, hid := range hostIDs {
-			params = append(params, "(?, ?)")
-			args = append(args, queryID, hid)
-		}
-		stmt := fmt.Sprintf(`INSERT INTO query_hosts (query_id, host_id) VALUES %s`, strings.Join(params, ", "))
-		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
-			return ctxerr.Wrap(ctx, err, "insert query hosts")
-		}
-		return nil
-	})
-}
-
-func (ds *Datastore) ListQueryHosts(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
-	stmt := `
-		SELECT h.id, h.hostname
-		FROM query_hosts qh
-		INNER JOIN hosts h ON h.id = qh.host_id
-		WHERE qh.query_id = ?`
-
-	args := []interface{}{queryID}
-	stmt, args = appendListOptionsWithCursorToSQL(stmt, args, &opts)
-
-	var hosts []fleet.HostIdent
-	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &hosts, stmt, args...); err != nil {
-		return nil, nil, ctxerr.Wrap(ctx, err, "list query hosts")
-	}
-
-	var meta *fleet.PaginationMetadata
-	if opts.IncludeMetadata {
-		meta = &fleet.PaginationMetadata{HasPreviousResults: opts.Page > 0}
-		if len(hosts) > int(opts.PerPage) {
-			meta.HasNextResults = true
-			hosts = hosts[:opts.PerPage]
-		}
-	}
-
-	return hosts, meta, nil
-}
-
-// <<< OPENFRAME(host-assignments)
 
 func (ds *Datastore) deleteQueryResults(ctx context.Context, queryID uint) error {
 	resultsSQL := `DELETE FROM query_results WHERE query_id = ?`
@@ -643,11 +598,11 @@ func (ds *Datastore) deleteQueryStats(ctx context.Context, queryIDs []uint) {
 	stmt := "DELETE FROM scheduled_query_stats WHERE scheduled_query_id IN (?)"
 	stmt, args, err := sqlx.In(stmt, queryIDs)
 	if err != nil {
-		level.Error(ds.logger).Log("msg", "error creating delete query stats statement", "err", err)
+		ds.logger.ErrorContext(ctx, "error creating delete query stats statement", "err", err)
 	} else {
 		_, err = ds.writer(ctx).ExecContext(ctx, stmt, args...)
 		if err != nil {
-			level.Error(ds.logger).Log("msg", "error deleting query stats", "err", err)
+			ds.logger.ErrorContext(ctx, "error deleting query stats", "err", err)
 		}
 	}
 
@@ -655,14 +610,109 @@ func (ds *Datastore) deleteQueryStats(ctx context.Context, queryIDs []uint) {
 	stmt = fmt.Sprintf("DELETE FROM aggregated_stats WHERE type = '%s' AND id IN (?)", fleet.AggregatedStatsTypeScheduledQuery)
 	stmt, args, err = sqlx.In(stmt, queryIDs)
 	if err != nil {
-		level.Error(ds.logger).Log("msg", "error creating delete aggregated stats statement", "err", err)
+		ds.logger.ErrorContext(ctx, "error creating delete aggregated stats statement", "err", err)
 	} else {
 		_, err = ds.writer(ctx).ExecContext(ctx, stmt, args...)
 		if err != nil {
-			level.Error(ds.logger).Log("msg", "error deleting aggregated stats", "err", err)
+			ds.logger.ErrorContext(ctx, "error deleting aggregated stats", "err", err)
 		}
 	}
 }
+
+// >>> OPENFRAME(host-assignments): per-host query assignment CRUD backed by the query_hosts table — openframe/docs/architecture-host-assignments.md
+func (ds *Datastore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	if len(hostIDs) == 0 {
+		return 0, nil
+	}
+	params := make([]string, 0, len(hostIDs))
+	args := make([]interface{}, 0, len(hostIDs)*2)
+	for _, hid := range hostIDs {
+		params = append(params, "(?, ?)")
+		args = append(args, queryID, hid)
+	}
+	stmt := fmt.Sprintf(`INSERT IGNORE INTO query_hosts (query_id, host_id) VALUES %s`, strings.Join(params, ", "))
+	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "add query hosts")
+	}
+	n, _ := res.RowsAffected()
+	return uint(n), nil
+}
+
+func (ds *Datastore) RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
+	if len(hostIDs) == 0 {
+		return 0, nil
+	}
+	stmt, args, err := sqlx.In(`DELETE FROM query_hosts WHERE query_id = ? AND host_id IN (?)`, queryID, hostIDs)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "build remove query hosts query")
+	}
+	res, err := ds.writer(ctx).ExecContext(ctx, stmt, args...)
+	if err != nil {
+		return 0, ctxerr.Wrap(ctx, err, "remove query hosts")
+	}
+	n, _ := res.RowsAffected()
+	return uint(n), nil
+}
+
+func (ds *Datastore) ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error {
+	return ds.withRetryTxx(ctx, func(tx sqlx.ExtContext) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM query_hosts WHERE query_id = ?`, queryID); err != nil {
+			return ctxerr.Wrap(ctx, err, "delete all query hosts")
+		}
+		if len(hostIDs) == 0 {
+			return nil
+		}
+		params := make([]string, 0, len(hostIDs))
+		args := make([]interface{}, 0, len(hostIDs)*2)
+		for _, hid := range hostIDs {
+			params = append(params, "(?, ?)")
+			args = append(args, queryID, hid)
+		}
+		stmt := fmt.Sprintf(`INSERT INTO query_hosts (query_id, host_id) VALUES %s`, strings.Join(params, ", "))
+		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+			return ctxerr.Wrap(ctx, err, "insert query hosts")
+		}
+		return nil
+	})
+}
+
+var queryHostsAllowedOrderKeys = common_mysql.OrderKeyAllowlist{
+	"id":       "h.id",
+	"hostname": "h.hostname",
+}
+
+func (ds *Datastore) ListQueryHosts(ctx context.Context, queryID uint, opts fleet.ListOptions) ([]fleet.HostIdent, *fleet.PaginationMetadata, error) {
+	stmt := `
+		SELECT h.id, h.hostname
+		FROM query_hosts qh
+		INNER JOIN hosts h ON h.id = qh.host_id
+		WHERE qh.query_id = ?`
+
+	args := []interface{}{queryID}
+	stmt, args, err := appendListOptionsWithCursorToSQLSecure(stmt, args, &opts, queryHostsAllowedOrderKeys)
+	if err != nil {
+		return nil, nil, ctxerr.Wrap(ctx, err, "append list options to list query hosts query")
+	}
+
+	var hosts []fleet.HostIdent
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &hosts, stmt, args...); err != nil {
+		return nil, nil, ctxerr.Wrap(ctx, err, "list query hosts")
+	}
+
+	var meta *fleet.PaginationMetadata
+	if opts.IncludeMetadata {
+		meta = &fleet.PaginationMetadata{HasPreviousResults: opts.Page > 0}
+		if len(hosts) > int(opts.PerPage) {
+			meta.HasNextResults = true
+			hosts = hosts[:opts.PerPage]
+		}
+	}
+
+	return hosts, meta, nil
+}
+
+// <<< OPENFRAME(host-assignments)
 
 // Query returns a single Query identified by id, if such exists.
 func (ds *Datastore) Query(ctx context.Context, id uint) (*fleet.Query, error) {
@@ -706,7 +756,7 @@ func query(ctx context.Context, db sqlx.QueryerContext, id uint) (*fleet.Query, 
 	query := &fleet.Query{}
 	if err := sqlx.GetContext(ctx, db, query, sqlQuery, false, fleet.AggregatedStatsTypeScheduledQuery, id); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, ctxerr.Wrap(ctx, notFound("Query").WithID(id))
+			return nil, ctxerr.Wrap(ctx, notFound("Report").WithID(id))
 		}
 		return nil, ctxerr.Wrap(ctx, err, "selecting query")
 	}
@@ -733,7 +783,7 @@ func query(ctx context.Context, db sqlx.QueryerContext, id uint) (*fleet.Query, 
 // ListQueries returns a list of queries with sort order and results limit
 // determined by passed in fleet.ListOptions, count of total queries returned without limits, and
 // pagination metadata
-func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions) ([]*fleet.Query, int, *fleet.PaginationMetadata, error) {
+func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions) (queries []*fleet.Query, total int, inherited int, metadata *fleet.PaginationMetadata, err error) {
 	getQueriesStmt := `
 		SELECT
 			q.id,
@@ -799,50 +849,63 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 	getQueriesStmt += whereClauses
 
 	// build the count statement before adding pagination constraints
-	getQueriesCountStmt := fmt.Sprintf("SELECT COUNT(DISTINCT id) FROM (%s) AS s", getQueriesStmt)
+	var getQueriesCountStmt string
+	if opt.TeamID != nil && opt.MergeInherited {
+		getQueriesCountStmt = fmt.Sprintf(
+			`SELECT COUNT(DISTINCT id) AS total, COUNT(DISTINCT CASE WHEN team_id IS NULL THEN id END) AS inherited FROM (%s) AS s`,
+			getQueriesStmt,
+		)
+	} else {
+		getQueriesCountStmt = fmt.Sprintf("SELECT COUNT(DISTINCT id) AS total, 0 AS inherited FROM (%s) AS s", getQueriesStmt)
+	}
 
-	getQueriesStmt, args = appendListOptionsWithCursorToSQL(getQueriesStmt, args, &opt.ListOptions)
+	getQueriesStmt, args, err = appendListOptionsWithCursorToSQLSecure(getQueriesStmt, args, &opt.ListOptions, queryAllowedOrderKeys)
+	if err != nil {
+		return nil, 0, 0, nil, ctxerr.Wrap(ctx, err, "apply list options")
+	}
 
 	dbReader := ds.reader(ctx)
-	queries := []*fleet.Query{}
-	if err := sqlx.SelectContext(ctx, dbReader, &queries, getQueriesStmt, args...); err != nil {
-		return nil, 0, nil, ctxerr.Wrap(ctx, err, "listing queries")
+	queries = []*fleet.Query{}
+	if err = sqlx.SelectContext(ctx, dbReader, &queries, getQueriesStmt, args...); err != nil {
+		return nil, 0, 0, nil, ctxerr.Wrap(ctx, err, "listing queries")
 	}
 
 	// perform a second query to grab the count
-	var count int
-	if err := sqlx.GetContext(ctx, dbReader, &count, getQueriesCountStmt, args...); err != nil {
-		return nil, 0, nil, ctxerr.Wrap(ctx, err, "get queries count")
+	var counts struct {
+		Total     int `db:"total"`
+		Inherited int `db:"inherited"`
+	}
+	if err = sqlx.GetContext(ctx, dbReader, &counts, getQueriesCountStmt, args...); err != nil {
+		return nil, 0, 0, nil, ctxerr.Wrap(ctx, err, "get queries count")
 	}
 
-	if err := ds.loadPacksForQueries(ctx, queries); err != nil {
-		return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading packs for queries")
+	if err = ds.loadPacksForQueries(ctx, queries); err != nil {
+		return nil, 0, 0, nil, ctxerr.Wrap(ctx, err, "loading packs for queries")
 	}
 
-	if err := ds.loadLabelsForQueries(ctx, queries); err != nil {
-		return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading labels for queries")
+	if err = ds.loadLabelsForQueries(ctx, queries); err != nil {
+		return nil, 0, 0, nil, ctxerr.Wrap(ctx, err, "loading labels for queries")
 	}
 
 	// >>> OPENFRAME(host-assignments): attach per-host query assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
-		if err := ds.loadHostsForQueries(ctx, queries); err != nil {
-			return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading hosts for queries")
+		if err = ds.loadHostsForQueries(ctx, queries); err != nil {
+			return nil, 0, 0, nil, ctxerr.Wrap(ctx, err, "loading hosts for queries")
 		}
 	}
 	// <<< OPENFRAME(host-assignments)
 
-	var meta *fleet.PaginationMetadata
 	if opt.ListOptions.IncludeMetadata {
-		meta = &fleet.PaginationMetadata{HasPreviousResults: opt.ListOptions.Page > 0}
+		metadata = &fleet.PaginationMetadata{HasPreviousResults: opt.ListOptions.Page > 0}
 		// `appendListOptionsWithCursorToSQL` used above to build the query statement will cause this
 		// discrepancy
 		if len(queries) > int(opt.ListOptions.PerPage) { //nolint:gosec // dismiss G115
-			meta.HasNextResults = true
+			metadata.HasNextResults = true
 			queries = queries[:len(queries)-1]
 		}
 	}
 
-	return queries, count, meta, nil
+	return queries, counts.Total, counts.Inherited, metadata, nil
 }
 
 // loadPacksForQueries loads the user packs (aka 2017 packs) associated with the provided queries.
@@ -965,7 +1028,8 @@ func loadLabelsForQueries(ctx context.Context, db sqlx.QueryerContext, queries [
 		SELECT
 			ql.query_id AS query_id,
 			ql.label_id AS label_id,
-			l.name AS label_name
+			l.name AS label_name,
+			ql.require_all
 		FROM query_labels ql
 		INNER JOIN labels l ON l.id = ql.label_id
 		WHERE ql.query_id IN (?)
@@ -974,6 +1038,7 @@ func loadLabelsForQueries(ctx context.Context, db sqlx.QueryerContext, queries [
 	queryIDs := []uint{}
 	for _, query := range queries {
 		query.LabelsIncludeAny = nil
+		query.LabelsIncludeAll = nil
 		queryIDs = append(queryIDs, query.ID)
 	}
 
@@ -988,9 +1053,10 @@ func loadLabelsForQueries(ctx context.Context, db sqlx.QueryerContext, queries [
 	}
 
 	rows := []struct {
-		QueryID   uint   `db:"query_id"`
-		LabelID   uint   `db:"label_id"`
-		LabelName string `db:"label_name"`
+		QueryID    uint   `db:"query_id"`
+		LabelID    uint   `db:"label_id"`
+		LabelName  string `db:"label_name"`
+		RequireAll bool   `db:"require_all"`
 	}{}
 
 	err = sqlx.SelectContext(ctx, db, &rows, stmt, args...)
@@ -999,7 +1065,13 @@ func loadLabelsForQueries(ctx context.Context, db sqlx.QueryerContext, queries [
 	}
 
 	for _, row := range rows {
-		queryMap[row.QueryID].LabelsIncludeAny = append(queryMap[row.QueryID].LabelsIncludeAny, fleet.LabelIdent{LabelID: row.LabelID, LabelName: row.LabelName})
+		ident := fleet.LabelIdent{LabelID: row.LabelID, LabelName: row.LabelName}
+		query := queryMap[row.QueryID]
+		if row.RequireAll {
+			query.LabelsIncludeAll = append(query.LabelsIncludeAll, ident)
+		} else {
+			query.LabelsIncludeAny = append(query.LabelsIncludeAny, ident)
+		}
 	}
 
 	return nil
@@ -1053,20 +1125,38 @@ func (ds *Datastore) ListScheduledQueriesForAgents(ctx context.Context, teamID *
 	args = append(args, queryReportsDisabled, fleet.LoggingSnapshot)
 	labelSQL := ""
 	if hostID != nil {
+		// Two-scope label filter:
+		// - include_any: query passes if it has no include_any labels OR host has at least one of them
+		// - include_all: query passes if it has no include_all labels OR host has every one of them
 		labelSQL = `
-		-- Query has a tag in common with the host
-		AND (EXISTS (
-			SELECT 1
-			FROM query_labels ql
-			JOIN label_membership hl ON (hl.host_id = ? AND hl.label_id = ql.label_id)
-			WHERE ql.query_id = q.id
-		-- Query has no tags
-		) OR NOT EXISTS (
-			SELECT 1
-			FROM query_labels ql
-			WHERE ql.query_id = q.id
-		))`
-		args = append(args, hostID)
+		-- include_any check
+		AND (
+			NOT EXISTS (
+				SELECT 1 FROM query_labels ql
+				WHERE ql.query_id = q.id AND ql.require_all = 0
+			)
+			OR EXISTS (
+				SELECT 1 FROM query_labels ql
+				JOIN label_membership lm ON lm.label_id = ql.label_id AND lm.host_id = ?
+				WHERE ql.query_id = q.id AND ql.require_all = 0
+			)
+		)
+		-- include_all check
+		AND (
+			NOT EXISTS (
+				SELECT 1 FROM query_labels ql
+				WHERE ql.query_id = q.id AND ql.require_all = 1
+			)
+			OR (
+				SELECT COUNT(*) FROM query_labels ql
+				WHERE ql.query_id = q.id AND ql.require_all = 1
+			) = (
+				SELECT COUNT(*) FROM query_labels ql
+				JOIN label_membership lm ON lm.label_id = ql.label_id AND lm.host_id = ?
+				WHERE ql.query_id = q.id AND ql.require_all = 1
+			)
+		)`
+		args = append(args, hostID, hostID)
 
 		// >>> OPENFRAME(host-assignments): scope host queries to per-host query_hosts assignments — openframe/docs/architecture-host-assignments.md
 		if fleet.IsOpenframeMode() {

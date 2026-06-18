@@ -8,10 +8,15 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.fleetdm.agent.scep.ScepClient
 import com.fleetdm.agent.scep.ScepClientImpl
+import java.math.BigInteger
+import java.net.UnknownHostException
 import java.security.PrivateKey
 import java.security.cert.Certificate
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import java.text.SimpleDateFormat
+import java.time.Instant
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -54,6 +59,24 @@ class CertificateOrchestrator(
         // Treat a missing field like a null field for optional types
         explicitNulls = false
     }
+
+    /**
+     * Converts a java.util.Date to ISO8601 format string.
+     * Format: "yyyy-MM-dd'T'HH:mm:ss'Z'" (UTC timezone)
+     * Example: "2025-12-31T23:59:59Z"
+     */
+    private fun Date.toISO8601String(): String {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+        return dateFormat.format(this)
+    }
+
+    /**
+     * Parses an ISO8601 format string to java.util.Date.
+     * Format: "yyyy-MM-dd'T'HH:mm:ss'Z'" (UTC timezone)
+     * @throws : DateTimeParseException  if the date string cannot be parsed
+     */
+    private fun parseISO8601(dateString: String): Date = Date.from(Instant.parse(dateString))
 
     // Mutex to protect concurrent access to certificate storage
     private val certificateStorageMutex = Mutex()
@@ -107,7 +130,7 @@ class CertificateOrchestrator(
 
                 json.decodeFromString<CertificateStateMap>(jsonString)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to read installed certificates from DataStore: ${e.message}", e)
+                FleetLog.e(TAG, "Failed to read installed certificates from DataStore: ${e.message}", e)
                 emptyMap()
             }
         }
@@ -126,16 +149,29 @@ class CertificateOrchestrator(
         storeCertificateState(context = context, certificateId = certificateId, certInstallInfo = newInfo)
     }
 
-    internal suspend fun markCertificateFailure(context: Context, certificateId: Int, alias: String): CertificateState {
+    internal suspend fun markCertificateForceFailed(context: Context, certificateId: Int, alias: String, uuid: String) {
         val existingInfo = getCertificateState(context = context, certificateId = certificateId)
-            ?: CertificateState(alias = alias, status = CertificateStatus.RETRY, retries = 0)
+            ?: CertificateState(alias = alias, status = CertificateStatus.FAILED, retries = 0, uuid = uuid)
+
+        val newInfo = existingInfo.copy(alias = alias, status = CertificateStatus.FAILED, uuid = uuid)
+        storeCertificateState(context = context, certificateId = certificateId, certInstallInfo = newInfo)
+    }
+
+    internal suspend fun recordEnrollmentAttemptFailure(
+        context: Context,
+        certificateId: Int,
+        alias: String,
+        uuid: String,
+    ): CertificateState {
+        val existingInfo = getCertificateState(context = context, certificateId = certificateId)
+            ?: CertificateState(alias = alias, status = CertificateStatus.RETRY, retries = 0, uuid = uuid)
 
         if (existingInfo.status != CertificateStatus.RETRY) {
-            Log.d(TAG, "markCertificateFailure: skipping cert $certificateId, status is ${existingInfo.status}")
+            Log.d(TAG, "recordEnrollmentAttemptFailure: skipping cert $certificateId, status is ${existingInfo.status}")
             return existingInfo
         }
 
-        var newInfo = existingInfo.copy(retries = existingInfo.retries + 1)
+        var newInfo = existingInfo.copy(retries = existingInfo.retries + 1, uuid = uuid)
 
         if (newInfo.retries >= MAX_CERT_INSTALL_RETRIES) {
             newInfo = newInfo.copy(status = CertificateStatus.FAILED)
@@ -183,7 +219,7 @@ class CertificateOrchestrator(
                     Log.d(TAG, "Stored certificate mapping: $certificateId → ${certInstallInfo.alias} (total: ${updatedMap.size})")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to store certificate installation: ${e.message}", e)
+                FleetLog.e(TAG, "Failed to store certificate installation: ${e.message}", e)
                 // Non-fatal error - enrollment was successful, just tracking failed
             }
         }
@@ -223,7 +259,7 @@ class CertificateOrchestrator(
                     Log.d(TAG, "Removed certificate mapping for ID $certificateId (remaining: ${updatedMap.size})")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove certificate installation info: ${e.message}", e)
+                FleetLog.e(TAG, "Failed to remove certificate installation info: ${e.message}", e)
                 // Non-fatal error - cleanup was attempted
             }
         }
@@ -322,7 +358,10 @@ class CertificateOrchestrator(
         val results = mutableMapOf<Int, CleanupResult>()
 
         // Step 1: Process certificates with operation="remove"
-        val certificatesToRemove = hostCertificates.filter { it.shouldRemove() }
+        // Note: UUID mismatches are now handled by enrollment (install-over), not cleanup
+        val certificatesToRemove = hostCertificates.filter {
+            it.shouldRemove()
+        }
         Log.d(TAG, "Certificates marked for removal: ${certificatesToRemove.map { it.id }}")
 
         for (hostCert in certificatesToRemove) {
@@ -349,7 +388,7 @@ class CertificateOrchestrator(
                         if (reportResult.isSuccess) {
                             markCertificateRemoved(context, certId, certState.alias, hostCert.uuid)
                         } else {
-                            Log.e(TAG, "Failed to report removal status for ID $certId: ${reportResult.exceptionOrNull()?.message}")
+                            FleetLog.e(TAG, "Failed to report removal status for ID $certId: ${reportResult.exceptionOrNull()?.message}")
                             // Mark as unreported so retry logic will handle it
                             markCertificateUnreported(context, certId, certState.alias, hostCert.uuid, isInstall = false)
                         }
@@ -375,7 +414,7 @@ class CertificateOrchestrator(
                         if (reportResult.isSuccess) {
                             markCertificateRemoved(context, certId, certState.alias, hostCert.uuid)
                         } else {
-                            Log.e(TAG, "Failed to report removal status for ID $certId: ${reportResult.exceptionOrNull()?.message}")
+                            FleetLog.e(TAG, "Failed to report removal status for ID $certId: ${reportResult.exceptionOrNull()?.message}")
                             // Keep as unreported with new uuid so retry logic will handle it
                             markCertificateUnreported(context, certId, certState.alias, hostCert.uuid, isInstall = false)
                         }
@@ -397,7 +436,7 @@ class CertificateOrchestrator(
                         status = UpdateCertificateStatusStatus.VERIFIED,
                         operationType = UpdateCertificateStatusOperation.REMOVE,
                     ).onFailure { error ->
-                        Log.e(TAG, "Failed to report removal status for ID $certId: ${error.message}", error)
+                        FleetLog.e(TAG, "Failed to report removal status for ID $certId: ${error.message}", error)
                     }
                     markCertificateRemoved(context, certId, alias, hostCert.uuid)
                     results[certId] = CleanupResult.Success(alias)
@@ -467,10 +506,10 @@ class CertificateOrchestrator(
                 operationType = UpdateCertificateStatusOperation.REMOVE,
                 detail = errorDetail,
             ).onFailure { error ->
-                Log.e(TAG, "Failed to report removal failure for ID $certificateId: ${error.message}", error)
+                FleetLog.e(TAG, "Failed to report removal failure for ID $certificateId: ${error.message}", error)
             }
 
-            Log.e(TAG, "Failed to remove certificate ID $certificateId (alias: '$alias')")
+            FleetLog.e(TAG, "Failed to remove certificate ID $certificateId (alias: '$alias')")
             CleanupResult.Failure(
                 reason = errorDetail,
                 exception = null,
@@ -496,13 +535,30 @@ class CertificateOrchestrator(
      * @param alias Certificate alias
      * @param isInstall True for install operation, false for remove operation
      */
-    internal suspend fun markCertificateUnreported(context: Context, certificateId: Int, alias: String, uuid: String, isInstall: Boolean) {
+    internal suspend fun markCertificateUnreported(
+        context: Context,
+        certificateId: Int,
+        alias: String,
+        uuid: String,
+        isInstall: Boolean,
+        notAfter: String? = null,
+        notBefore: String? = null,
+        serialNumber: String? = null,
+    ) {
         val status = if (isInstall) {
             CertificateStatus.INSTALLED_UNREPORTED
         } else {
             CertificateStatus.REMOVED_UNREPORTED
         }
-        val info = CertificateState(alias = alias, status = status, statusReportRetries = 0, uuid = uuid)
+        val info = CertificateState(
+            alias = alias,
+            status = status,
+            statusReportRetries = 0,
+            uuid = uuid,
+            notAfter = notAfter,
+            notBefore = notBefore,
+            serialNumber = serialNumber,
+        )
         storeCertificateState(context, certificateId, info)
     }
 
@@ -570,6 +626,9 @@ class CertificateOrchestrator(
                 certificateId = certId,
                 status = UpdateCertificateStatusStatus.VERIFIED,
                 operationType = operationType,
+                notAfter = state.notAfter?.let { parseISO8601(it) },
+                notBefore = state.notBefore?.let { parseISO8601(it) },
+                serialNumber = state.serialNumber?.let { BigInteger(it, 16) },
             )
 
             if (result.isSuccess) {
@@ -623,10 +682,15 @@ class CertificateOrchestrator(
                     TAG,
                     "Certificate ID $certificateId (alias: '${storedState.alias}', uuid: $uuid) is already installed, skipping enrollment",
                 )
-                return CertificateEnrollmentHandler.EnrollmentResult.Success(storedState.alias)
+                return CertificateEnrollmentHandler.EnrollmentResult.Success(
+                    alias = storedState.alias,
+                    notAfter = null,
+                    notBefore = null,
+                    serialNumber = null,
+                )
             }
             if (existsInKeystore && storedState.uuid != uuid) {
-                Log.i(TAG, "Certificate ID $certificateId uuid changed (${storedState.uuid} -> $uuid), will reinstall")
+                Log.i(TAG, "Certificate ID $certificateId uuid changed (${storedState.uuid} -> $uuid), will install over existing")
             }
         }
 
@@ -639,7 +703,7 @@ class CertificateOrchestrator(
         // Fetch certificate template from API (only if not already installed)
         val templateResult = apiClient.getCertificateTemplate(certificateId)
         val (template, scepUrl) = templateResult.getOrElse { error ->
-            Log.e(TAG, "Failed to fetch certificate template for ID $certificateId: ${error.message}", error)
+            FleetLog.e(TAG, "Failed to fetch certificate template for ID $certificateId: ${error.message}", error)
             return CertificateEnrollmentHandler.EnrollmentResult.Failure(
                 reason = "Failed to fetch certificate template: ${error.message}",
                 exception = error as? Exception,
@@ -649,11 +713,22 @@ class CertificateOrchestrator(
 
         Log.d(TAG, "Successfully fetched certificate template: ${template.name}")
 
+        if (template.status == "failed") {
+            // Server says this certificate is permanently failed. Mark it locally as failed so we stop polling
+            Log.i(TAG, "Certificate template ${template.name} has terminal status \"failed\", marking locally as failed")
+            markCertificateForceFailed(context, certificateId, template.name, uuid)
+            return CertificateEnrollmentHandler.EnrollmentResult.PermanentlyFailed(template.name)
+        }
+
         if (template.status != "delivered") {
-            // The certificate template hasn't failed on the device, but isn't ready to be processed yet.
-            // Retry next time we fetch but don't mark as failed locally
+            // Not ready to be processed yet (e.g. pending, delivering). Retry next time.
             Log.i(TAG, "Certificate template ${template.name} does not have status \"delivered\": status \"${template.status}\"")
-            return CertificateEnrollmentHandler.EnrollmentResult.Success(template.name)
+            return CertificateEnrollmentHandler.EnrollmentResult.Success(
+                alias = template.name,
+                notAfter = null,
+                notBefore = null,
+                serialNumber = null,
+            )
         }
 
         // Step 3: Create certificate installer (use provided or create default)
@@ -673,14 +748,31 @@ class CertificateOrchestrator(
             is CertificateEnrollmentHandler.EnrollmentResult.Success -> {
                 Log.i(TAG, "Certificate enrollment successful for ID $certificateId with alias: ${result.alias}")
 
+                // Convert certificate metadata to ISO8601 for storage
+                val notAfterStr = result.notAfter?.toISO8601String()
+                val notBeforeStr = result.notBefore?.toISO8601String()
+                val serialNumberStr = result.serialNumber?.toString(16) // hex
+
                 // First, mark as unreported (persisted before network call)
-                markCertificateUnreported(context, certificateId, template.name, uuid = uuid, isInstall = true)
+                markCertificateUnreported(
+                    context,
+                    certificateId,
+                    template.name,
+                    uuid = uuid,
+                    isInstall = true,
+                    notAfter = notAfterStr,
+                    notBefore = notBeforeStr,
+                    serialNumber = serialNumberStr,
+                )
 
                 // Attempt to report status
                 val reportResult = apiClient.updateCertificateStatus(
                     certificateId = certificateId,
                     status = UpdateCertificateStatusStatus.VERIFIED,
                     operationType = UpdateCertificateStatusOperation.INSTALL,
+                    notAfter = result.notAfter,
+                    notBefore = result.notBefore,
+                    serialNumber = result.serialNumber,
                 )
 
                 if (reportResult.isSuccess) {
@@ -695,16 +787,28 @@ class CertificateOrchestrator(
                 }
             }
             is CertificateEnrollmentHandler.EnrollmentResult.Failure -> {
-                val updatedInfo = markCertificateFailure(context = context, certificateId = certificateId, alias = template.name)
-                if (!updatedInfo.shouldRetry()) {
-                    Log.e(TAG, "Certificate enrollment failed for ID $certificateId: ${result.reason}", result.exception)
+                val shouldReportFailure = if (result.isRetryable) {
+                    val updatedInfo = recordEnrollmentAttemptFailure(
+                        context = context,
+                        certificateId = certificateId,
+                        alias = template.name,
+                        uuid = uuid,
+                    )
+                    !updatedInfo.shouldRetry()
+                } else {
+                    markCertificateForceFailed(context, certificateId, template.name, uuid)
+                    true
+                }
+
+                if (shouldReportFailure) {
+                    FleetLog.e(TAG, "Certificate enrollment failed for ID $certificateId: ${result.reason}", result.exception)
                     apiClient.updateCertificateStatus(
                         certificateId = certificateId,
                         status = UpdateCertificateStatusStatus.FAILED,
                         operationType = UpdateCertificateStatusOperation.INSTALL,
                         detail = result.reason,
                     ).onFailure { error ->
-                        Log.e(TAG, "Failed to update certificate status to failed for ID $certificateId: ${error.message}", error)
+                        FleetLog.e(TAG, "Failed to update certificate status to failed for ID $certificateId: ${error.message}", error)
                     }
                 }
             }
@@ -717,7 +821,13 @@ class CertificateOrchestrator(
     }
 
     /**
-     * Enrolls multiple certificates in parallel.
+     * Enrolls multiple certificates sequentially. Each enrollment involves multiple HTTP calls
+     * (template fetch, SCEP enrollment, status update), so sequential processing avoids
+     * overwhelming the server and the device's network stack.
+     *
+     * If DNS resolution fails for a certificate (after exhausting in-call retries), we abort the
+     * remaining certs since DNS failures are network-level, not cert-specific. The worker will
+     * return Result.retry() and WorkManager's backoff handles the DNS recovery.
      *
      * @param context Android context for certificate installation
      * @param hostCertificates List of certificate templates to enroll
@@ -727,15 +837,30 @@ class CertificateOrchestrator(
         context: Context,
         hostCertificates: List<HostCertificate>,
         certificateInstaller: CertificateEnrollmentHandler.CertificateInstaller? = null,
-    ): Map<Int, CertificateEnrollmentHandler.EnrollmentResult> = coroutineScope {
+    ): Map<Int, CertificateEnrollmentHandler.EnrollmentResult> {
         Log.d(TAG, "Starting batch certificate enrollment for ${hostCertificates.size} certificates")
 
-        hostCertificates.associate { cert ->
-            cert.id to async {
-                enrollCertificate(context, cert.id, cert.uuid, certificateInstaller)
+        val results = mutableMapOf<Int, CertificateEnrollmentHandler.EnrollmentResult>()
+        for (cert in hostCertificates) {
+            val result = enrollCertificate(context, cert.id, cert.uuid, certificateInstaller)
+            results[cert.id] = result
+            if (result is CertificateEnrollmentHandler.EnrollmentResult.Failure && result.isDnsFailure()) {
+                Log.w(
+                    TAG,
+                    "DNS resolution failed for certificate ${cert.id}, aborting batch (${hostCertificates.size - results.size} certs deferred to next run)",
+                )
+                break
             }
-        }.mapValues { it.value.await() }
+        }
+        return results
     }
+
+    /**
+     * Returns true if this failure was caused by a DNS resolution problem, either directly or wrapped in
+     * another exception (e.g. SCEP wraps UnknownHostException in ScepNetworkException).
+     */
+    private fun CertificateEnrollmentHandler.EnrollmentResult.Failure.isDnsFailure(): Boolean =
+        generateSequence(exception as Throwable?) { it.cause }.any { it is UnknownHostException }
 
     /**
      * Android-specific certificate installer using DevicePolicyManager.
@@ -753,6 +878,13 @@ class CertificateOrchestrator(
             val dpm = context.getSystemService(DevicePolicyManager::class.java)
                 ?: error("DevicePolicyManager not available")
 
+            // Defensive check: verify delegation is present before consuming the certificate. The worker-level gate
+            // should catch this earlier, but this protects against code paths that skip the worker.
+            val scopes = dpm.getDelegatedScopes(null, context.packageName)
+            if (!scopes.contains(DevicePolicyManager.DELEGATION_CERT_INSTALL)) {
+                error("CERT_INSTALL delegation not granted to ${context.packageName}, current scopes: $scopes")
+            }
+
             // The admin component is null because the caller is a DELEGATED application,
             // not the Device Policy Controller itself. The DPM recognizes the delegation
             // via the calling package's UID and the granted CERT_INSTALL scope.
@@ -767,7 +899,7 @@ class CertificateOrchestrator(
             if (success) {
                 Log.i(TAG, "Certificate successfully installed with alias: $alias")
             } else {
-                Log.e(TAG, "Certificate installation failed. Check MDM policy and delegation status.")
+                FleetLog.e(TAG, "Certificate installation failed for alias '$alias': installKeyPair returned false")
             }
 
             return success
@@ -810,6 +942,12 @@ data class CertificateState(
     val statusReportRetries: Int = 0,
     @SerialName("uuid")
     val uuid: String = "",
+    @SerialName("not_after")
+    val notAfter: String? = null,
+    @SerialName("not_before")
+    val notBefore: String? = null,
+    @SerialName("serial_number")
+    val serialNumber: String? = null,
 ) {
     fun shouldRetry(): Boolean = status == CertificateStatus.RETRY && retries < (MAX_CERT_INSTALL_RETRIES)
     fun shouldRetryStatusReport(): Boolean = statusReportRetries < MAX_STATUS_REPORT_RETRIES
