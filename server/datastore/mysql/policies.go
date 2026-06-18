@@ -173,6 +173,7 @@ func updatePolicyLabelsTx(ctx context.Context, tx sqlx.ExtContext, policy *fleet
 	return nil
 }
 
+// >>> OPENFRAME(host-assignments): per-host policy assignment CRUD + loader backed by the policy_hosts table — openframe/docs/architecture-host-assignments.md
 func (ds *Datastore) AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error) {
 	if len(hostIDs) == 0 {
 		return 0, nil
@@ -306,6 +307,8 @@ func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies 
 	return nil
 }
 
+// <<< OPENFRAME(host-assignments)
+
 func loadLabelsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
 	const sql = `
 		SELECT
@@ -409,11 +412,13 @@ func policyDB(ctx context.Context, q sqlx.QueryerContext, id uint, teamID *uint)
 		return nil, ctxerr.Wrap(ctx, err, "laoding policy labels")
 	}
 
+	// >>> OPENFRAME(host-assignments): attach per-host policy assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		if err := loadHostsForPolicies(ctx, q, []*fleet.Policy{&policy}); err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
 		}
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	return &policy, nil
 }
@@ -847,11 +852,13 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
 	}
 
+	// >>> OPENFRAME(host-assignments): attach per-host policy assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		if err := loadHostsForPolicies(ctx, q, policies); err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
 		}
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	return policies, nil
 }
@@ -892,11 +899,13 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
 		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
 	}
 
+	// >>> OPENFRAME(host-assignments): attach per-host policy assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		if err := loadHostsForPolicies(ctx, q, policies); err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
 		}
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	return policies, nil
 }
@@ -1067,6 +1076,7 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 
 	args := []interface{}{host.TeamID, host.FleetPlatform(), host.ID, host.ID}
 
+	// >>> OPENFRAME(host-assignments): scope host policies to per-host policy_hosts assignments — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		stmt += `
 			AND EXISTS (
@@ -1074,6 +1084,7 @@ func (ds *Datastore) PolicyQueriesForHost(ctx context.Context, host *fleet.Host)
 			)`
 		args = append(args, host.ID)
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	var rows []struct {
 		ID    string `db:"id"`
@@ -1230,11 +1241,13 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
 		return nil, ctxerr.Wrap(ctx, err, "loading policy labels")
 	}
 
+	// >>> OPENFRAME(host-assignments): attach per-host policy assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		if err := loadHostsForPolicies(ctx, ds.reader(ctx), policies); err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "loading policy hosts")
 		}
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	return policies, nil
 }

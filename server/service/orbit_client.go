@@ -27,7 +27,9 @@ import (
 	"github.com/fleetdm/fleet/v4/pkg/retry"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/service/contract"
+	// >>> OPENFRAME(agent-openframe-mode): import openframe auth manager package — openframe/docs/agent-openframe-mode.md
 	"github.com/fleetdm/fleet/v4/server/service/openframe"
+	// <<< OPENFRAME(agent-openframe-mode)
 	"github.com/rs/zerolog/log"
 )
 
@@ -81,9 +83,11 @@ type OrbitClient struct {
 	// openSSOWindow is a function that opens a browser window to the SSO URL.
 	openSSOWindow func() error
 
+	// >>> OPENFRAME(agent-openframe-mode): openframe-mode flag + bearer-token auth manager on the orbit client — openframe/docs/agent-openframe-mode.md
 	// openframe mode
 	openFrameMode bool
 	authManager   *openframe.OpenFrameAuthorizationManager
+	// <<< OPENFRAME(agent-openframe-mode)
 }
 
 // time-to-live for config cache
@@ -155,16 +159,18 @@ func (oc *OrbitClient) requestWithExternal(verb string, pathOrURL string, params
 		oc.setClientCapabilitiesHeader(request)
 	}
 
+	// >>> OPENFRAME(agent-openframe-mode): inject Bearer auth header on every request when in openframe mode — openframe/docs/agent-openframe-mode.md
 	// if openframe mode |
 	if oc.openFrameMode {
 		// Add custom header for all requests
 		authToken := oc.authManager.GetToken()
 		if authToken != "" {
-			request.Header.Add("Authorization", "Bearer " + authToken)
+			request.Header.Add("Authorization", "Bearer "+authToken)
 		} else {
 			log.Debug().Msg("authToken is empty, not adding Authorization header")
 		}
 	}
+	// <<< OPENFRAME(agent-openframe-mode)
 
 	// Log the request details for debugging
 	log.Debug().
@@ -219,17 +225,21 @@ func NewOrbitClient(
 	onGetConfigErrFns *OnGetConfigErrFuncs,
 	httpSignerWrapper func(*http.Client) *http.Client,
 	hostIdentityCertPath string,
+	// >>> OPENFRAME(agent-openframe-mode): extra constructor params for openframe mode + auth manager — openframe/docs/agent-openframe-mode.md
 	openFrameMode bool,
 	authManager *openframe.OpenFrameAuthorizationManager,
+	// <<< OPENFRAME(agent-openframe-mode)
 ) (*OrbitClient, error) {
 	orbitCapabilities := fleet.GetOrbitClientCapabilities()
 	urlPrefix := ""
+	// >>> OPENFRAME(agent-openframe-mode): route through the OpenFrame tools-agent URL prefix when in openframe mode — openframe/docs/agent-openframe-mode.md
 	if openFrameMode {
 		log.Info().Msg("Add tools agent prefix for openframe mode")
 		urlPrefix = "/tools/agent/fleetmdm-server"
 	} else {
 		log.Info().Msg("Add no tools agent prefix for non-openframe mode")
 	}
+	// <<< OPENFRAME(agent-openframe-mode)
 	bc, err := newBaseClient(addr, insecureSkipVerify, rootCA, urlPrefix, fleetClientCert, orbitCapabilities, httpSignerWrapper)
 	if err != nil {
 		return nil, err
@@ -250,8 +260,10 @@ func NewOrbitClient(
 		receiverUpdateContext:      ctx,
 		receiverUpdateCancelFunc:   cancelFunc,
 		hostIdentityCertPath:       hostIdentityCertPath,
-		authManager:                authManager,
-		openFrameMode:              openFrameMode,
+		// >>> OPENFRAME(agent-openframe-mode): wire openframe fields into the OrbitClient literal — openframe/docs/agent-openframe-mode.md
+		authManager:   authManager,
+		openFrameMode: openFrameMode,
+		// <<< OPENFRAME(agent-openframe-mode)
 	}, nil
 }
 
@@ -819,6 +831,7 @@ func (oc *OrbitClient) authenticatedRequest(verb string, path string, params int
 		oc.setEnrolled(true)
 		return nil
 	case errors.Is(err, ErrUnauthenticated):
+		// >>> OPENFRAME(agent-openframe-mode): 401 diagnostics include openframe auth-token presence — openframe/docs/agent-openframe-mode.md
 		hasNodeKey := nodeKey != ""
 		hasAuthToken := false
 		if oc.openFrameMode && oc.authManager != nil {
@@ -829,6 +842,7 @@ func (oc *OrbitClient) authenticatedRequest(verb string, path string, params int
 			Bool("has_node_key", hasNodeKey).
 			Bool("has_auth_token", hasAuthToken).
 			Msg("authenticated request got 401, invalidating node key")
+		// <<< OPENFRAME(agent-openframe-mode)
 
 		oc.setNodeKey("")
 		oc.setEnrolled(false)

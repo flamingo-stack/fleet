@@ -325,7 +325,7 @@ the way that the Fleet server works.
 				ConnWaitTimeout:           config.Redis.ConnWaitTimeout,
 				WriteTimeout:              config.Redis.WriteTimeout,
 				ReadTimeout:               config.Redis.ReadTimeout,
-				KeyPrefix:                 config.Redis.KeyPrefix,
+				KeyPrefix:                 config.Redis.KeyPrefix, // OPENFRAME(redis-key-prefix): namespace Redis keys/channels per tenant
 			})
 			if err != nil {
 				initFatal(err, "initialize Redis")
@@ -984,6 +984,7 @@ the way that the Fleet server works.
 				}
 			}
 
+			// >>> OPENFRAME(query-results-ttl): register TTL-based query_results cleanup cron — openframe/docs/query-results-ttl-cleanup.md
 			if fleet.IsOpenframeMode() && config.Server.QueryResultsTTL > 0 {
 				if err := cronSchedules.StartCronSchedule(
 					func() (fleet.CronSchedule, error) {
@@ -993,6 +994,7 @@ the way that the Fleet server works.
 					initFatal(err, "failed to register query_results_ttl_cleanup schedule")
 				}
 			}
+			// <<< OPENFRAME(query-results-ttl)
 
 			if err := cronSchedules.StartCronSchedule(
 				func() (fleet.CronSchedule, error) {

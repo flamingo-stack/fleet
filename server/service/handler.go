@@ -336,10 +336,12 @@ func attachFleetAPIRoutes(r *mux.Router, svc fleet.Service, config config.FleetC
 		POST("/api/_version_/fleet/teams/{team_id}/policies/delete", deleteTeamPoliciesEndpoint, deleteTeamPoliciesRequest{})
 	ue.PATCH("/api/_version_/fleet/teams/{team_id}/policies/{policy_id}", modifyTeamPolicyEndpoint, modifyTeamPolicyRequest{})
 	ue.POST("/api/_version_/fleet/spec/policies", applyPolicySpecsEndpoint, applyPolicySpecsRequest{})
+	// >>> OPENFRAME(host-assignments): fork-only routes for policy/{id}/hosts assignment endpoints — openframe/docs/architecture-host-assignments.md
 	ue.POST("/api/_version_/fleet/policies/{policy_id}/hosts", addPolicyHostsEndpoint, addPolicyHostsRequest{})
 	ue.DELETE("/api/_version_/fleet/policies/{policy_id}/hosts", removePolicyHostsEndpoint, removePolicyHostsRequest{})
 	ue.PUT("/api/_version_/fleet/policies/{policy_id}/hosts", replacePolicyHostsEndpoint, replacePolicyHostsRequest{})
 	ue.GET("/api/_version_/fleet/policies/{policy_id}/hosts", listPolicyHostsEndpoint, listPolicyHostsRequest{})
+	// <<< OPENFRAME(host-assignments)
 
 	ue.POST("/api/_version_/fleet/certificates", createCertificateTemplateEndpoint, createCertificateTemplateRequest{})
 	ue.GET("/api/_version_/fleet/certificates", listCertificateTemplatesEndpoint, listCertificateTemplatesRequest{})
@@ -357,10 +359,12 @@ func attachFleetAPIRoutes(r *mux.Router, svc fleet.Service, config config.FleetC
 	ue.DELETE("/api/_version_/fleet/queries/id/{id:[0-9]+}", deleteQueryByIDEndpoint, deleteQueryByIDRequest{})
 	ue.POST("/api/_version_/fleet/queries/delete", deleteQueriesEndpoint, deleteQueriesRequest{})
 	ue.POST("/api/_version_/fleet/spec/queries", applyQuerySpecsEndpoint, applyQuerySpecsRequest{})
+	// >>> OPENFRAME(host-assignments): fork-only routes for queries/{id}/hosts assignment endpoints — openframe/docs/architecture-host-assignments.md
 	ue.POST("/api/_version_/fleet/queries/{id:[0-9]+}/hosts", addQueryHostsEndpoint, addQueryHostsRequest{})
 	ue.DELETE("/api/_version_/fleet/queries/{id:[0-9]+}/hosts", removeQueryHostsEndpoint, removeQueryHostsRequest{})
 	ue.PUT("/api/_version_/fleet/queries/{id:[0-9]+}/hosts", replaceQueryHostsEndpoint, replaceQueryHostsRequest{})
 	ue.GET("/api/_version_/fleet/queries/{id:[0-9]+}/hosts", listQueryHostsEndpoint, listQueryHostsRequest{})
+	// <<< OPENFRAME(host-assignments)
 	ue.GET("/api/_version_/fleet/spec/queries", getQuerySpecsEndpoint, getQuerySpecsRequest{})
 	ue.GET("/api/_version_/fleet/spec/queries/{name}", getQuerySpecEndpoint, getQuerySpecRequest{})
 

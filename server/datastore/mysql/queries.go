@@ -476,6 +476,7 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 	return nil
 }
 
+// >>> OPENFRAME(host-assignments): per-host query assignment CRUD backed by the query_hosts table — openframe/docs/architecture-host-assignments.md
 func (ds *Datastore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
 	if len(hostIDs) == 0 {
 		return 0, nil
@@ -559,6 +560,8 @@ func (ds *Datastore) ListQueryHosts(ctx context.Context, queryID uint, opts flee
 
 	return hosts, meta, nil
 }
+
+// <<< OPENFRAME(host-assignments)
 
 func (ds *Datastore) deleteQueryResults(ctx context.Context, queryID uint) error {
 	resultsSQL := `DELETE FROM query_results WHERE query_id = ?`
@@ -716,11 +719,13 @@ func query(ctx context.Context, db sqlx.QueryerContext, id uint) (*fleet.Query, 
 		return nil, ctxerr.Wrap(ctx, err, "loading labels for query")
 	}
 
+	// >>> OPENFRAME(host-assignments): attach per-host query assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		if err := loadHostsForQueries(ctx, db, []*fleet.Query{query}); err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "loading hosts for query")
 		}
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	return query, nil
 }
@@ -818,11 +823,13 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 		return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading labels for queries")
 	}
 
+	// >>> OPENFRAME(host-assignments): attach per-host query assignments when in OpenFrame mode — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		if err := ds.loadHostsForQueries(ctx, queries); err != nil {
 			return nil, 0, nil, ctxerr.Wrap(ctx, err, "loading hosts for queries")
 		}
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	var meta *fleet.PaginationMetadata
 	if opt.ListOptions.IncludeMetadata {
@@ -894,6 +901,7 @@ func (ds *Datastore) loadLabelsForQueries(ctx context.Context, queries []*fleet.
 	return loadLabelsForQueries(ctx, ds.reader(ctx), queries)
 }
 
+// >>> OPENFRAME(host-assignments): loaders that hydrate per-host query assignments from the query_hosts table — openframe/docs/architecture-host-assignments.md
 func (ds *Datastore) loadHostsForQueries(ctx context.Context, queries []*fleet.Query) error {
 	return loadHostsForQueries(ctx, ds.reader(ctx), queries)
 }
@@ -945,6 +953,8 @@ func loadHostsForQueries(ctx context.Context, db sqlx.QueryerContext, queries []
 
 	return nil
 }
+
+// <<< OPENFRAME(host-assignments)
 
 func loadLabelsForQueries(ctx context.Context, db sqlx.QueryerContext, queries []*fleet.Query) error {
 	if len(queries) == 0 {
@@ -1058,6 +1068,7 @@ func (ds *Datastore) ListScheduledQueriesForAgents(ctx context.Context, teamID *
 		))`
 		args = append(args, hostID)
 
+		// >>> OPENFRAME(host-assignments): scope host queries to per-host query_hosts assignments — openframe/docs/architecture-host-assignments.md
 		if fleet.IsOpenframeMode() {
 			labelSQL += `
 		AND EXISTS (
@@ -1065,6 +1076,7 @@ func (ds *Datastore) ListScheduledQueriesForAgents(ctx context.Context, teamID *
 		)`
 			args = append(args, hostID)
 		}
+		// <<< OPENFRAME(host-assignments)
 	}
 	sqlStmt = fmt.Sprintf(sqlStmt, teamSQL, labelSQL)
 

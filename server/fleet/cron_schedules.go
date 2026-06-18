@@ -35,7 +35,7 @@ const (
 	// every 1h.
 	CronRefreshVPPAppVersions          CronScheduleName = "refresh_vpp_app_versions"
 	CronAppleMDMIPhoneIPadReviver      CronScheduleName = "apple_mdm_iphone_ipad_reviver"
-	CronQueryResultsTTLCleanup         CronScheduleName = "query_results_ttl_cleanup"
+	CronQueryResultsTTLCleanup         CronScheduleName = "query_results_ttl_cleanup" // OPENFRAME(query-results-ttl): TTL cleanup cron for query_results — openframe/docs/query-results-ttl-cleanup.md
 	CronUpcomingActivitiesMaintenance  CronScheduleName = "upcoming_activities_maintenance"
 	CronHostVitalsLabelMembership      CronScheduleName = "host_vitals_label_membership"
 	CronBatchActivityCompletionChecker CronScheduleName = "batch_activity_completion_checker"

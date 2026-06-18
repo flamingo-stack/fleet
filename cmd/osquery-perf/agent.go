@@ -859,8 +859,10 @@ func (a *agent) runOrbitLoop() {
 		nil,
 		signerWrapper,
 		"",
+		// >>> OPENFRAME(agent-openframe-mode): extra NewOrbitClient params; load-test agent never runs openframe mode — openframe/docs/agent-openframe-mode.md
 		false, // openFrameMode
 		nil,   // authManager
+		// <<< OPENFRAME(agent-openframe-mode)
 	)
 	if err != nil {
 		log.Println("creating orbit client: ", err)

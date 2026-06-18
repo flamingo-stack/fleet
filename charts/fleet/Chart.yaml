@@ -1,3 +1,4 @@
+# OPENFRAME(helm): fork-maintained chart — openframe/docs/helm-chart.md
 apiVersion: v2
 description: A Helm chart for Fleet
 name: fleet

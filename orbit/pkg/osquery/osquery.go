@@ -211,7 +211,10 @@ func (r *Runner) getContextAndCancel() (context.Context, func()) {
 	return r.ctx, r.cancel
 }
 
+// >>> OPENFRAME(agent-openframe-mode): expose full osqueryd command string for openframe logging — openframe/docs/agent-openframe-mode.md
 // GetCommand returns the full command string that will be executed
 func (r *Runner) GetCommand() string {
 	return r.cmd.String()
 }
+
+// <<< OPENFRAME(agent-openframe-mode)

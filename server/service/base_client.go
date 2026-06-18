@@ -50,7 +50,7 @@ func (bc *baseClient) parseResponse(verb, path string, response *http.Response, 
 		}
 	case http.StatusUnauthorized:
 		errText := extractServerErrorText(response.Body)
-		fmt.Fprintf(os.Stderr, "HTTP 401 on %s %s: %s\n", verb, path, errText)
+		fmt.Fprintf(os.Stderr, "HTTP 401 on %s %s: %s\n", verb, path, errText) // OPENFRAME(agent-openframe-mode): log 401 errors to stderr — openframe/docs/agent-openframe-mode.md
 		if strings.Contains(errText, "password reset required") {
 			return ErrPasswordResetRequired
 		}

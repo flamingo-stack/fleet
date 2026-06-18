@@ -36,7 +36,25 @@ FLEET_SERVER_QUERY_RESULTS_CLEANUP_INTERVAL=6h    # every 6 hours
 
 ## Feature gate
 
-The schedule only starts when `QueryResultsTTL > 0` (checked in `serve.go`). This is **not** gated behind `FLEET_OPENFRAME_MODE` because TTL-based cleanup is a general-purpose optimization that any Fleet deployment could benefit from. The env vars themselves act as the feature flag — deployments that don't set them get the defaults; deployments that set TTL to `0` disable the feature entirely.
+The schedule starts only when **both** conditions hold ([`cmd/fleet/serve.go`](../../cmd/fleet/serve.go)):
+
+```go
+if fleet.IsOpenframeMode() && config.Server.QueryResultsTTL > 0 {
+    // register query_results_ttl_cleanup schedule
+}
+```
+
+So the job runs only in OpenFrame deployments (`FLEET_OPENFRAME_MODE=1`) **and**
+only when a positive TTL is configured. A standard Fleet deployment, or an
+OpenFrame deployment that leaves `FLEET_SERVER_QUERY_RESULTS_TTL` at `0`, never
+starts the schedule. Setting `QueryResultsTTL=0` disables the feature even with
+OpenFrame mode on.
+
+> The gating exists because the motivation is OpenFrame-specific: the table only
+> grows unbounded because the OpenFrame Debezium CDC pipeline requires Fleet to
+> keep writing to `query_results` (it cannot be disabled via
+> `FLEET_SERVER_QUERY_REPORTS_DISABLED`). The deletion algorithm itself is
+> generic, but the schedule is intentionally scoped to OpenFrame.
 
 ## Architecture
 

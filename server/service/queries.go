@@ -1010,6 +1010,7 @@ func (svc *Service) GetQuerySpec(ctx context.Context, teamID *uint, name string)
 	return spec, nil
 }
 
+// >>> OPENFRAME(host-assignments): fork-only HTTP endpoints + svc methods to assign hosts to a query — openframe/docs/architecture-host-assignments.md
 /////////////////////////////////////////////////////////////////////////////////
 // Add/Remove hosts for a query (openframe mode)
 /////////////////////////////////////////////////////////////////////////////////
@@ -1141,7 +1142,7 @@ type listQueryHostsRequest struct {
 }
 
 type listQueryHostsResponse struct {
-	Hosts []fleet.HostIdent        `json:"hosts"`
+	Hosts []fleet.HostIdent         `json:"hosts"`
 	Meta  *fleet.PaginationMetadata `json:"meta,omitempty"`
 	Err   error                     `json:"error,omitempty"`
 }
@@ -1173,3 +1174,5 @@ func (svc *Service) ListQueryHosts(ctx context.Context, queryID uint, opts fleet
 
 	return svc.ds.ListQueryHosts(ctx, queryID, opts)
 }
+
+// <<< OPENFRAME(host-assignments)

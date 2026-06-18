@@ -102,6 +102,7 @@ type Datastore interface {
 	// given teamID and hostID. If teamID is nil, then scheduled queries for the 'global' team are returned.
 	ListScheduledQueriesForAgents(ctx context.Context, teamID *uint, hostID *uint, queryReportsDisabled bool) ([]*Query, error)
 
+	// >>> OPENFRAME(host-assignments): datastore methods for query host targeting — openframe/docs/architecture-host-assignments.md
 	// AddQueryHosts adds hosts to a query's host targeting list (openframe mode).
 	AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
 	// RemoveQueryHosts removes hosts from a query's host targeting list (openframe mode).
@@ -110,6 +111,7 @@ type Datastore interface {
 	ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error
 	// ListQueryHosts returns paginated hosts assigned to a query.
 	ListQueryHosts(ctx context.Context, queryID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+	// <<< OPENFRAME(host-assignments)
 
 	// QueryByName looks up a query by name on a team. If teamID is nil, then the query is looked up in
 	// the 'global' team.
@@ -565,9 +567,11 @@ type Datastore interface {
 	// Used in cleanups_then_aggregation cron to cleanup rows that were inserted immediately
 	// after DiscardData was set to true due to query caching.
 	CleanupDiscardedQueryResults(ctx context.Context) error
+	// >>> OPENFRAME(query-results-ttl): TTL-based cleanup of expired query_results — openframe/docs/query-results-ttl-cleanup.md
 	// CleanupExpiredQueryResults deletes query_results rows where last_fetched
 	// is older than expiredBefore. Uses batch deletion. Returns rows deleted.
 	CleanupExpiredQueryResults(ctx context.Context, expiredBefore time.Time) (int64, error)
+	// <<< OPENFRAME(query-results-ttl)
 
 	///////////////////////////////////////////////////////////////////////////////
 	// TeamStore
@@ -817,6 +821,7 @@ type Datastore interface {
 
 	PolicyQueriesForHost(ctx context.Context, host *Host) (map[string]string, error)
 
+	// >>> OPENFRAME(host-assignments): datastore methods for policy host targeting — openframe/docs/architecture-host-assignments.md
 	// AddPolicyHosts adds hosts to a policy's host targeting list (openframe mode).
 	AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
 	// RemovePolicyHosts removes hosts from a policy's host targeting list (openframe mode).
@@ -825,6 +830,7 @@ type Datastore interface {
 	ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error
 	// ListPolicyHosts returns paginated hosts assigned to a policy.
 	ListPolicyHosts(ctx context.Context, policyID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+	// <<< OPENFRAME(host-assignments)
 
 	// GetTeamHostsPolicyMemberships returns the hosts that belong to the given team and their pass/fail statuses
 	// around the provided policyIDs.
@@ -850,8 +856,10 @@ type Datastore interface {
 	MigrateTables(ctx context.Context) error
 	// MigrateData populates built-in data
 	MigrateData(ctx context.Context) error
+	// >>> OPENFRAME(host-assignments): openframe schema migrations, tracked independently from upstream — openframe/docs/migrations.md
 	// MigrateOpenframe runs openframe-specific schema migrations tracked independently from upstream Fleet.
 	MigrateOpenframe(ctx context.Context) error
+	// <<< OPENFRAME(host-assignments)
 	// MigrationStatus returns nil if migrations are complete, and an error if migrations need to be run.
 	MigrationStatus(ctx context.Context) (*MigrationStatus, error)
 

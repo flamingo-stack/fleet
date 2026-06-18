@@ -60,7 +60,9 @@ import (
 	"github.com/fleetdm/fleet/v4/pkg/secure"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	"github.com/fleetdm/fleet/v4/server/service"
+	// >>> OPENFRAME(agent-openframe-mode): import openframe token/encryption/auth package — openframe/docs/agent-openframe-mode.md
 	"github.com/fleetdm/fleet/v4/server/service/openframe"
+	// <<< OPENFRAME(agent-openframe-mode)
 	"github.com/google/uuid"
 	"github.com/oklog/run"
 	httpsig "github.com/remitly-oss/httpsig-go"
@@ -91,7 +93,7 @@ func main() {
 	app.Commands = []*cli.Command{
 		versionCommand,
 		shellCommand,
-		uuidCommand,
+		uuidCommand, // OPENFRAME(agent-openframe-mode): register the fork-added `uuid` subcommand — openframe/docs/agent-openframe-mode.md
 	}
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
@@ -249,6 +251,7 @@ func main() {
 			Usage:   "Disables checking for setup experience on Linux or Windows hosts",
 			EnvVars: []string{"ORBIT_DISABLE_SETUP_EXPERIENCE"},
 		},
+		// >>> OPENFRAME(agent-openframe-mode): openframe CLI flags (mode/secret/osquery-path/token-path) — openframe/docs/agent-openframe-mode.md
 		&cli.BoolFlag{
 			Name:    "openframe-mode",
 			Usage:   "Enable OpenFrame mode for osquery",
@@ -269,6 +272,7 @@ func main() {
 			Usage:   "Path to OpenFrame token file",
 			EnvVars: []string{"ORBIT_OPENFRAME_TOKEN_PATH"},
 		},
+		// <<< OPENFRAME(agent-openframe-mode)
 	}
 	app.Before = func(c *cli.Context) error {
 		// handle old installations, which had default root dir set to /var/lib/orbit
@@ -713,11 +717,12 @@ func main() {
 			log.Info().Msg("running with auto updates disabled")
 			updater = update.NewDisabled(opt)
 
+			// >>> OPENFRAME(agent-openframe-mode): use a fork-provided custom osqueryd binary path in openframe mode (else-branch is upstream) — openframe/docs/agent-openframe-mode.md
 			if c.Bool("openframe-mode") {
 				log.Info().Msg("Use custom osqueryd path for openframe mode")
 
 				osquerydPath = c.String("openframe-osquery-path")
-				if (osquerydPath == "") {
+				if osquerydPath == "" {
 					log.Fatal().Msg("openframe-osquery-path must be specified when openframe-mode is enabled")
 				}
 
@@ -731,6 +736,7 @@ func main() {
 
 				log.Info().Str("path", osquerydPath).Msg("Using custom osqueryd binary")
 			} else {
+				// <<< OPENFRAME(agent-openframe-mode)
 				log.Info().Msg("Use default osqueryd path")
 				osquerydPath, err = updater.ExecutableLocalPath(constant.OsqueryTUFTargetName)
 				if err != nil {
@@ -752,7 +758,6 @@ func main() {
 				}
 			}
 		}
-		
 
 		// Clear leftover files from updates
 		if err := filepath.Walk(c.String("root-dir"), func(path string, info fs.FileInfo, err error) error {
@@ -913,6 +918,7 @@ func main() {
 
 		var fleetClientCertificate *tls.Certificate
 		var fleetClientCrt *certificate.Certificate
+		// >>> OPENFRAME(agent-openframe-mode): in openframe mode the agent routes osquery through the gateway (FleetFlags) instead of a host-identity cert / TLS proxy; the `else` branch below is the original upstream cert/proxy logic — openframe/docs/agent-openframe-mode.md
 		if c.Bool("openframe-mode") {
 			parsedURL, err := url.Parse(fleetURL)
 			if err != nil {
@@ -921,6 +927,7 @@ func main() {
 			options = append(options,
 				osquery.WithFlags(osquery.FleetFlags(parsedURL)),
 			)
+			// <<< OPENFRAME(agent-openframe-mode)
 		} else {
 			var certPath string
 			// Both options --fleet-managed-host-identity-certificate and --insecure make use of a local HTTPS proxy.
@@ -1051,6 +1058,7 @@ func main() {
 			}
 		}
 
+		// >>> OPENFRAME(agent-openframe-mode): build OpenFrame auth manager + token extractor/refresher subsystem — openframe/docs/agent-openframe-mode.md
 		// Create authorization manager for OpenFrame authentication
 		// Always create an instance to ensure single point of creation
 		var authManager *openframe.OpenFrameAuthorizationManager
@@ -1092,6 +1100,7 @@ func main() {
 				},
 			})
 		}
+		// <<< OPENFRAME(agent-openframe-mode)
 
 		var (
 			signerWrapper               func(*http.Client) *http.Client
@@ -1214,8 +1223,8 @@ func main() {
 			},
 			signerWrapper,
 			hostIdentityCertificatePath,
-			c.Bool("openframe-mode"),
-			authManager,
+			c.Bool("openframe-mode"), // OPENFRAME(agent-openframe-mode): pass openframe mode + auth manager to client — openframe/docs/agent-openframe-mode.md
+			authManager,              // OPENFRAME(agent-openframe-mode)
 		)
 		if err != nil {
 			return fmt.Errorf("error new orbit client: %w", err)
@@ -1434,25 +1443,29 @@ func main() {
 		// override all other flags and flagfile entries.
 		options = append(options, osquery.WithFlags(c.Args().Slice()))
 
+		// >>> OPENFRAME(agent-openframe-mode): pass openframe flags through to the osqueryd process — openframe/docs/agent-openframe-mode.md
 		// Add OpenFrame parameters if enabled
 		if c.Bool("openframe-mode") {
 			options = append(options, osquery.WithFlags([]string{"--openframe-mode", "true"}))
 			options = append(options, osquery.WithFlags([]string{"--openframe-secret", c.String("openframe-secret")}))
 			options = append(options, osquery.WithFlags([]string{"--openframe-token-path", c.String("openframe-token-path")}))
 		}
+		// <<< OPENFRAME(agent-openframe-mode)
 
 		// Create an osquery runner with the provided options.
 		r, err := osquery.NewRunner(osquerydPath, options...)
 		if err != nil {
 			return fmt.Errorf("create osquery runner: %w", err)
 		}
-		
+
+		// >>> OPENFRAME(agent-openframe-mode): log the full osqueryd command in openframe mode — openframe/docs/agent-openframe-mode.md
 		// Log full command for OpenFrame mode
 		if c.Bool("openframe-mode") {
 			log.Info().
 				Str("full_command", r.GetCommand()).
 				Msg("OpenFrame osquery command created")
 		}
+		// <<< OPENFRAME(agent-openframe-mode)
 		addSubsystem(&g, "osqueryd runner", r)
 
 		checkerClient, err := service.NewOrbitClient(
@@ -1473,8 +1486,8 @@ func main() {
 			},
 			nil,
 			"",
-			c.Bool("openframe-mode"),
-			authManager,
+			c.Bool("openframe-mode"), // OPENFRAME(agent-openframe-mode): pass openframe mode + auth manager to checker client — openframe/docs/agent-openframe-mode.md
+			authManager,              // OPENFRAME(agent-openframe-mode)
 		)
 		if err != nil {
 			return fmt.Errorf("new client for capabilities checker: %w", err)
@@ -2202,6 +2215,7 @@ var versionCommand = &cli.Command{
 	},
 }
 
+// >>> OPENFRAME(agent-openframe-mode): fork-added `uuid` subcommand + getHostUUID helper that query osquery for the host hardware UUID — openframe/docs/agent-openframe-mode.md
 // Openframe command that gets host UUID from osquery database
 // TODO: move processing to openframe package
 var uuidCommand = &cli.Command{
@@ -2238,7 +2252,7 @@ var uuidCommand = &cli.Command{
 		}
 
 		var osquerydPath string
-		
+
 		// Check if we're using OpenFrame mode with custom osqueryd path
 		if c.Bool("openframe-mode") {
 			osquerydPath = c.String("openframe-osquery-path")
@@ -2262,7 +2276,7 @@ var uuidCommand = &cli.Command{
 			opt := update.DefaultOptions
 			opt.RootDirectory = rootDir
 			opt.LocalStore = localStore
-			
+
 			updater := update.NewDisabled(opt)
 			osquerydPath, err = updater.ExecutableLocalPath(constant.OsqueryTUFTargetName)
 			if err != nil {
@@ -2306,7 +2320,7 @@ func getHostUUID(osqueryPath string, osqueryDBPath string) (string, error) {
 	)
 	cmd.Stdout = &osquerydStdout
 	cmd.Stderr = &osquerydStderr
-	
+
 	var result []map[string]interface{}
 	if err := cmd.Run(); err != nil {
 		// Try to unmarshal the result even if there's an error (osquery exit status 78 issue)
@@ -2319,18 +2333,20 @@ func getHostUUID(osqueryPath string, osqueryDBPath string) (string, error) {
 			return "", fmt.Errorf("failed to parse osqueryd output: %w", err)
 		}
 	}
-	
+
 	if len(result) != 1 {
 		return "", fmt.Errorf("expected 1 row from UUID query, got %d", len(result))
 	}
-	
+
 	uuid, ok := result[0]["uuid"].(string)
 	if !ok {
 		return "", fmt.Errorf("UUID field not found or not a string")
 	}
-	
+
 	return uuid, nil
 }
+
+// <<< OPENFRAME(agent-openframe-mode)
 
 // serviceChecker is a helper to gracefully shutdown the runners group when a
 // system service stop request was received.

@@ -321,10 +321,12 @@ type Service interface {
 	// along with any error.
 	DeleteQueries(ctx context.Context, ids []uint) (uint, error)
 
+	// >>> OPENFRAME(host-assignments): service methods for query host targeting — openframe/docs/architecture-host-assignments.md
 	AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
 	RemoveQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error)
 	ReplaceQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) error
 	ListQueryHosts(ctx context.Context, queryID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+	// <<< OPENFRAME(host-assignments)
 
 	// /////////////////////////////////////////////////////////////////////////////
 	// CampaignService defines the distributed query campaign related service methods
@@ -692,10 +694,12 @@ type Service interface {
 	CountGlobalPolicies(ctx context.Context, matchQuery string) (int, error)
 	AutofillPolicySql(ctx context.Context, sql string) (description string, resolution string, err error)
 
+	// >>> OPENFRAME(host-assignments): service methods for policy host targeting — openframe/docs/architecture-host-assignments.md
 	AddPolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
 	RemovePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) (uint, error)
 	ReplacePolicyHosts(ctx context.Context, policyID uint, hostIDs []uint) error
 	ListPolicyHosts(ctx context.Context, policyID uint, opts ListOptions) ([]HostIdent, *PaginationMetadata, error)
+	// <<< OPENFRAME(host-assignments)
 
 	// /////////////////////////////////////////////////////////////////////////////
 	// Software

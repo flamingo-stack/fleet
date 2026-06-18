@@ -161,13 +161,58 @@ SELECT * FROM migration_status_openframe;
 +----+----------------+------------+---------------------+
 ```
 
+## Idempotency of upstream migrations
+
+Separate from the openframe migration pipeline, the fork also **rewrote the
+upstream `tables/` and `data/` migrations in place to be idempotent** (commit
+`Idemponent migrations`, 5bc52398cd — ~475 files). Each modified migration carries
+an `// Idempotent migration.` marker comment. The transformations are:
+
+| Upstream pattern | Fork pattern | Count (approx.) |
+|------------------|--------------|-----------------|
+| `CREATE TABLE \`x\`` | `CREATE TABLE IF NOT EXISTS \`x\`` | ~146 |
+| `INSERT INTO x ...` | `INSERT IGNORE INTO x ...` | ~49 |
+| `DROP TABLE \`x\`` | `DROP TABLE IF EXISTS \`x\`` | ~10 |
+
+### Why
+
+OpenFrame tenants are provisioned and re-provisioned against databases that may be
+in a partially-migrated state (restored snapshots, re-run jobs, idempotent Helm
+migration jobs — see [helm-chart.md](helm-chart.md)). Making the DDL idempotent
+means a migration that is re-applied against an object that already exists is a
+no-op instead of a hard failure (`table already exists`, duplicate-key, etc.).
+This pairs with the Helm migration job, which may run `fleet prepare db` more than
+once across install/upgrade cycles.
+
+### Trade-off and rebase cost
+
+This is the single most invasive category of fork change by file count, and it is
+a **standing merge cost**: every upstream release that adds or edits a migration
+will conflict or arrive non-idempotent, and the new/changed migrations must be
+re-patched to match. Two options when rebasing:
+
+1. **Targeted re-patch** — for migrations that conflict or are newly added,
+   re-apply the `IF NOT EXISTS` / `INSERT IGNORE` / `IF EXISTS` transformation and
+   the `// Idempotent migration.` marker.
+2. **Accept upstream as-is** for new migrations and only patch the ones that
+   actually fail in practice. Lower effort, but loses the "always idempotent"
+   guarantee for those files.
+
+> The openframe migrations in `migrations/openframe/` should follow the same
+> idempotency convention (see *Guidelines* above), but the bulk rewrite here is a
+> distinct, upstream-facing change.
+
 ## Rebase workflow
 
 When rebasing onto a newer upstream release:
 
-1. **No migration changes needed.** Our migrations live in `migrations/openframe/` and use independent numbering — upstream changes to `migrations/tables/` don't affect us.
-2. Resolve any conflicts in Go source files (datastore methods, service handlers, etc.) as usual.
-3. Run `fleet prepare db` on a test database to verify all three migration pipelines complete successfully.
+1. **No openframe-pipeline changes needed.** Our migrations live in
+   `migrations/openframe/` and use independent numbering — upstream changes to
+   `migrations/tables/` don't affect the separate goose client.
+2. **Re-apply idempotency** to any newly added or conflicting upstream migrations
+   (see *Idempotency of upstream migrations* above).
+3. Resolve any conflicts in Go source files (datastore methods, service handlers, etc.) as usual.
+4. Run `fleet prepare db` on a test database to verify all three migration pipelines complete successfully.
 
 ## Known issue: `prepare db` early return (fixed)
 

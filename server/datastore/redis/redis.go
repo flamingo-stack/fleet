@@ -21,7 +21,7 @@ type standalonePool struct {
 	*redis.Pool
 	addr            string
 	connWaitTimeout time.Duration
-	keyPrefix       string
+	keyPrefix       string // OPENFRAME(redis-key-prefix): per-pool key namespace for multi-tenant Redis — openframe/docs/redis-key-prefix.md
 }
 
 func (p *standalonePool) Get() redis.Conn {
@@ -38,7 +38,7 @@ func (p *standalonePool) Get() redis.Conn {
 		// error).
 		conn, _ = p.Pool.GetContext(ctx)
 	}
-	return newPrefixedConn(conn, p.keyPrefix)
+	return newPrefixedConn(conn, p.keyPrefix) // OPENFRAME(redis-key-prefix): wrap conn to namespace keys
 }
 
 func (p *standalonePool) Stats() map[string]redis.PoolStats {
@@ -51,23 +51,24 @@ func (p *standalonePool) Mode() fleet.RedisMode {
 	return fleet.RedisStandalone
 }
 
-func (p *standalonePool) KeyPrefix() string { return p.keyPrefix }
+func (p *standalonePool) KeyPrefix() string { return p.keyPrefix } // OPENFRAME(redis-key-prefix): accessor for namespaced key prefix
 
 type clusterPool struct {
 	*redisc.Cluster
 	followRedirs bool
 	readReplica  bool
-	keyPrefix    string
+	keyPrefix    string // OPENFRAME(redis-key-prefix): per-pool key namespace for multi-tenant Redis — openframe/docs/redis-key-prefix.md
 }
 
 func (p *clusterPool) Get() redis.Conn {
-	return newPrefixedConn(p.Cluster.Get(), p.keyPrefix)
+	return newPrefixedConn(p.Cluster.Get(), p.keyPrefix) // OPENFRAME(redis-key-prefix): wrap conn to namespace keys
 }
 
 func (p *clusterPool) Mode() fleet.RedisMode {
 	return fleet.RedisCluster
 }
 
+// >>> OPENFRAME(redis-key-prefix): KeyPrefix accessor + keyPrefixOf helper for multi-tenant Redis — openframe/docs/redis-key-prefix.md
 func (p *clusterPool) KeyPrefix() string { return p.keyPrefix }
 
 // keyPrefixOf returns the pool's key prefix, or "" for untyped/test pools.
@@ -78,17 +79,21 @@ func keyPrefixOf(pool fleet.RedisPool) string {
 	return ""
 }
 
+// <<< OPENFRAME(redis-key-prefix)
+
 // PoolConfig holds the redis pool configuration options.
 type PoolConfig struct {
-	Server                    string
-	CacheName                 string // for ElastiCache IAM auth
-	Region                    string // for ElastiCache IAM auth
-	Username                  string
-	Password                  string
-	Database                  int
+	Server    string
+	CacheName string // for ElastiCache IAM auth
+	Region    string // for ElastiCache IAM auth
+	Username  string
+	Password  string
+	Database  int
+	// >>> OPENFRAME(redis-key-prefix): per-pool key namespace for multi-tenant Redis — openframe/docs/redis-key-prefix.md
 	// KeyPrefix namespaces every Redis key/channel for multi-tenant deployments
 	// sharing one Redis (cluster). A trailing ":" is appended if missing.
 	KeyPrefix string
+	// <<< OPENFRAME(redis-key-prefix)
 	UseTLS                    bool
 	StsAssumeRoleArn          string
 	StsExternalID             string
@@ -118,10 +123,12 @@ type PoolConfig struct {
 // NewPool creates a Redis connection pool using the provided server
 // address, username, password and database.
 func NewPool(config PoolConfig) (fleet.RedisPool, error) {
+	// >>> OPENFRAME(redis-key-prefix): normalize/validate the key prefix before building the pool — openframe/docs/redis-key-prefix.md
 	prefix, err := normalizeKeyPrefix(config.KeyPrefix)
 	if err != nil {
 		return nil, err
 	}
+	// <<< OPENFRAME(redis-key-prefix)
 	cluster, err := newCluster(config)
 	if err != nil {
 		return nil, err
@@ -168,6 +175,7 @@ func splitSeedNodes(server string) []string {
 	return out
 }
 
+// >>> OPENFRAME(redis-key-prefix): normalize/validate the key prefix string — openframe/docs/redis-key-prefix.md
 // normalizeKeyPrefix appends ":" if missing; rejects '{'/'}' (would collapse
 // every key to one cluster slot via the hashtag rule).
 func normalizeKeyPrefix(p string) (string, error) {
@@ -183,6 +191,8 @@ func normalizeKeyPrefix(p string) (string, error) {
 	return p, nil
 }
 
+// <<< OPENFRAME(redis-key-prefix)
+
 // ReadOnlyConn turns conn into a connection that will try to connect to a
 // replica instead of a primary. Note that this is not guaranteed that it will
 // do so (there may not be any replica, or due to redirections it may end up on
@@ -193,7 +203,8 @@ func ReadOnlyConn(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 	if p, isCluster := pool.(*clusterPool); isCluster && p.readReplica {
 		// it only fails if the connection is not a redisc connection or the
 		// connection is already bound, in which case we just return the connection
-		// as-is. prefixedConn forwards ReadOnly() so the wrapper is transparent.
+		// as-is.
+		// OPENFRAME(redis-key-prefix): prefixedConn forwards ReadOnly() so the wrapper stays transparent — openframe/docs/redis-key-prefix.md
 		_ = redisc.ReadOnlyConn(conn)
 	}
 	return conn
@@ -206,6 +217,7 @@ func ReadOnlyConn(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 func ConfigureDoer(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 	if p, isCluster := pool.(*clusterPool); isCluster {
 		if err := conn.Err(); err == nil && p.followRedirs {
+			// >>> OPENFRAME(redis-key-prefix): unwrap prefixed conn for redisc.RetryConn, then re-wrap — openframe/docs/redis-key-prefix.md
 			// redisc.RetryConn rejects prefixedConn (direct *redisc.Conn assertion);
 			// unwrap → wrap retrying conn → re-wrap with prefix.
 			inner, prefix := unwrapConn(conn)
@@ -213,6 +225,7 @@ func ConfigureDoer(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 			if err == nil {
 				return newPrefixedConn(rc, prefix)
 			}
+			// <<< OPENFRAME(redis-key-prefix)
 		}
 	}
 	return conn
@@ -225,6 +238,7 @@ func ConfigureDoer(pool fleet.RedisPool, conn redis.Conn) redis.Conn {
 // simply returns all keys in the same group (i.e. the top-level slice has a
 // length of 1).
 //
+// >>> OPENFRAME(redis-key-prefix): compute cluster slot from the prefixed key — openframe/docs/redis-key-prefix.md
 // Slot is computed from the prefixed key (what Redis Cluster actually sees).
 // Returned keys are unprefixed; conns from this pool re-prefix on Do/Send.
 func SplitKeysBySlot(pool fleet.RedisPool, keys ...string) [][]string {
@@ -251,6 +265,8 @@ func SplitKeysBySlot(pool fleet.RedisPool, keys ...string) [][]string {
 	return out
 }
 
+// <<< OPENFRAME(redis-key-prefix)
+
 // EachNode calls fn for each node in the redis cluster, with a connection
 // to that node, until all nodes have been visited. The connection is
 // automatically closed after the call. If fn returns an error, the iteration
@@ -267,11 +283,13 @@ func SplitKeysBySlot(pool fleet.RedisPool, keys ...string) [][]string {
 // not a ReadOnly connection (conn.ReadOnly hasn't been called on it), it is up
 // to fn to execute the READONLY redis command if required.
 func EachNode(pool fleet.RedisPool, replicas bool, fn func(conn redis.Conn) error) error {
-	prefix := keyPrefixOf(pool)
+	prefix := keyPrefixOf(pool) // OPENFRAME(redis-key-prefix): resolve pool key prefix
 	if cluster, isCluster := pool.(*clusterPool); isCluster {
 		return cluster.EachNode(replicas, func(_ string, conn redis.Conn) error {
+			// >>> OPENFRAME(redis-key-prefix): wrap raw per-node conn so prefixing matches pool.Get() — openframe/docs/redis-key-prefix.md
 			// wrap raw redisc per-node conn so prefixing matches pool.Get().
 			return fn(newPrefixedConn(conn, prefix))
+			// <<< OPENFRAME(redis-key-prefix)
 		})
 	}
 
@@ -499,12 +517,12 @@ func isClusterCommandUnknown(err error) bool {
 
 func ScanKeys(pool fleet.RedisPool, pattern string, count int) ([]string, error) {
 	var keys []string
-	prefix := keyPrefixOf(pool)
+	prefix := keyPrefixOf(pool) // OPENFRAME(redis-key-prefix): resolve pool key prefix
 
 	err := EachNode(pool, false, func(conn redis.Conn) error {
 		cursor := 0
 		for {
-			// conn.Do auto-prefixes MATCH; strip prefix from returned keys below.
+			// OPENFRAME(redis-key-prefix): conn.Do auto-prefixes MATCH; strip prefix from returned keys below — openframe/docs/redis-key-prefix.md
 			res, err := redis.Values(conn.Do("SCAN", cursor, "MATCH", pattern, "COUNT", count))
 			if err != nil {
 				return fmt.Errorf("scan keys: %w", err)
@@ -514,11 +532,13 @@ func ScanKeys(pool fleet.RedisPool, pattern string, count int) ([]string, error)
 			if err != nil {
 				return fmt.Errorf("convert scan results: %w", err)
 			}
+			// >>> OPENFRAME(redis-key-prefix): strip the namespace prefix from scanned keys — openframe/docs/redis-key-prefix.md
 			if prefix != "" {
 				for i, k := range curKeys {
 					curKeys[i] = strings.TrimPrefix(k, prefix)
 				}
 			}
+			// <<< OPENFRAME(redis-key-prefix)
 			keys = append(keys, curKeys...)
 			if cursor == 0 {
 				return nil

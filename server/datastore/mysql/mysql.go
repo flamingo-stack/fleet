@@ -25,7 +25,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/common_mysql"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/data"
-	openframemigrations "github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/openframe"
+	openframemigrations "github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/openframe" // OPENFRAME(host-assignments): separate migration pipeline — openframe/docs/migrations.md
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/migrations/tables"
 	"github.com/fleetdm/fleet/v4/server/datastore/mysql/rdsauth"
 	"github.com/fleetdm/fleet/v4/server/fleet"
@@ -426,9 +426,12 @@ func (ds *Datastore) MigrateData(ctx context.Context) error {
 	return data.MigrationClient.Up(ds.writer(ctx).DB, "")
 }
 
+// >>> OPENFRAME(host-assignments): run OpenFrame-only schema migrations (e.g. policy_hosts/query_hosts tables) — openframe/docs/architecture-host-assignments.md
 func (ds *Datastore) MigrateOpenframe(ctx context.Context) error {
 	return openframemigrations.MigrationClient.Up(ds.writer(ctx).DB, "")
 }
+
+// <<< OPENFRAME(host-assignments)
 
 // loadMigrations manually loads the applied migrations in ascending
 // order (goose doesn't provide such functionality).

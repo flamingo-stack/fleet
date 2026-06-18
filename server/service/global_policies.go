@@ -786,6 +786,7 @@ func (svc *Service) AutofillPolicySql(ctx context.Context, sql string) (descript
 	return descriptionTrimmed, resolutionTrimmed, nil
 }
 
+// >>> OPENFRAME(host-assignments): fork-only HTTP endpoints + svc methods to assign hosts to a policy — openframe/docs/architecture-host-assignments.md
 /////////////////////////////////////////////////////////////////////////////////
 // Add/Remove hosts for a policy (openframe mode)
 /////////////////////////////////////////////////////////////////////////////////
@@ -914,7 +915,7 @@ type listPolicyHostsRequest struct {
 }
 
 type listPolicyHostsResponse struct {
-	Hosts []fleet.HostIdent        `json:"hosts"`
+	Hosts []fleet.HostIdent         `json:"hosts"`
 	Meta  *fleet.PaginationMetadata `json:"meta,omitempty"`
 	Err   error                     `json:"error,omitempty"`
 }
@@ -945,3 +946,5 @@ func (svc *Service) ListPolicyHosts(ctx context.Context, policyID uint, opts fle
 
 	return svc.ds.ListPolicyHosts(ctx, policyID, opts)
 }
+
+// <<< OPENFRAME(host-assignments)

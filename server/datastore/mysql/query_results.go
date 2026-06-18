@@ -161,6 +161,7 @@ func (ds *Datastore) CleanupDiscardedQueryResults(ctx context.Context) error {
 	return nil
 }
 
+// >>> OPENFRAME(query-results-ttl): batched TTL cleanup of expired query_results rows — openframe/docs/query-results-ttl-cleanup.md
 // CleanupExpiredQueryResults deletes up to 1000 query_results rows where last_fetched
 // is older than expiredBefore. Called on each cron tick; the schedule interval controls
 // the overall deletion rate. Returns the number of rows deleted.
@@ -177,3 +178,5 @@ func (ds *Datastore) CleanupExpiredQueryResults(ctx context.Context, expiredBefo
 	}
 	return deleted, nil
 }
+
+// <<< OPENFRAME(query-results-ttl)

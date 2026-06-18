@@ -72,7 +72,7 @@ To setup Fleet infrastructure, use one of the available commands.
 			case fleet.NoMigrationsCompleted:
 				// OK
 			case fleet.AllMigrationsCompleted:
-				// Continue to run OpenFrame migrations even if tables/data are complete
+				// OPENFRAME(host-assignments): fall through so MigrateOpenframe still runs when Fleet migrations are complete
 			case fleet.SomeMigrationsCompleted:
 				if !noPrompt {
 					printMissingMigrationsPrompt(status.MissingTable, status.MissingData)
@@ -95,9 +95,11 @@ To setup Fleet infrastructure, use one of the available commands.
 				initFatal(err, "migrating builtin data")
 			}
 
+			// >>> OPENFRAME(host-assignments): run fork-only OpenFrame schema migrations (host assignments tables) — openframe/docs/architecture-host-assignments.md
 			if err := ds.MigrateOpenframe(cmd.Context()); err != nil {
 				initFatal(err, "migrating openframe schema")
 			}
+			// <<< OPENFRAME(host-assignments)
 
 			fmt.Println("Migrations completed.")
 		},

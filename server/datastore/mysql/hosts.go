@@ -3526,6 +3526,7 @@ func (ds *Datastore) ListPoliciesForHost(ctx context.Context, host *fleet.Host) 
 
 	args := []interface{}{host.ID, host.ID, host.FleetPlatform(), host.ID, host.ID}
 
+	// >>> OPENFRAME(host-assignments): scope host policies to per-host policy_hosts assignments — openframe/docs/architecture-host-assignments.md
 	if fleet.IsOpenframeMode() {
 		baseQuery += `
 	AND EXISTS (
@@ -3533,6 +3534,7 @@ func (ds *Datastore) ListPoliciesForHost(ctx context.Context, host *fleet.Host) 
 	)`
 		args = append(args, host.ID)
 	}
+	// <<< OPENFRAME(host-assignments)
 
 	baseQuery += `
 	ORDER BY FIELD(response, 'fail', '', 'pass'), p.name`

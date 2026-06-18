@@ -238,6 +238,13 @@ test-schema:
 	go run ./tools/dbutils ./server/datastore/mysql/schema.sql
 dump-test-schema: test-schema
 
+# >>> OPENFRAME(host-assignments): post-merge sanity check for fork features — openframe/docs/upstream-sync-conflict-resolution.md
+.help-short--openframe-verify:
+	@echo "Verify OpenFrame fork features survived an upstream merge"
+openframe-verify:
+	bash openframe/scripts/verify.sh
+# <<< OPENFRAME(host-assignments)
+
 # This is the base command to run Go tests.
 # Wrap this to run tests with presets (see `run-go-tests` and `test-go` targets).
 # PKG_TO_TEST: Go packages to test, e.g. "server/datastore/mysql".  Separate multiple packages with spaces.

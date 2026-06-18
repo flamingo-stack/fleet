@@ -256,8 +256,10 @@ type PolicyData struct {
 	LabelsIncludeAny []LabelIdent `json:"labels_include_any,omitempty"`
 	// LabelsExcludeAny is a list of labels excluded from being targeted by this policy
 	LabelsExcludeAny []LabelIdent `json:"labels_exclude_any,omitempty"`
+	// >>> OPENFRAME(host-assignments): direct host targeting for policies — openframe/docs/architecture-host-assignments.md
 	// HostsIncludeAny restricts this policy to run only on the specified hosts.
 	HostsIncludeAny []HostIdent `json:"hosts_include_any,omitempty"`
+	// <<< OPENFRAME(host-assignments)
 
 	// CalendarEventsEnabled indicates whether calendar events are enabled for the policy.
 	//
@@ -390,11 +392,14 @@ type PolicySpec struct {
 	ConditionalAccessEnabled bool `json:"conditional_access_enabled"`
 }
 
+// >>> OPENFRAME(host-assignments): host identifier type for direct host targeting — openframe/docs/architecture-host-assignments.md
 // HostIdent identifies a host by ID and hostname.
 type HostIdent struct {
 	HostID   uint   `json:"id" db:"id"`
 	Hostname string `json:"hostname" db:"hostname"`
 }
+
+// <<< OPENFRAME(host-assignments)
 
 // PolicySoftwareTitle contains software title data for policies.
 type PolicySoftwareTitle struct {

@@ -1126,6 +1126,7 @@ func newFrequentCleanupsSchedule(
 	return s, nil
 }
 
+// >>> OPENFRAME(query-results-ttl): fork-added cron deleting query_results rows past their TTL — openframe/docs/query-results-ttl-cleanup.md
 func newQueryResultsTTLCleanupSchedule(
 	ctx context.Context,
 	instanceID string,
@@ -1154,6 +1155,8 @@ func newQueryResultsTTLCleanupSchedule(
 
 	return s, nil
 }
+
+// <<< OPENFRAME(query-results-ttl)
 
 func verifyDiskEncryptionKeys(
 	ctx context.Context,

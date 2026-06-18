@@ -107,8 +107,10 @@ type Query struct {
 	// LabelsIncludeAny is a list of labels that will be used to
 	// target a query
 	LabelsIncludeAny []LabelIdent `json:"labels_include_any"`
+	// >>> OPENFRAME(host-assignments): direct host targeting for queries — openframe/docs/architecture-host-assignments.md
 	// HostsIncludeAny restricts this query to run only on the specified hosts.
 	HostsIncludeAny []HostIdent `json:"hosts_include_any"`
+	// <<< OPENFRAME(host-assignments)
 
 	/////////////////////////////////////////////////////////////////
 	// WARNING: If you add to this struct make sure it's taken into
@@ -163,10 +165,12 @@ func (q *Query) Copy() *Query {
 		clone.LabelsIncludeAny = make([]LabelIdent, len(q.LabelsIncludeAny))
 		copy(clone.LabelsIncludeAny, q.LabelsIncludeAny)
 	}
+	// >>> OPENFRAME(host-assignments): deep-copy the fork's host-targeting field — openframe/docs/architecture-host-assignments.md
 	if q.HostsIncludeAny != nil {
 		clone.HostsIncludeAny = make([]HostIdent, len(q.HostsIncludeAny))
 		copy(clone.HostsIncludeAny, q.HostsIncludeAny)
 	}
+	// <<< OPENFRAME(host-assignments)
 	return &clone
 }
 
