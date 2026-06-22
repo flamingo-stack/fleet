@@ -432,7 +432,9 @@ func newCluster(conf PoolConfig) (*redisc.Cluster, error) {
 	}
 
 	return &redisc.Cluster{
-		StartupNodes: splitSeedNodes(conf.Server), // OPENFRAME(redis-seed-nodes): split comma-separated seed nodes — openframe/docs/redis-key-prefix.md
+		// >>> OPENFRAME(redis-seed-nodes): split comma-separated FLEET_REDIS_ADDRESS into cluster seed nodes — openframe/docs/redis-key-prefix.md
+		StartupNodes: splitSeedNodes(conf.Server),
+		// <<< OPENFRAME(redis-seed-nodes)
 		PoolWaitTime: conf.ConnWaitTimeout,
 		DialOptions:  opts,
 		CreatePool: func(server string, opts ...redis.DialOption) (*redis.Pool, error) {
