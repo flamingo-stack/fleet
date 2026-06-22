@@ -53,23 +53,23 @@ func TestDebugConnectionCommand(t *testing.T) {
 			return nil, errors.New("invalid")
 		}
 
-		output := RunAppForTest(t, []string{"debug", "connection"})
+		output := runAppForTest(t, []string{"debug", "connection"})
 		// 3 successes: resolve host, dial address, check api endpoint
 		require.Equal(t, 3, strings.Count(output, "Success:"))
 	})
 
 	t.Run("invalid certificate flag without address", func(t *testing.T) {
-		_, err := RunAppNoChecks([]string{"debug", "connection", "--fleet-certificate", "cert.pem"})
+		_, err := runAppNoChecks([]string{"debug", "connection", "--fleet-certificate", "cert.pem"})
 		require.Contains(t, err.Error(), "--fleet-certificate")
 	})
 
 	t.Run("invalid context flag with address", func(t *testing.T) {
-		_, err := RunAppNoChecks([]string{"debug", "connection", "--context", "test", "localhost:8080"})
+		_, err := runAppNoChecks([]string{"debug", "connection", "--context", "test", "localhost:8080"})
 		require.Contains(t, err.Error(), "--context")
 	})
 
 	t.Run("invalid config flag with address", func(t *testing.T) {
-		_, err := RunAppNoChecks([]string{"debug", "connection", "--config", "/tmp/nosuchfile", "localhost:8080"})
+		_, err := runAppNoChecks([]string{"debug", "connection", "--config", "/tmp/nosuchfile", "localhost:8080"})
 		require.Contains(t, err.Error(), "--config")
 	})
 
@@ -84,7 +84,7 @@ func TestDebugConnectionCommand(t *testing.T) {
 		// get the certificate of the TLS server
 		certPath := rawCertToPemFile(t, srv.Certificate().Raw)
 
-		output := RunAppForTest(t, []string{"debug", "connection", "--fleet-certificate", certPath, srv.URL})
+		output := runAppForTest(t, []string{"debug", "connection", "--fleet-certificate", certPath, srv.URL})
 		// 4 successes: resolve host, dial address, certificate, check api endpoint
 		t.Log(output)
 		require.Equal(t, 4, strings.Count(output, "Success:"))
@@ -103,7 +103,7 @@ func TestDebugConnectionCommand(t *testing.T) {
 		certPath := filepath.Join(dir, "cert.pem")
 		require.NoError(t, os.WriteFile(certPath, []byte(exampleDotComCertDotPem), 0o600))
 
-		buf, err := RunAppNoChecks([]string{"debug", "connection", "--fleet-certificate", certPath, srv.URL})
+		buf, err := runAppNoChecks([]string{"debug", "connection", "--fleet-certificate", certPath, srv.URL})
 		// 2 successes: resolve host, dial address
 		t.Log(buf.String())
 		require.Equal(t, 2, strings.Count(buf.String(), "Success:"))
@@ -132,14 +132,14 @@ func rawCertToPemFile(t *testing.T, raw []byte) string {
 func TestDebugCheckAPIEndpoint(t *testing.T) {
 	const timeout = 100 * time.Millisecond
 	cases := [...]struct {
-		code        int // == 0 hijacks and closes connection, negative value waits for timeout, sets status code to absolute value
+		code        int // == 0 panics, negative value waits for timeout, sets status code to absolute value
 		body        string
 		errContains string // empty if checkAPIEndpoint should not return an error
 	}{
 		{401, `{"error": "fail", "node_invalid": true}`, ""},
 		{-401, `{"error": "fail", "node_invalid": true}`, "deadline exceeded"},
 		{200, `{"error": "", "node_invalid": false}`, "unexpected 200 response"},
-		{0, ``, "EOF"},
+		{0, `panic`, "EOF"},
 	}
 
 	var callCount int32
@@ -148,15 +148,7 @@ func TestDebugCheckAPIEndpoint(t *testing.T) {
 
 		switch {
 		case res.code == 0:
-			// Hijack the connection and close it abruptly to simulate EOF
-			// This avoids using panic which interferes with coverage profiling
-			if hj, ok := w.(http.Hijacker); ok {
-				conn, _, err := hj.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
+			panic(res.body)
 		case res.code < 0:
 			time.Sleep(timeout + timeout/10)
 			res.code = -res.code

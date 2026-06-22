@@ -33,8 +33,8 @@ const BootstrapAdvancedOptions = ({
     setIsSaving(true);
     try {
       await mdmAPI.updateSetupExperienceSettings({
-        team_id: currentTeamId,
-        manual_agent_install: selectManualAgentInstall,
+        fleet_id: currentTeamId,
+        macos_manual_agent_install: selectManualAgentInstall,
       });
       renderFlash("success", "Successfully updated.");
     } catch {
@@ -57,8 +57,8 @@ const BootstrapAdvancedOptions = ({
       <RevealButton
         className={`${baseClass}__accordion-title`}
         isShowing={showAdvancedOptions}
-        showText="Show advanced options"
-        hideText="Hide advanced options"
+        showText="Advanced options"
+        hideText="Advanced options"
         caretPosition="after"
         onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
       />
@@ -79,13 +79,19 @@ const BootstrapAdvancedOptions = ({
                     Install Fleet&apos;s agent (fleetd) manually
                   </TooltipWrapper>
                 </Checkbox>
-                <Button
-                  disabled={gitopsDisable || disableInstallManually || isSaving}
-                  type="submit"
-                  isLoading={isSaving}
-                >
-                  Save
-                </Button>
+                {/* The wrapper div is needed to keep the button from stretching full width
+                 * of the flex container */}
+                <div>
+                  <Button
+                    disabled={
+                      gitopsDisable || disableInstallManually || isSaving
+                    }
+                    type="submit"
+                    isLoading={isSaving}
+                  >
+                    Save
+                  </Button>
+                </div>
               </div>
             )}
           />

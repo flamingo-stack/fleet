@@ -22,7 +22,7 @@
     gap: $pad-xsmall;
 
     h2 {
-      font-size: $medium;
+      font-size: $small;
       font-weight: $bold;
       margin: 0;
     }
@@ -39,7 +39,7 @@
   }
 
   .data-table {
-    overflow-x: scroll;
+    overflow-x: auto;
   }
 
   .empty-table__container {

@@ -1,11 +1,12 @@
 import React from "react";
 
-import { IEditCertAuthorityBody } from "services/entities/certificates";
+import { IEditCertAuthorityFormData } from "services/entities/certificates";
 import {
   ICertificateAuthority,
   ICertificatesCustomSCEP,
 } from "interfaces/certificates";
 import deepDifference from "utilities/deep_difference";
+import { UNCHANGED_PASSWORD_API_RESPONSE } from "utilities/constants";
 
 import { ICertFormData } from "../AddCertAuthorityModal/AddCertAuthorityModal";
 import { getDisplayErrMessage } from "../AddCertAuthorityModal/helpers";
@@ -15,8 +16,6 @@ import { ICustomSCEPFormData } from "../CustomSCEPForm/CustomSCEPForm";
 import { IHydrantFormData } from "../HydrantForm/HydrantForm";
 import { ISmallstepFormData } from "../SmallstepForm/SmallstepForm";
 import { ICustomESTFormData } from "../CustomESTForm/CustomESTForm";
-
-const UNCHANGED_PASSWORD_API_RESPONSE = "********";
 
 export const generateDefaultFormData = (
   certAuthority: ICertificateAuthority
@@ -80,7 +79,7 @@ export const generateDefaultFormData = (
 export const generateEditCertAuthorityData = (
   certAuthority: ICertificateAuthority,
   formData: ICertFormData
-): IEditCertAuthorityBody => {
+): IEditCertAuthorityFormData => {
   const certAuthWithoutType = Object.assign({}, certAuthority);
   delete certAuthWithoutType.type;
   delete certAuthWithoutType.id;

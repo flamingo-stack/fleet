@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
@@ -12,10 +13,7 @@ import (
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	"github.com/fleetdm/fleet/v4/server/contexts/license"
 	"github.com/fleetdm/fleet/v4/server/fleet"
-	apple_mdm "github.com/fleetdm/fleet/v4/server/mdm/apple"
 	"github.com/fleetdm/fleet/v4/server/ptr"
-	kitlog "github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 )
 
 /*
@@ -31,12 +29,12 @@ Once more is needed it should be placed here, and the main replacement logic can
 under server/service folder. Inside the `preprocessProfileContents` under the `fleetVarLoop` loop.
 */
 
-func ReplaceCustomSCEPChallengeVariable(ctx context.Context, logger kitlog.Logger, fleetVariable string, customSCEPCAs map[string]*fleet.CustomSCEPProxyCA, profileContents string) (contents string, replacedVariable bool, err error) {
+func ReplaceCustomSCEPChallengeVariable(ctx context.Context, logger *slog.Logger, fleetVariable string, customSCEPCAs map[string]*fleet.CustomSCEPProxyCA, profileContents string) (contents string, replacedVariable bool, err error) {
 	caName := strings.TrimPrefix(fleetVariable, string(fleet.FleetVarCustomSCEPChallengePrefix))
 	ca, ok := customSCEPCAs[caName]
 	if !ok {
-		level.Error(logger).Log("msg", "Custom SCEP CA not found. "+
-			"This error should never happen since we validated/populated CAs earlier", "ca_name", caName)
+		logger.ErrorContext(ctx, "Custom SCEP CA not found. This error should never happen since we validated/populated CAs earlier",
+			"ca_name", caName)
 		return "", false, nil
 	}
 	contents, err = ReplaceExactFleetPrefixVariableInXML(string(fleet.FleetVarCustomSCEPChallengePrefix), ca.Name, profileContents, ca.Challenge)
@@ -46,15 +44,15 @@ func ReplaceCustomSCEPChallengeVariable(ctx context.Context, logger kitlog.Logge
 	return contents, true, nil
 }
 
-func ReplaceCustomSCEPProxyURLVariable(ctx context.Context, logger kitlog.Logger, ds fleet.Datastore, appConfig *fleet.AppConfig,
+func ReplaceCustomSCEPProxyURLVariable(ctx context.Context, logger *slog.Logger, ds fleet.Datastore, appConfig *fleet.AppConfig,
 	fleetVar string, customSCEPCAs map[string]*fleet.CustomSCEPProxyCA, profileContents string,
 	hostUUID string, profUUID string,
 ) (contents string, managedCertificate *fleet.MDMManagedCertificate, replacedVariable bool, err error) {
 	caName := strings.TrimPrefix(fleetVar, string(fleet.FleetVarCustomSCEPProxyURLPrefix))
 	ca, ok := customSCEPCAs[caName]
 	if !ok {
-		level.Error(logger).Log("msg", "Custom SCEP CA not found. "+
-			"This error should never happen since we validated/populated CAs earlier", "ca_name", caName)
+		logger.ErrorContext(ctx, "Custom SCEP CA not found. This error should never happen since we validated/populated CAs earlier",
+			"ca_name", caName)
 		return "", nil, false, nil
 	}
 	// Generate a new SCEP challenge for the profile
@@ -63,7 +61,7 @@ func ReplaceCustomSCEPProxyURLVariable(ctx context.Context, logger kitlog.Logger
 		return "", nil, false, ctxerr.Wrap(ctx, err, "generating SCEP challenge")
 	}
 	// Insert the SCEP URL into the profile contents
-	proxyURL := fmt.Sprintf("%s%s%s", appConfig.MDMUrl(), apple_mdm.SCEPProxyPath,
+	proxyURL := fmt.Sprintf("%s%s%s", appConfig.MDMUrl(), SCEPProxyPath,
 		url.PathEscape(fmt.Sprintf("%s,%s,%s,%s", hostUUID, profUUID, caName, challenge)))
 	contents, err = ReplaceExactFleetPrefixVariableInXML(string(fleet.FleetVarCustomSCEPProxyURLPrefix), ca.Name, profileContents, proxyURL)
 	if err != nil {
@@ -85,16 +83,31 @@ func ReplaceHostEndUserIDPVariables(ctx context.Context, ds fleet.Datastore,
 	hostIDForUUIDCache map[string]uint,
 	onError func(errMsg string) error,
 ) (replacedContents string, replacedVariable bool, err error) {
-	user, ok, err := getHostEndUserIDPUser(ctx, ds, hostUUID, fleetVar, hostIDForUUIDCache, onError)
+	value, rx, ok, err := ResolveHostEndUserIDPValue(ctx, ds, fleetVar, hostUUID, hostIDForUUIDCache, onError)
 	if err != nil {
 		return "", false, err
 	}
 	if !ok {
 		return "", false, nil
 	}
+	replacedContents = ReplaceFleetVariableInXML(rx, profileContents, value)
+	return replacedContents, true, nil
+}
 
-	var rx *regexp.Regexp
-	var value string
+// ResolveHostEndUserIDPValue resolves the raw string value for the given IDP fleet variable and host.
+func ResolveHostEndUserIDPValue(ctx context.Context, ds fleet.Datastore,
+	fleetVar string, hostUUID string,
+	hostIDForUUIDCache map[string]uint,
+	onError func(errMsg string) error,
+) (value string, rx *regexp.Regexp, ok bool, err error) {
+	user, userOK, err := getHostEndUserIDPUser(ctx, ds, hostUUID, fleetVar, hostIDForUUIDCache, onError)
+	if err != nil {
+		return "", nil, false, err
+	}
+	if !userOK {
+		return "", nil, false, nil
+	}
+
 	switch fleetVar {
 	case string(fleet.FleetVarHostEndUserIDPUsername):
 		rx = fleet.FleetVarHostEndUserIDPUsernameRegexp
@@ -111,10 +124,10 @@ func ReplaceHostEndUserIDPVariables(ctx context.Context, ds fleet.Datastore,
 	case string(fleet.FleetVarHostEndUserIDPFullname):
 		rx = fleet.FleetVarHostEndUserIDPFullnameRegexp
 		value = strings.TrimSpace(user.IdpFullName)
+	default:
+		return "", nil, false, nil
 	}
-	replacedContents = ReplaceFleetVariableInXML(rx, profileContents, value)
-
-	return replacedContents, true, nil
+	return value, rx, true, nil
 }
 
 func getHostEndUserIDPUser(ctx context.Context, ds fleet.Datastore,
@@ -225,6 +238,21 @@ func IsCustomSCEPConfigured(ctx context.Context,
 	}
 
 	return nil
+}
+
+// SCEPProxyPath is the HTTP path that serves the SCEP proxy service. The path is followed by an identifier.
+const SCEPProxyPath = "/mdm/scep/proxy/"
+
+// BuildNDESSCEPProxyURL constructs the NDES SCEP proxy URL for a given host and profile.
+func BuildNDESSCEPProxyURL(mdmURL string, hostUUID string, profileUUID string) string {
+	return fmt.Sprintf("%s%s%s", mdmURL, SCEPProxyPath,
+		url.PathEscape(fmt.Sprintf("%s,%s,NDES", hostUUID, profileUUID)))
+}
+
+// ReplaceNDESSCEPProxyURLVariable replaces the NDES SCEP proxy URL variable in profile contents.
+func ReplaceNDESSCEPProxyURLVariable(mdmURL string, hostUUID string, profileUUID string, profileContents string) string {
+	proxyURL := BuildNDESSCEPProxyURL(mdmURL, hostUUID, profileUUID)
+	return ReplaceFleetVariableInXML(fleet.FleetVarNDESSCEPProxyURLRegexp, profileContents, proxyURL)
 }
 
 func HydrateHost(ctx context.Context, ds fleet.Datastore, hostLite fleet.Host, onHostCountMismatch func(int) error) (fleet.Host, bool, error) {

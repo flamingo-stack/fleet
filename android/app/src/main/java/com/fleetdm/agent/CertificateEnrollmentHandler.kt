@@ -6,8 +6,10 @@ import com.fleetdm.agent.scep.ScepCsrException
 import com.fleetdm.agent.scep.ScepEnrollmentException
 import com.fleetdm.agent.scep.ScepKeyGenerationException
 import com.fleetdm.agent.scep.ScepNetworkException
+import java.math.BigInteger
 import java.security.PrivateKey
 import java.security.cert.Certificate
+import java.util.Date
 
 /**
  * Handles certificate enrollment business logic without Android framework dependencies.
@@ -27,7 +29,7 @@ class CertificateEnrollmentHandler(private val scepClient: ScepClient, private v
      * Result of enrollment operation.
      */
     sealed class EnrollmentResult {
-        data class Success(val alias: String) : EnrollmentResult()
+        data class Success(val alias: String, val notAfter: Date?, val notBefore: Date?, val serialNumber: BigInteger?) : EnrollmentResult()
         data class Failure(val reason: String, val exception: Exception? = null, val isRetryable: Boolean = false) : EnrollmentResult()
         data class PermanentlyFailed(val alias: String) : EnrollmentResult()
     }
@@ -47,9 +49,14 @@ class CertificateEnrollmentHandler(private val scepClient: ScepClient, private v
         )
 
         if (installed) {
-            EnrollmentResult.Success(config.name)
+            EnrollmentResult.Success(
+                alias = config.name,
+                notAfter = result.notAfter,
+                notBefore = result.notBefore,
+                serialNumber = result.serialNumber,
+            )
         } else {
-            EnrollmentResult.Failure("Certificate installation failed")
+            EnrollmentResult.Failure("Certificate installation failed for alias '${config.name}': installKeyPair returned false")
         }
     } catch (e: ScepEnrollmentException) {
         // SCEP server rejected enrollment (e.g., PENDING status, invalid challenge)
@@ -69,6 +76,9 @@ class CertificateEnrollmentHandler(private val scepClient: ScepClient, private v
     } catch (e: IllegalArgumentException) {
         // Configuration validation failed
         EnrollmentResult.Failure("Invalid configuration: ${e.message}", e, isRetryable = false)
+    } catch (e: IllegalStateException) {
+        // Delegation or system state issue (e.g. CERT_INSTALL not granted)
+        EnrollmentResult.Failure("Certificate installation failed: ${e.message}", e, isRetryable = false)
     } catch (e: Exception) {
         // Unexpected errors
         EnrollmentResult.Failure("Unexpected error during enrollment: ${e.message}", e, isRetryable = false)

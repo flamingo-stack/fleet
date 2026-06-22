@@ -6,7 +6,7 @@ import { ILabelSummary } from "interfaces/label";
 import { useQuery } from "react-query";
 
 import { NotificationContext } from "context/notification";
-import { AppContext } from "context/app";
+import useGitOpsMode from "hooks/useGitOpsMode";
 
 import softwareAPI from "services/entities/software";
 import labelsAPI, { getCustomLabels } from "services/entities/labels";
@@ -15,17 +15,18 @@ import Card from "components/Card";
 import Modal from "components/Modal";
 import ModalFooter from "components/ModalFooter";
 import Checkbox from "components/forms/fields/Checkbox";
-import TargetLabelSelector from "components/TargetLabelSelector";
+import { DropdownTargetLabelSelector } from "components/TargetLabelSelector";
+import GitOpsModeTooltipWrapper from "components/GitOpsModeTooltipWrapper";
 
 import {
   CUSTOM_TARGET_OPTIONS,
   generateSelectedLabels,
   getCustomTarget,
+  getDisplayedSoftwareName,
   generateHelpText,
   getTargetType,
 } from "pages/SoftwarePage/helpers";
 
-// @ts-ignore
 import InputField from "components/forms/fields/InputField";
 import Button from "components/buttons/Button";
 
@@ -65,9 +66,7 @@ const EditAutoUpdateConfigModal = ({
   onExit,
 }: EditAutoUpdateConfigModal) => {
   const { renderFlash } = useContext(NotificationContext);
-  const { config } = useContext(AppContext);
-
-  const gitOpsModeEnabled = config?.gitops.gitops_mode_enabled || false;
+  const { gitOpsModeEnabled } = useGitOpsMode("software");
 
   const formClassNames = classnames(formClass, {
     [`edit-auto-update-config-form--disabled`]: gitOpsModeEnabled,
@@ -76,8 +75,8 @@ const EditAutoUpdateConfigModal = ({
   const [isUpdatingConfiguration, setIsUpdatingConfiguration] = useState(false);
   const [formData, setFormData] = useState<ISoftwareAutoUpdateConfigFormData>({
     autoUpdateEnabled: softwareTitle.auto_update_enabled || false,
-    autoUpdateStartTime: softwareTitle.auto_update_start_time || "",
-    autoUpdateEndTime: softwareTitle.auto_update_end_time || "",
+    autoUpdateStartTime: softwareTitle.auto_update_window_start || "",
+    autoUpdateEndTime: softwareTitle.auto_update_window_end || "",
     targetType: getTargetType(softwareTitle.app_store_app as IAppStoreApp),
     customTarget: getCustomTarget(softwareTitle.app_store_app as IAppStoreApp),
     labelTargets: generateSelectedLabels(
@@ -85,10 +84,10 @@ const EditAutoUpdateConfigModal = ({
     ),
   });
 
-  // Fetch labels for TargetLabelSelector
+  // Fetch labels for DropdownTargetLabelSelector
   const { data: labels } = useQuery<ILabelSummary[], Error>(
     ["custom_labels"],
-    () => labelsAPI.summary().then((res) => getCustomLabels(res.labels)),
+    () => labelsAPI.summary(teamId).then((res) => getCustomLabels(res.labels)),
     {
       ...DEFAULT_USE_QUERY_OPTIONS,
     }
@@ -121,7 +120,13 @@ const EditAutoUpdateConfigModal = ({
       renderFlash(
         "success",
         <>
-          <strong>{softwareTitle.name}</strong> configuration updated.
+          <strong>
+            {getDisplayedSoftwareName(
+              softwareTitle.name,
+              softwareTitle.display_name
+            )}
+          </strong>{" "}
+          configuration updated.
         </>
       );
 
@@ -207,8 +212,14 @@ const EditAutoUpdateConfigModal = ({
               <div className={`form-field`}>
                 <div className="form-field__label">Auto updates</div>
                 <div className="form-field__subtitle">
-                  Automatically update <strong>{softwareTitle.name}</strong> on
-                  all targeted hosts when a new version is available.
+                  Automatically update{" "}
+                  <strong>
+                    {getDisplayedSoftwareName(
+                      softwareTitle.name,
+                      softwareTitle.display_name
+                    )}
+                  </strong>{" "}
+                  on all targeted hosts when a new version is available.
                 </div>
                 <div>
                   <Checkbox
@@ -265,7 +276,7 @@ const EditAutoUpdateConfigModal = ({
             </div>
           </Card>
           <Card paddingSize="medium" borderRadiusSize="medium">
-            <TargetLabelSelector
+            <DropdownTargetLabelSelector
               selectedTargetType={formData.targetType}
               selectedCustomTarget={formData.customTarget}
               selectedLabels={formData.labelTargets}
@@ -282,24 +293,35 @@ const EditAutoUpdateConfigModal = ({
             />
           </Card>
         </div>
-        <ModalFooter
-          primaryButtons={
-            <>
-              <Button onClick={onExit} variant="inverse">
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                onClick={onSubmitForm}
-                isLoading={isUpdatingConfiguration}
-                disabled={!formValidation.isValid || isUpdatingConfiguration}
-              >
-                Save
-              </Button>
-            </>
-          }
-        />
       </div>
+      <ModalFooter
+        primaryButtons={
+          <>
+            <Button onClick={onExit} variant="inverse">
+              Cancel
+            </Button>
+            <GitOpsModeTooltipWrapper
+              entityType="software"
+              position="right"
+              tipOffset={8}
+              renderChildren={(disableChildren) => (
+                <Button
+                  type="submit"
+                  onClick={onSubmitForm}
+                  isLoading={isUpdatingConfiguration}
+                  disabled={
+                    !formValidation.isValid ||
+                    isUpdatingConfiguration ||
+                    disableChildren
+                  }
+                >
+                  Save
+                </Button>
+              )}
+            />
+          </>
+        }
+      />
     </Modal>
   );
 };

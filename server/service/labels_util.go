@@ -22,6 +22,7 @@ func loadLabelsFromNames(ctx context.Context, ds fleet.Datastore, labelNames []s
 	return labelsMap, nil
 }
 
+// >>> OPENFRAME(host-assignments): fork-only host-ID validation helper for policy/query host assignments — openframe/docs/architecture-host-assignments.md
 func verifyHostsToAssociate(ctx context.Context, ds fleet.Datastore, hostIDs []uint) error {
 	if len(hostIDs) == 0 {
 		return nil
@@ -48,6 +49,8 @@ func verifyHostsToAssociate(ctx context.Context, ds fleet.Datastore, hostIDs []u
 
 	return nil
 }
+
+// <<< OPENFRAME(host-assignments)
 
 func verifyLabelsToAssociate(ctx context.Context, ds fleet.Datastore, entityTeamID *uint, labelNames []string, user *fleet.User) error {
 	if len(labelNames) == 0 {

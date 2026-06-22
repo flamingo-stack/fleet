@@ -68,6 +68,32 @@ export const isTeamAdmin = (
   return userTeamRole === "admin";
 };
 
+// isAdminForAllUserTeams returns true if `user` is allowed to manage `otherUser`
+// based on team membership: a global admin can manage anyone, otherwise `user`
+// must be a team admin of EVERY team `otherUser` belongs to (and `otherUser`
+// must belong to at least one team and have no global role). This mirrors the
+// backend authorization rule that prevents a team admin from editing users who
+// also belong to fleets the admin doesn't manage.
+export const isAdminForAllUserTeams = (
+  user: IUser | null,
+  otherUser: IUser
+): boolean => {
+  if (!user) {
+    return false;
+  }
+  if (isGlobalAdmin(user)) {
+    return true;
+  }
+  // Only a global admin can manage a user that has a global role.
+  if (otherUser.global_role) {
+    return false;
+  }
+  if (otherUser.teams.length === 0) {
+    return false;
+  }
+  return otherUser.teams.every((team) => isTeamAdmin(user, team.id));
+};
+
 const isTeamMaintainerOrTeamAdmin = (
   user: IUser | null,
   teamId: number | null
@@ -91,6 +117,26 @@ const isAnyTeamMaintainer = (user: IUser): boolean => {
   }
 
   return false;
+};
+
+export const isTeamTechnician = (
+  user: IUser | null,
+  teamId: number | null
+): boolean => {
+  const userTeamRole = user?.teams.find((team) => team.id === teamId)?.role;
+  return userTeamRole === "technician";
+};
+
+export const isAnyTeamTechnician = (user: IUser): boolean => {
+  if (!isOnGlobalTeam(user)) {
+    return user.teams.some((team) => team?.role === "technician");
+  }
+
+  return false;
+};
+
+export const isGlobalTechnician = (user: IUser): boolean => {
+  return user.global_role === "technician";
 };
 
 const isAnyTeamAdmin = (user: IUser): boolean => {
@@ -165,7 +211,11 @@ export default {
   isAnyTeamMaintainer,
   isAnyTeamMaintainerOrTeamAdmin,
   isTeamAdmin,
+  isAdminForAllUserTeams,
   isAnyTeamAdmin,
+  isTeamTechnician,
+  isAnyTeamTechnician,
+  isGlobalTechnician,
   isOnlyObserver,
   isObserverPlus,
   isNoAccess,

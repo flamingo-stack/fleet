@@ -3,7 +3,7 @@
 
 ## Improvements
 - <!-- Step by step improvements -->
-- 
+-
 
 ## Task
 [Link](https://app.clickup.com/t/example)

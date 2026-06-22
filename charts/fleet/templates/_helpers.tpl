@@ -66,6 +66,7 @@ Create the name of the service account to use
 {{- end }}
 {{- end }}
 
+{{/* >>> OPENFRAME(helm): fork-added helper gating custom CA truststore — openframe/docs/helm-chart.md */}}
 {{- define "fleet.additionalCAs.enabled" -}}
 {{- if hasKey .Values.fleet "additionalCAs" -}}
 {{- if and .Values.fleet.additionalCAs.enabled (or (and (.Values.fleet.additionalCAs.configMaps) (gt (len .Values.fleet.additionalCAs.configMaps) 0)) (and (.Values.fleet.additionalCAs.secrets) (gt (len .Values.fleet.additionalCAs.secrets) 0))) -}}
@@ -73,3 +74,4 @@ true
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{/* <<< OPENFRAME(helm) */}}

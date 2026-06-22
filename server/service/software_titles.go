@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -116,7 +117,7 @@ func (svc *Service) ListSoftwareTitles(
 
 type getSoftwareTitleRequest struct {
 	ID     uint  `url:"id"`
-	TeamID *uint `query:"team_id,optional"`
+	TeamID *uint `query:"team_id,optional" renameto:"fleet_id"`
 }
 
 type getSoftwareTitleResponse struct {
@@ -151,7 +152,7 @@ func (svc *Service) SoftwareTitleByID(ctx context.Context, id uint, teamID *uint
 		if err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "checking if team exists")
 		} else if !exists {
-			return nil, fleet.NewInvalidArgumentError("team_id", fmt.Sprintf("team %d does not exist", *teamID)).
+			return nil, fleet.NewInvalidArgumentError("team_id", fmt.Sprintf("fleet %d does not exist", *teamID)).
 				WithStatus(http.StatusNotFound)
 		}
 	}
@@ -175,7 +176,7 @@ func (svc *Service) SoftwareTitleByID(ctx context.Context, id uint, teamID *uint
 				return nil, ctxerr.Wrap(ctx, err, "checked using a global admin")
 			}
 
-			return nil, fleet.NewPermissionError("Error: You don't have permission to view specified software. It is installed on hosts that belong to team you don't have permissions to view.")
+			return nil, fleet.NewPermissionError("Error: You don't have permission to view specified software. It is installed on hosts that belong to a fleet you don't have permissions to view.")
 		}
 		return nil, ctxerr.Wrap(ctx, err, "getting software title by id")
 	}
@@ -199,6 +200,22 @@ func (svc *Service) SoftwareTitleByID(ctx context.Context, id uint, teamID *uint
 				meta.Status = summary
 			}
 			software.SoftwarePackage = meta
+
+			// Populate FleetMaintainedVersions if this is an FMA
+			if meta != nil && meta.FleetMaintainedAppID != nil {
+				fmaVersions, err := svc.ds.GetFleetMaintainedVersionsByTitleID(ctx, teamID, id, false)
+				if err != nil {
+					return nil, ctxerr.Wrap(ctx, err, "get fleet maintained versions")
+				}
+				meta.FleetMaintainedVersions = fmaVersions
+
+				// Populate PatchPolicy if there is one
+				patchPolicy, err := svc.ds.GetPatchPolicy(ctx, teamID, id)
+				if err != nil && !fleet.IsNotFound(err) {
+					return nil, ctxerr.Wrap(ctx, err, "get patch policy")
+				}
+				meta.PatchPolicy = patchPolicy
+			}
 		}
 
 		// add VPP app data if needed
@@ -213,6 +230,18 @@ func (svc *Service) SoftwareTitleByID(ctx context.Context, id uint, teamID *uint
 					return nil, ctxerr.Wrap(ctx, err, "get VPP app status summary")
 				}
 				meta.Status = summary
+
+				// Wrap iOS / iPadOS plist as a JSON string for the response.
+				if len(meta.Configuration) > 0 {
+					switch meta.Platform {
+					case fleet.IOSPlatform, fleet.IPadOSPlatform:
+						wrapped, err := json.Marshal(string(meta.Configuration))
+						if err != nil {
+							return nil, ctxerr.Wrap(ctx, err, "wrapping VPP configuration for response")
+						}
+						meta.Configuration = wrapped
+					}
+				}
 			}
 			software.AppStoreApp = meta
 		}
@@ -233,12 +262,38 @@ func (svc *Service) SoftwareTitleByID(ctx context.Context, id uint, teamID *uint
 					PendingInstall: summary.Pending,
 					FailedInstall:  summary.Failed,
 				}
+
+				// Wrap iOS / iPadOS plist as a JSON string for the response.
+				if len(meta.Configuration) > 0 {
+					wrapped, err := json.Marshal(string(meta.Configuration))
+					if err != nil {
+						return nil, ctxerr.Wrap(ctx, err, "wrapping in-house app configuration for response")
+					}
+					meta.Configuration = wrapped
+				}
 			}
 			software.SoftwarePackage = meta
 		}
 	}
 
 	return software, nil
+}
+
+func (svc *Service) SoftwareTitleNameForHostFilter(
+	ctx context.Context,
+	id uint,
+) (name, displayName string, err error) {
+	// Intentionally skip team-scoped inventory auth: only minimal title name.
+	if err := svc.authz.Authorize(ctx, &fleet.Host{}, fleet.ActionList); err != nil {
+		return "", "", err
+	}
+
+	name, displayName, err = svc.ds.SoftwareTitleNameForHostFilter(ctx, id)
+	if err != nil {
+		return "", "", err
+	}
+
+	return name, displayName, nil
 }
 
 /////////////////////////////////////////////////////////////////////////////////

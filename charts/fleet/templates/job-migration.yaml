@@ -31,6 +31,7 @@ spec:
       restartPolicy: Never
       shareProcessNamespace: true
 
+      # >>> OPENFRAME(helm): fork-added init container blocking migration until MySQL is reachable — openframe/docs/helm-chart.md
       {{- if .Values.fleet.waitForMysql.enabled }}
       initContainers:
       - name: wait-for-mysql
@@ -48,6 +49,7 @@ spec:
                 name: {{ default "fleet-database" .Values.database.existingConfigMap }}
                 key: {{ .Values.database.portKey }}
       {{- end }}
+      # <<< OPENFRAME(helm)
 
       containers:
       - name: fleet-migration
@@ -59,6 +61,9 @@ spec:
             sql_proxy_pid=$(pgrep cloud_sql_proxy) && kill -INT $sql_proxy_pid;
             {{- end }}
         image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
+        {{- with .Values.imagePullPolicy }}
+        imagePullPolicy: {{ . }}
+        {{- end }}
         resources:
           limits:
             cpu: {{ .Values.resources.limits.cpu }}

@@ -9,7 +9,7 @@ imageTag: v4.81.2 # Version of Fleet to deploy
 # imagePullSecrets:
 #   - name: docker
 #   - name: internal
-deploymentAnnotations: {} # Additional annotations to add to the Fleet Deployment
+deploymentAnnotations: {} # Additional annotations to add to the Fleet Deployment  # OPENFRAME(helm): fork-added Deployment annotations — openframe/docs/helm-chart.md
 podAnnotations: {} # Additional annotations to add to the Fleet pod
 serviceAnnotations: {} # Additional annotations to add to the Fleet service
 serviceAccountAnnotations: {} # Additional annotations to add to the Fleet service account
@@ -75,10 +75,12 @@ fleet:
   autoApplySQLMigrations: true
   # Add extra annotations to the migration Job
   migrationJobAnnotations:
+  # >>> OPENFRAME(helm): fork-added migration gate — openframe/docs/helm-chart.md
   # Init container that blocks the migration Job until MySQL accepts TCP connections.
   waitForMysql:
     enabled: true
     image: busybox:1.36
+  # <<< OPENFRAME(helm)
   tls:
     enabled: true
     # Set to true if you need a separate secret for just TLS data.
@@ -104,7 +106,7 @@ fleet:
   # Fleet initial setup configuration
   setup:
     adminEmail: ""
-    openframeMode: "0"
+    openframeMode: "0"  # OPENFRAME(helm): fork-added OpenFrame mode toggle — openframe/docs/helm-chart.md
     adminPassword:
       existingSecret: ""  # Name of a K8s Secret. If set, secretKeyValue is ignored.
       secretKeyKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the secret to read the value from.
@@ -143,6 +145,7 @@ fleet:
     runAsNonRoot: true
     runAsUser: 3333
     runAsGroup: 3333
+  # >>> OPENFRAME(helm): fork-added custom CA truststore support — openframe/docs/helm-chart.md
   # Add additional CA's to the Fleet container truststore
   # To add CA's, set enabled: true 
   # Supports adding CA's from Config maps and Secrets
@@ -162,6 +165,7 @@ fleet:
     # - name: fleet-ca-config
     secrets:
     # - name: fleet-ca-secret
+  # <<< OPENFRAME(helm)
 
 # Whether to make fleet vulnerability processing run in a dedicated container
 # if you set dedicated=false, you need to increase the main resources section
@@ -238,6 +242,7 @@ osquery:
 database:
   # Name of the Secret resource containing MySQL password and TLS secrets
   secretName: mysql
+  # >>> OPENFRAME(helm): fork-externalized DB connection config (ConfigMap/Secret refs) — openframe/docs/helm-chart.md
   # To read connection details from a ConfigMap instead of using static values below:
   existingConfigMap: ""  # Name of a K8s ConfigMap. If set, host/port/database/username values are ignored.
   hostKey: "FLEET_MYSQL_HOST"
@@ -252,6 +257,7 @@ database:
   database: fleet
   username: fleet
   password: fleet  # Plain text password. Used only when secret is not set.
+  # <<< OPENFRAME(helm)
   passwordKey: mysql-password
   maxOpenConns: 50
   maxIdleConns: 50
@@ -297,16 +303,20 @@ database:
 # All of the connection settings for Redis
 cache:
   address: 127.0.0.1:6379
+  # >>> OPENFRAME(helm): fork-externalized Redis address config (ConfigMap ref) — openframe/docs/helm-chart.md
   # To read address from a ConfigMap instead of using the static value above:
   existingConfigMap: ""  # Name of a K8s ConfigMap. If set, address value is ignored.
   addressKey: "FLEET_REDIS_ADDRESS"  # Key name within the ConfigMap to read the value from.
+  # <<< OPENFRAME(helm)
   database: "0"
   usePassword: false
   secretName: redis
   passwordKey: redis-password
+  # >>> OPENFRAME(redis-key-prefix): fork-added per-tenant Redis key prefix — openframe/docs/redis-key-prefix.md
   # When set, wires FLEET_REDIS_KEY_PREFIX from existingConfigMap[keyPrefixKey].
   # Required when sharing one Redis across multiple Fleet servers (multi-tenant).
   keyPrefixKey: ""
+  # <<< OPENFRAME(redis-key-prefix)
 
 ## Section: GKE
 # Settings that make running on Google Kubernetes Engine easier

@@ -14,8 +14,28 @@ import (
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	"github.com/fleetdm/fleet/v4/server/fleet"
 	microsoft_mdm "github.com/fleetdm/fleet/v4/server/mdm/microsoft"
+	common_mysql "github.com/fleetdm/fleet/v4/server/platform/mysql"
 	"github.com/jmoiron/sqlx"
 )
+
+var labelsAllowedOrderKeys = common_mysql.OrderKeyAllowlist{
+	"id":                    "l.id",
+	"created_at":            "l.created_at",
+	"updated_at":            "l.updated_at",
+	"name":                  "l.name",
+	"description":           "l.description",
+	"query":                 "l.query",
+	"platform":              "l.platform",
+	"label_type":            "l.label_type",
+	"label_membership_type": "l.label_membership_type",
+	"author_id":             "l.author_id",
+	"criteria":              "l.criteria",
+	"team_id":               "l.team_id",
+
+	// dependent on include_host_counts being set on request
+	// (checked on transport layer).
+	"host_count": "host_count",
+}
 
 func (ds *Datastore) ApplyLabelSpecs(ctx context.Context, specs []*fleet.LabelSpec) (err error) {
 	return ds.ApplyLabelSpecsWithAuthor(ctx, specs, nil)
@@ -32,6 +52,7 @@ func (ds *Datastore) SetAsideLabels(ctx context.Context, notOnTeamID *uint, name
 			if team.ID == teamID &&
 				(team.Role == fleet.RoleAdmin ||
 					team.Role == fleet.RoleMaintainer ||
+					team.Role == fleet.RoleTechnician ||
 					team.Role == fleet.RoleGitOps) {
 				return true
 			}
@@ -46,6 +67,7 @@ func (ds *Datastore) SetAsideLabels(ctx context.Context, notOnTeamID *uint, name
 		}
 		return *user.GlobalRole == fleet.RoleAdmin ||
 			*user.GlobalRole == fleet.RoleMaintainer ||
+			*user.GlobalRole == fleet.RoleTechnician ||
 			*user.GlobalRole == fleet.RoleGitOps
 	}
 
@@ -82,6 +104,7 @@ func (ds *Datastore) SetAsideLabels(ctx context.Context, notOnTeamID *uint, name
 		for _, team := range user.Teams {
 			if team.Role == fleet.RoleAdmin ||
 				team.Role == fleet.RoleMaintainer ||
+				team.Role == fleet.RoleTechnician ||
 				team.Role == fleet.RoleGitOps {
 				return true
 			}
@@ -182,7 +205,7 @@ func (ds *Datastore) ApplyLabelSpecsWithAuthor(ctx context.Context, specs []*fle
 					(existingLabel.TeamID != nil && spec.TeamID == nil ||
 						existingLabel.TeamID == nil && spec.TeamID != nil ||
 						(existingLabel.TeamID != nil && spec.TeamID != nil && *existingLabel.TeamID != *spec.TeamID)) {
-					return ctxerr.Wrap(ctx, err, "one or more specified labels exists on another team")
+					return ctxerr.New(ctx, "one or more specified labels exists on another team")
 				}
 			}
 		}
@@ -248,6 +271,11 @@ func (ds *Datastore) ApplyLabelSpecsWithAuthor(ctx context.Context, specs []*fle
 				continue
 			}
 
+			if s.Hosts == nil {
+				// hosts key was omitted — preserve existing membership
+				continue
+			}
+
 			// For manual labels, we need the label ID to update membership
 			var labelID uint
 			if existing, ok := existingLabels[strings.ToLower(s.Name)]; ok {
@@ -276,13 +304,13 @@ DELETE FROM label_membership WHERE label_id = ?
 
 			intRegex := regexp.MustCompile(`^[0-9]+$`)
 			// Split hostnames into batches to avoid parameter limit in MySQL.
-			for _, hostIdentifiers := range batchHostnames(s.Hosts) {
+			for _, hostIdentifiersBatch := range batchHostnames(s.Hosts) {
 				var stringIdents []string
 				// Start with 0 so id IN (?) always has at least one element.
 				// id = 0 never matches any real host.
 				intIdents := []uint64{0}
 
-				for _, s := range hostIdentifiers {
+				for _, s := range hostIdentifiersBatch {
 					stringIdents = append(stringIdents, s)
 					// Use strconv to check if it's a valid integer
 					if intRegex.MatchString(s) {
@@ -291,10 +319,34 @@ DELETE FROM label_membership WHERE label_id = ?
 					}
 				}
 
+				hostsFilterClause := `(hostname IN (?) OR hardware_serial IN (?) OR uuid IN (?) OR id IN (?))`
+
+				if s.TeamID != nil {
+					// Team labels can only be applied to hosts on that team.
+					hostnames := stringIdents
+					serialNumbers := stringIdents
+					uuids := stringIdents
+					hostIDs := intIdents
+					if err := checkHostIdentifiersInTeam(ctx, tx,
+						*s.TeamID,
+						hostsFilterClause,
+						[]any{
+							hostnames,
+							serialNumbers,
+							uuids,
+							hostIDs,
+						},
+					); err != nil {
+						return ctxerr.Wrap(ctx, err, "check host identifiers in team")
+					}
+				}
+
 				// Use ignore because duplicate hostnames could appear in
 				// different batches and would result in duplicate key errors.
-				sql = `
-INSERT IGNORE INTO label_membership (label_id, host_id) (SELECT DISTINCT ?, id FROM hosts where hostname IN (?) OR hardware_serial IN (?) OR uuid IN (?) OR id IN (?))`
+				sql = fmt.Sprintf(
+					`INSERT IGNORE INTO label_membership (label_id, host_id) (SELECT DISTINCT ?, id FROM hosts WHERE %s)`,
+					hostsFilterClause,
+				)
 				sql, args, err := sqlx.In(sql, labelID, stringIdents, stringIdents, stringIdents, intIdents)
 				if err != nil {
 					return ctxerr.Wrap(ctx, err, "build membership IN statement")
@@ -310,6 +362,32 @@ INSERT IGNORE INTO label_membership (label_id, host_id) (SELECT DISTINCT ?, id F
 	})
 
 	return ctxerr.Wrap(ctx, err, "ApplyLabelSpecs transaction")
+}
+
+var errLabelMismatchHostTeam = errors.New("supplied hosts are on a different team than the label")
+
+func checkHostIdentifiersInTeam(
+	ctx context.Context,
+	tx sqlx.QueryerContext,
+	teamID uint,
+	andFilter string,
+	args []any,
+) error {
+	hostTeamCheckSql, args, err := sqlx.In(
+		`SELECT COUNT(id) FROM hosts WHERE (team_id != ? OR team_id IS NULL) AND `+andFilter,
+		append([]any{teamID}, args...)...,
+	)
+	if err != nil {
+		return ctxerr.Wrap(ctx, err, "build host identifiers team membership check IN statement")
+	}
+	var hostCountOnWrongTeam int
+	if err := tx.QueryRowxContext(ctx, hostTeamCheckSql, args...).Scan(&hostCountOnWrongTeam); err != nil {
+		return ctxerr.Wrap(ctx, err, "execute host identifiers team membership check query")
+	}
+	if hostCountOnWrongTeam > 0 {
+		return ctxerr.Wrap(ctx, errLabelMismatchHostTeam)
+	}
+	return nil
 }
 
 func batchHostnames(hostnames []string) [][]string {
@@ -348,29 +426,24 @@ func (ds *Datastore) UpdateLabelMembershipByHostIDs(ctx context.Context, label f
 		}
 
 		// Split hostIds into batches to avoid parameter limit in MySQL.
-		for _, hostIds := range batchHostIds(hostIds) {
-			if label.TeamID != nil { // team labels can only be applied to hosts on that team
-				hostTeamCheckSql := `SELECT COUNT(id) FROM hosts WHERE (team_id != ? OR team_id IS NULL) AND id IN (?)`
-				hostTeamCheckSql, args, err := sqlx.In(hostTeamCheckSql, label.TeamID, hostIds)
-				if err != nil {
-					return ctxerr.Wrap(ctx, err, "build host team membership check IN statement")
-				}
-
-				var hostCountOnWrongTeam int
-				if err := tx.QueryRowxContext(ctx, hostTeamCheckSql, args...).Scan(&hostCountOnWrongTeam); err != nil {
-					return ctxerr.Wrap(ctx, err, "execute host team membership check query")
-				}
-				if hostCountOnWrongTeam > 0 {
-					return ctxerr.Wrap(ctx, errors.New("supplied hosts are on a different team than the label"))
+		for _, hostIDsBatch := range batchHostIds(hostIds) {
+			if label.TeamID != nil {
+				// Team labels can only be applied to hosts on that team.
+				if err := checkHostIdentifiersInTeam(ctx, tx,
+					*label.TeamID,
+					`id IN (?)`,
+					[]any{hostIDsBatch},
+				); err != nil {
+					return ctxerr.Wrap(ctx, err, "check host IDs in team")
 				}
 			}
 
-			// Use ignore because duplicate hostIds could appear in
+			// Use ignore because duplicate host IDs could appear in
 			// different batches and would result in duplicate key errors.
 			var values []any
 			var placeholders []string
 
-			for _, hostID := range hostIds {
+			for _, hostID := range hostIDsBatch {
 				values = append(values, label.ID, hostID)
 				placeholders = append(placeholders, "(?, ?)")
 			}
@@ -505,7 +578,7 @@ func (ds *Datastore) GetLabelSpecs(ctx context.Context, filter fleet.TeamFilter)
 func (ds *Datastore) GetLabelSpec(ctx context.Context, filter fleet.TeamFilter, name string) (*fleet.LabelSpec, error) {
 	var specs []*fleet.LabelSpec
 	query, params, err := applyLabelTeamFilter(`
-SELECT l.id, l.name, l.description, l.query, l.platform, l.label_type, l.label_membership_type, l.team_id
+SELECT l.id, l.name, l.description, l.query, l.platform, l.label_type, l.label_membership_type, l.criteria, l.team_id
 FROM labels l
 WHERE l.name = ?`, filter, name)
 	if err != nil {
@@ -586,6 +659,9 @@ func (ds *Datastore) NewLabel(ctx context.Context, label *fleet.Label, opts ...f
 
 	id, _ := result.LastInsertId()
 	label.ID = uint(id) //nolint:gosec // dismiss G115
+	now := time.Now().UTC().Truncate(time.Second)
+	label.CreatedAt = now
+	label.UpdatedAt = now
 	return label, nil
 }
 
@@ -623,6 +699,19 @@ func (ds *Datastore) DeleteLabel(ctx context.Context, name string, filter fleet.
 			}
 			return ctxerr.Wrap(ctx, err, "getting label id to delete")
 		}
+		var usedByProfile bool
+		if err := sqlx.GetContext(ctx, tx, &usedByProfile, `
+			SELECT EXISTS(
+				SELECT 1 FROM mdm_configuration_profile_labels WHERE label_id = ?
+				UNION ALL
+				SELECT 1 FROM mdm_declaration_labels WHERE label_id = ?
+			)`, labelID, labelID); err != nil {
+			return ctxerr.Wrap(ctx, err, "checking if label is used by configuration profiles")
+		}
+		if usedByProfile {
+			return ctxerr.Wrap(ctx, foreignKey("configuration profile labels", name), "delete label")
+		}
+
 		if err := deleteLabelsInTx(ctx, tx, []uint{labelID}); err != nil {
 			if isMySQLForeignKey(err) {
 				return ctxerr.Wrap(ctx, foreignKey("labels", name), "delete label")
@@ -684,6 +773,18 @@ func (ds *Datastore) Label(ctx context.Context, lid uint, teamFilter fleet.TeamF
 	return ds.labelDB(ctx, lid, teamFilter, ds.reader(ctx))
 }
 
+// LabelMembershipHostIDs returns every host_id row in label_membership for the
+// given label ID. Unlike Label, it applies no team filter on the host side, so
+// it returns the true membership including hosts on teams the caller can't see.
+func (ds *Datastore) LabelMembershipHostIDs(ctx context.Context, labelID uint) ([]uint, error) {
+	var hostIDs []uint
+	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &hostIDs,
+		`SELECT host_id FROM label_membership WHERE label_id = ?`, labelID); err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "selecting label membership host IDs")
+	}
+	return hostIDs, nil
+}
+
 func (ds *Datastore) labelDB(ctx context.Context, lid uint, teamFilter fleet.TeamFilter, q sqlx.QueryerContext) (*fleet.LabelWithTeamName, []uint, error) {
 	stmt := fmt.Sprintf(`
 		SELECT
@@ -729,14 +830,25 @@ func (ds *Datastore) ListLabels(ctx context.Context, filter fleet.TeamFilter, op
 	query := "SELECT l.* FROM labels l "
 	// When applicable, filter host membership by team and return counts with the labels.
 	if filter.User != nil && includeHostCounts {
+		countFrom := "label_membership lm JOIN hosts h ON (lm.host_id = h.id)"
+		// When the team filter allows all hosts ("TRUE"),
+		// skip the join to the hosts table and count straight off the
+		// label_membership index.
+		teamFilter := ds.whereFilterHostsByTeams(filter, "h")
+		if teamFilter == "TRUE" {
+			countFrom = "label_membership lm"
+		}
 		query = fmt.Sprintf(`
-				SELECT l.*,
-					(SELECT COUNT(1)
-					 FROM label_membership lm
-					     JOIN hosts h ON (lm.host_id = h.id) WHERE label_id = l.id AND %s
-					 ) AS host_count
+				WITH label_host_counts AS (
+					SELECT lm.label_id, COUNT(1) AS host_count
+					FROM %s
+					WHERE %s
+					GROUP BY lm.label_id
+				)
+				SELECT l.*, COALESCE(lhc.host_count, 0) AS host_count
 				FROM labels l
-			`, ds.whereFilterHostsByTeams(filter, "h"),
+				LEFT JOIN label_host_counts lhc ON lhc.label_id = l.id
+			`, countFrom, teamFilter,
 		)
 	}
 
@@ -745,7 +857,10 @@ func (ds *Datastore) ListLabels(ctx context.Context, filter fleet.TeamFilter, op
 		return nil, err
 	}
 
-	query, params = appendListOptionsWithCursorToSQL(query, params, &opt)
+	query, params, err = appendListOptionsWithCursorToSQLSecure(query, params, &opt, labelsAllowedOrderKeys)
+	if err != nil {
+		return nil, ctxerr.Wrap(ctx, err, "list labels")
+	}
 	var labels []*fleet.Label
 
 	if err := sqlx.SelectContext(ctx, ds.reader(ctx), &labels, query, params...); err != nil {
@@ -953,6 +1068,80 @@ func (ds *Datastore) ListLabelsForHost(ctx context.Context, hid uint) ([]*fleet.
 	return labels, nil
 }
 
+// hostsInLabelAllowedOrderKeys defines the allowed order keys for the hosts in label endpoint.
+// SECURITY: This prevents information disclosure via arbitrary column sorting.
+// Sensitive columns like 'node_key' and 'orbit_node_key'.
+// are intentionally excluded to prevent binary search extraction attacks.
+var hostsInLabelAllowedOrderKeys = common_mysql.OrderKeyAllowlist{
+	"id":                             "h.id",
+	"osquery_host_id":                "h.osquery_host_id",
+	"created_at":                     "h.created_at",
+	"updated_at":                     "h.updated_at",
+	"detail_updated_at":              "h.detail_updated_at",
+	"hostname":                       "h.hostname",
+	"uuid":                           "h.uuid",
+	"platform":                       "h.platform",
+	"osquery_version":                "h.osquery_version",
+	"os_version":                     "h.os_version",
+	"build":                          "h.build",
+	"platform_like":                  "h.platform_like",
+	"code_name":                      "h.code_name",
+	"uptime":                         "h.uptime",
+	"memory":                         "h.memory",
+	"cpu_type":                       "h.cpu_type",
+	"cpu_subtype":                    "h.cpu_subtype",
+	"cpu_brand":                      "h.cpu_brand",
+	"cpu_physical_cores":             "h.cpu_physical_cores",
+	"cpu_logical_cores":              "h.cpu_logical_cores",
+	"hardware_vendor":                "h.hardware_vendor",
+	"hardware_model":                 "h.hardware_model",
+	"hardware_version":               "h.hardware_version",
+	"hardware_serial":                "h.hardware_serial",
+	"computer_name":                  "h.computer_name",
+	"primary_ip_id":                  "h.primary_ip_id",
+	"distributed_interval":           "h.distributed_interval",
+	"logger_tls_period":              "h.logger_tls_period",
+	"config_tls_refresh":             "h.config_tls_refresh",
+	"primary_ip":                     "h.primary_ip",
+	"primary_mac":                    "h.primary_mac",
+	"label_updated_at":               "h.label_updated_at",
+	"last_enrolled_at":               "h.last_enrolled_at",
+	"refetch_requested":              "h.refetch_requested",
+	"refetch_critical_queries_until": "h.refetch_critical_queries_until",
+	"team_id":                        "h.team_id",
+	"policy_updated_at":              "h.policy_updated_at",
+	"public_ip":                      "h.public_ip",
+
+	"display_name": "hdn.display_name",
+
+	// COALESCE required on the following:
+	// must match SELECT clause so cursor pagination (WHERE) and ORDER BY are consistent
+	"gigs_disk_space_available":    "COALESCE(hd.gigs_disk_space_available, 0)",
+	"percent_disk_space_available": "COALESCE(hd.percent_disk_space_available, 0)",
+	"gigs_total_disk_space":        "COALESCE(hd.gigs_total_disk_space, 0)",
+	"seen_time":                    "COALESCE(hst.seen_time, h.created_at)",
+	"software_updated_at":          "COALESCE(hu.software_updated_at, h.created_at)",
+
+	"last_restarted_at": "h.last_restarted_at",
+	"timezone":          "h.timezone",
+	// must match SELECT clause subquery so cursor pagination (WHERE) and
+	// ORDER BY are consistent — MySQL disallows SELECT aliases in WHERE.
+	"team_name": "(SELECT name FROM teams t WHERE t.id = h.team_id)",
+
+	// COALESCE required on the following:
+	// must match SELECT clause so cursor pagination (WHERE) and ORDER BY are consistent
+	"failing_policies_count":         "COALESCE(host_issues.failing_policies_count, 0)",
+	"critical_vulnerabilities_count": "COALESCE(host_issues.critical_vulnerabilities_count, 0)",
+	"total_issues_count":             "COALESCE(host_issues.total_issues_count, 0)",
+	"device_mapping":                 "COALESCE(dm.device_mapping, 'null')",
+
+	"issues": "COALESCE(host_issues.total_issues_count, 0)",
+
+	//
+	// SECURITY:
+	// Note: 'h.node_key', 'h.orbit_node_key' intentionally EXCLUDED
+}
+
 // ListHostsInLabel returns a list of fleet.Host that are associated
 // with fleet.Label referenced by Label ID
 func (ds *Datastore) ListHostsInLabel(ctx context.Context, filter fleet.TeamFilter, lid uint, opt fleet.HostListOptions) ([]*fleet.Host, error) {
@@ -1082,6 +1271,12 @@ func (ds *Datastore) applyHostLabelFilters(ctx context.Context, filter fleet.Tea
 	// prior to returning, params will be appended in the following order: joinParams, whereParams
 	var whereParams, joinParams []interface{}
 
+	// Needed by filterHostsByStatus' missing computation so that ios/ipados hosts fall back to the
+	// MDM protocol's last_seen_at instead of being flagged missing (see hostEffectiveLastSeenExpr).
+	if opt.StatusFilter.IsValid() {
+		query += hostMDMSeenTimeJoin
+	}
+
 	if opt.ListOptions.OrderKey == "display_name" {
 		query += ` JOIN host_display_names hdn ON h.id = hdn.host_id `
 	}
@@ -1150,6 +1345,7 @@ func (ds *Datastore) applyHostLabelFilters(ctx context.Context, filter fleet.Tea
 		opt.MacOSSettingsFilter.IsValid() {
 		query += sqlJoinMDMAppleProfilesStatus()
 		query += sqlJoinMDMAppleDeclarationsStatus()
+		query += sqlJoinRecoveryLockStatus()
 	}
 
 	if opt.OSSettingsFilter.IsValid() {
@@ -1177,20 +1373,20 @@ func (ds *Datastore) applyHostLabelFilters(ctx context.Context, filter fleet.Tea
 	if diskEncryptionConfig, err := ds.GetConfigEnableDiskEncryption(ctx, opt.TeamFilter); err != nil {
 		return "", nil, err
 	} else if opt.OSSettingsFilter.IsValid() {
-		query, whereParams, err = ds.filterHostsByOSSettingsStatus(query, opt, whereParams, diskEncryptionConfig)
+		query, whereParams, err = ds.filterHostsByOSSettingsStatus(ctx, query, opt, whereParams, diskEncryptionConfig)
 		if err != nil {
 			return "", nil, err
 		}
 	} else if opt.OSSettingsDiskEncryptionFilter.IsValid() {
-		query, whereParams = ds.filterHostsByOSSettingsDiskEncryptionStatus(query, opt, whereParams, diskEncryptionConfig)
+		query, whereParams = ds.filterHostsByOSSettingsDiskEncryptionStatus(ctx, query, opt, whereParams, diskEncryptionConfig)
 	}
 	// TODO: should search columns include display_name (requires join to host_display_names)?
-	query, whereParams, _ = hostSearchLike(query, whereParams, opt.MatchQuery, hostSearchColumns...)
+	query, whereParams = hostSearchLike(query, whereParams, opt.MatchQuery, hostSearchColumns...)
 
-	if opt.ListOptions.OrderKey == "issues" {
-		opt.ListOptions.OrderKey = "host_issues.total_issues_count"
+	query, whereParams, err = appendListOptionsWithCursorToSQLSecure(query, whereParams, &opt.ListOptions, hostsInLabelAllowedOrderKeys)
+	if err != nil {
+		return "", nil, ctxerr.Wrap(ctx, err, "apply host list options")
 	}
-	query, whereParams = appendListOptionsWithCursorToSQL(query, whereParams, &opt.ListOptions)
 	return query, append(joinParams, whereParams...), nil
 }
 

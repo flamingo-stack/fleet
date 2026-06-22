@@ -15,13 +15,6 @@ import Card from "components/Card";
 import DataSet from "components/DataSet";
 import TooltipWrapper from "components/TooltipWrapper";
 
-export const sourcesWithLastOpenedTime = new Set([
-  "programs",
-  "apps",
-  "deb_packages",
-  "rpm_packages",
-]);
-
 const generateVulnerabilitiesValue = (vulnerabilities: string[]) => {
   const first3 = vulnerabilities.slice(0, 3);
   const rest = vulnerabilities.slice(3);
@@ -80,22 +73,30 @@ const InventoryVersion = ({
       borderRadiusSize="medium"
     >
       <div className={`${baseClass}__row`}>
-        <DataSet title="Version" value={version.version} />
+        <DataSet title="Version" value={version.version} textOnly />
         <DataSet
           title="Type"
           value={formatSoftwareType({ source, extension_for })}
+          textOnly
         />
         {bundleIdentifier && (
-          <DataSet title="Bundle identifier" value={bundleIdentifier} />
+          <DataSet
+            title="Bundle identifier"
+            value={bundleIdentifier}
+            textOnly
+          />
         )}
-        {version.last_opened_at || sourcesWithLastOpenedTime.has(source) ? (
+        {version.last_opened_at !== undefined && (
           <DataSet
             title={lastOpenedTitle}
             value={
-              version.last_opened_at ? dateAgo(version.last_opened_at) : "Never"
+              version.last_opened_at !== ""
+                ? dateAgo(version.last_opened_at)
+                : "Never"
             }
+            textOnly
           />
-        ) : null}
+        )}
       </div>
       {vulnerabilities && vulnerabilities.length !== 0 && (
         <div className={`${baseClass}__row`}>

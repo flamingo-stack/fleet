@@ -2,10 +2,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+# >>> OPENFRAME(helm): fork-added Deployment-level annotations — openframe/docs/helm-chart.md
 {{- with .Values.deploymentAnnotations }}
   annotations:
 {{- toYaml . | nindent 4 }}
 {{- end }}
+# <<< OPENFRAME(helm)
   labels:
     app: fleet
     chart: fleet
@@ -37,6 +39,7 @@ spec:
         release: {{ .Release.Name }}
     spec:
       initContainers:
+      # >>> OPENFRAME(helm): fork-added init container installing custom CA certs into truststore — openframe/docs/helm-chart.md
       {{- if include "fleet.additionalCAs.enabled" . }}
       - name: install-trusted-cas
         image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
@@ -73,6 +76,7 @@ spec:
           - name: ca-certs
             mountPath: /etc/ssl/certs
       {{- end }}
+      # <<< OPENFRAME(helm)
       containers:
       - name: fleet
         command: [/usr/bin/fleet]
@@ -201,10 +205,13 @@ spec:
               secretKeyRef:
                 name: {{ default "fleet-setup" .Values.fleet.setup.adminPassword.existingSecret }}
                 key: {{ .Values.fleet.setup.adminPassword.secretKeyKey }}
+          # >>> OPENFRAME(helm): fork-added OpenFrame mode env var — openframe/docs/helm-chart.md
           - name: FLEET_OPENFRAME_MODE
             value: {{ .Values.fleet.setup.openframeMode | quote }}
+          # <<< OPENFRAME(helm)
           ## END FLEET SECTION
           ## BEGIN MYSQL SECTION
+          # >>> OPENFRAME(helm): fork-externalized DB connection from ConfigMap/Secret refs — openframe/docs/helm-chart.md
           - name: FLEET_MYSQL_HOST
             valueFrom:
               configMapKeyRef:
@@ -232,6 +239,7 @@ spec:
               secretKeyRef:
                 name: {{ default "fleet-database" .Values.database.existingSecret }}
                 key: {{ .Values.database.passwordKey }}
+          # <<< OPENFRAME(helm)
           - name: FLEET_MYSQL_MAX_OPEN_CONNS
             value: "{{ .Values.database.maxOpenConns }}"
           - name: FLEET_MYSQL_MAX_IDLE_CONNS
@@ -319,11 +327,13 @@ spec:
           {{- end }}
           ## END MYSQL READ REPLICA SECTION
           ## BEGIN REDIS SECTION
+          # >>> OPENFRAME(helm): fork-externalized Redis address from ConfigMap ref — openframe/docs/helm-chart.md
           - name: FLEET_REDIS_ADDRESS
             valueFrom:
               configMapKeyRef:
                 name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
                 key: {{ .Values.cache.addressKey }}
+          # <<< OPENFRAME(helm)
           - name: FLEET_REDIS_DATABASE
             value: "{{ .Values.cache.database }}"
           {{- if .Values.cache.usePassword }}
@@ -333,6 +343,7 @@ spec:
                 name: "{{ .Values.cache.secretName }}"
                 key: "{{ .Values.cache.passwordKey }}"
           {{- end }}
+          # >>> OPENFRAME(redis-key-prefix): fork-added Redis key prefix for multi-tenant sharing — openframe/docs/redis-key-prefix.md
           {{- if .Values.cache.keyPrefixKey }}
           - name: FLEET_REDIS_KEY_PREFIX
             valueFrom:
@@ -340,6 +351,7 @@ spec:
                 name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
                 key: {{ .Values.cache.keyPrefixKey }}
           {{- end }}
+          # <<< OPENFRAME(redis-key-prefix)
           ## END REDIS SECTION
           ## BEGIN OSQUERY SECTION
           - name: FLEET_OSQUERY_NODE_KEY_SIZE
@@ -532,10 +544,12 @@ spec:
           - name: osquery-logs
             mountPath: /logs
           {{- end }}
+          # >>> OPENFRAME(helm): fork-added CA truststore volume mount — openframe/docs/helm-chart.md
           {{- if include "fleet.additionalCAs.enabled" . }}
           - name: ca-certs
             mountPath: /etc/ssl/certs
           {{- end }}
+          # <<< OPENFRAME(helm)
           {{- with .Values.fleet.extraVolumeMounts }}
           {{- toYaml . | nindent 10 }}
           {{- end }}
@@ -604,6 +618,7 @@ spec:
         {{- with .Values.fleet.extraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        # >>> OPENFRAME(helm): fork-added CA truststore volumes (configmaps/secrets) — openframe/docs/helm-chart.md
         {{- if include "fleet.additionalCAs.enabled" . }}
         {{- range .Values.fleet.additionalCAs.configMaps }}
         - name: ca-configmap-{{ .name }}
@@ -618,6 +633,7 @@ spec:
         - name: ca-certs
           emptyDir: {}
         {{- end }}
+        # <<< OPENFRAME(helm)
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

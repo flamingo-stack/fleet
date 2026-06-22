@@ -5,10 +5,11 @@ import "time"
 // DesktopSummary is a summary of the status of a host that's used by Fleet
 // Desktop to operate (show/hide menu items, etc)
 type DesktopSummary struct {
-	FailingPolicies *uint                `json:"failing_policies_count,omitempty"`
-	SelfService     *bool                `json:"self_service"`
-	Notifications   DesktopNotifications `json:"notifications,omitempty"`
-	Config          DesktopConfig        `json:"config"`
+	AlternativeBrowserHost string               `json:"alternative_browser_host,omitempty"`
+	FailingPolicies        *uint                `json:"failing_policies_count,omitempty"`
+	SelfService            *bool                `json:"self_service"`
+	Notifications          DesktopNotifications `json:"notifications"`
+	Config                 DesktopConfig        `json:"config"`
 }
 
 // DesktopNotifications are notifications that the fleet server sends to
@@ -37,9 +38,13 @@ type DesktopMDMConfig struct {
 // DesktopMDMConfig is a subset of fleet.OrgInfo with configuration that's relevant
 // to Fleet Desktop to operate.
 type DesktopOrgInfo struct {
-	OrgName                   string `json:"org_name"`
-	OrgLogoURL                string `json:"org_logo_url"`
+	OrgName string `json:"org_name"`
+	// Deprecated: use OrgLogoURLDarkMode.
+	OrgLogoURL string `json:"org_logo_url"`
+	// Deprecated: use OrgLogoURLLightMode.
 	OrgLogoURLLightBackground string `json:"org_logo_url_light_background"`
+	OrgLogoURLDarkMode        string `json:"org_logo_url_dark_mode"`
+	OrgLogoURLLightMode       string `json:"org_logo_url_light_mode"`
 	ContactURL                string `json:"contact_url"`
 }
 
