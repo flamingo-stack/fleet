@@ -118,6 +118,23 @@ dedicated vuln-processing cron
 ([cron-vulnprocessing.yaml](../../charts/fleet/templates/cron-vulnprocessing.yaml))
 receive the same prefix, so background jobs share the tenant's keyspace.
 
+## Cluster seed nodes — `OPENFRAME(redis-seed-nodes)`
+
+Upstream initializes the `redisc.Cluster` with a single startup node
+(`StartupNodes: []string{conf.Server}`) and relies on `CLUSTER SLOTS` discovery.
+The fork's multi-tenant deploys instead pass an explicit, comma-separated node
+list in `FLEET_REDIS_ADDRESS` (e.g. `redis-0:6379,redis-1:6379,redis-2:6379`).
+`splitSeedNodes()` in [`redis.go`](../../server/datastore/redis/redis.go) parses
+that list (trimming whitespace and a `redis://` scheme per entry) into
+`StartupNodes`.
+
+**Without it, startup fails** with `redisc: all nodes failed … dial tcp: address
+<list>: too many colons in address`, because the whole comma-joined string is
+treated as one host:port. This edit was dropped once during an upstream sync
+(it had no marker then); it is now marked and covered by `TestSplitSeedNodes` in
+[`seednodes_test.go`](../../server/datastore/redis/seednodes_test.go) and the
+`redis-seed-nodes` slug in `openframe/scripts/verify.sh`.
+
 ## Files changed
 
 | File | Purpose |

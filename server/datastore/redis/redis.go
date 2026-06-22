@@ -168,6 +168,31 @@ func normalizeKeyPrefix(p string) (string, error) {
 
 // <<< OPENFRAME(redis-key-prefix)
 
+// >>> OPENFRAME(redis-seed-nodes): parse comma-separated FLEET_REDIS_ADDRESS into multiple cluster seed nodes — openframe/docs/redis-key-prefix.md
+// splitSeedNodes parses FLEET_REDIS_ADDRESS into seed host:port entries.
+// Accepts a single addr, a redis:// URL, or a comma-separated mix; trims the
+// scheme and whitespace per entry. Without this, a comma-separated address is
+// handed to the cluster as a single node and the dialer fails with "too many
+// colons in address". Upstream uses one startup node and relies on CLUSTER
+// SLOTS discovery; the fork's multi-tenant deploys pass an explicit node list.
+func splitSeedNodes(server string) []string {
+	if server == "" {
+		return nil
+	}
+	parts := strings.Split(server, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		p = strings.TrimPrefix(p, "redis://")
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// <<< OPENFRAME(redis-seed-nodes)
+
 // ReadOnlyConn turns conn into a connection that will try to connect to a
 // replica instead of a primary. Note that this is not guaranteed that it will
 // do so (there may not be any replica, or due to redirections it may end up on
@@ -407,7 +432,9 @@ func newCluster(conf PoolConfig) (*redisc.Cluster, error) {
 	}
 
 	return &redisc.Cluster{
-		StartupNodes: []string{conf.Server},
+		// >>> OPENFRAME(redis-seed-nodes): split comma-separated FLEET_REDIS_ADDRESS into cluster seed nodes — openframe/docs/redis-key-prefix.md
+		StartupNodes: splitSeedNodes(conf.Server),
+		// <<< OPENFRAME(redis-seed-nodes)
 		PoolWaitTime: conf.ConnWaitTimeout,
 		DialOptions:  opts,
 		CreatePool: func(server string, opts ...redis.DialOption) (*redis.Pool, error) {

@@ -46,7 +46,7 @@ rm -f vet.err
 # 3. Marker presence: if a merge silently dropped fork code, its OPENFRAME markers
 #    vanish too. A slug dropping to zero is a red flag worth a human look.
 step "OPENFRAME marker presence (dropped-fork-code detector)"
-for slug in host-assignments redis-key-prefix query-results-ttl osquery-host-id agent-openframe-mode; do
+for slug in host-assignments redis-key-prefix redis-seed-nodes query-results-ttl osquery-host-id agent-openframe-mode; do
   n=$(grep -rIl "OPENFRAME($slug" --include='*.go' --include='*.yaml' --include='*.tpl' . 2>/dev/null | wc -l | tr -d ' ')
   if [ "$n" -gt 0 ]; then ok "$slug — present in $n file(s)"; else bad "$slug — NO markers found (fork code may have been dropped in the merge)"; fi
 done
@@ -65,6 +65,7 @@ TOKENS=re.compile('|'.join([
  r'HostsIncludeAny',r'\bHostIdent\b',r'loadHostsFor(Policies|Queries)',
  r'(Add|Remove|Replace|List)(Policy|Query)Hosts',r'normalizeKeyPrefix',r'newPrefixedConn',
  r'\bprefixedConn\b',r'unwrapConn',r'keyPrefixOf',r'FLEET_REDIS_KEY_PREFIX',r'redis\.key_prefix',
+ r'splitSeedNodes',
  r'QueryResultsTTL',r'QueryResultsCleanupInterval',r'CleanupExpiredQueryResults',
  r'CronQueryResultsTTLCleanup',r'newQueryResultsTTLCleanupSchedule',r'query_results_ttl',
  r'query_results_cleanup_interval',r'json:"osquery_host_id"']))
@@ -92,7 +93,7 @@ else bad "unmarked fork-token line(s) above — wrap each in an OPENFRAME marker
 # 4. Pure-logic unit tests (no Docker). The key-prefix test is the highest-value
 #    guard: a regression here is a cross-tenant data leak.
 step "key-prefix unit tests (no Docker)"
-if go test ./server/datastore/redis/ -run 'PrefixArgs|NormalizeKeyPrefix|PrefixedConn|UnwrapConn|ByteKeys' >redis.test 2>&1; then
+if go test ./server/datastore/redis/ -run 'PrefixArgs|NormalizeKeyPrefix|PrefixedConn|UnwrapConn|ByteKeys|SplitSeedNodes' >redis.test 2>&1; then
   ok "redis key-prefix tests"
 else
   bad "redis key-prefix tests"; sed 's/^/    /' redis.test | tail -30
