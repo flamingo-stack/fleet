@@ -207,7 +207,15 @@ func (c *Client) GetDBVersion(db *sql.DB) (int64, error) {
 		return 0, err
 	}
 
-	panic("unreachable")
+	// >>> OPENFRAME(migration-race): a concurrently-created-but-unseeded version
+	// table must not crash the process. On MySQL the CREATE TABLE in
+	// createVersionTable auto-commits before the version-0 INSERT, so a reader
+	// racing the migration job on a fresh DB can observe the table existing but
+	// empty (this also covers a version table whose rows were lost). Treat "no
+	// applied row" as version 0 (nothing applied) and let the idempotent
+	// migrations proceed/retry instead of panicking. — openframe/docs/migrations.md
+	return 0, nil
+	// <<< OPENFRAME(migration-race)
 }
 
 // Create the goose_db_version table

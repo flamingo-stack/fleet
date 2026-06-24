@@ -242,3 +242,31 @@ When rebasing onto a newer upstream release:
 ## Known issue: `prepare db` early return (fixed)
 
 Previously, `cmd/fleet/prepare.go` had an early `return` when `MigrationStatus()` reported `AllMigrationsCompleted`. Since `MigrationStatus()` only checks `tables` and `data` migrations, this caused `MigrateOpenframe()` to be skipped on databases where upstream migrations were already applied. The fix removes the early return so that openframe migrations always execute.
+
+## Migration ↔ serve startup race — `OPENFRAME(migration-race)`
+
+On a **fresh** database the `fleet-migration` job (`fleet prepare db`) and the
+`fleet` server (`fleet serve`) can start **concurrently** — the fork removed the
+migration job's pre-install/pre-upgrade Helm hook (`Remove Chart Pre Hooks (#37)`,
+`ba4887475d`) that upstream still uses to run migrations to completion before the
+server. Both processes call `MigrationStatus()` → goose `GetDBVersion()` at startup.
+
+goose's `createVersionTable` runs `CREATE TABLE` then `INSERT version 0` in one
+transaction, but **MySQL auto-commits DDL**, so the `CREATE TABLE` becomes visible
+to other connections before the version-0 row is inserted. A process that queries
+the version table in that window sees it **existing but empty**, and upstream goose
+hits `panic("unreachable")` — crash-looping both the server and the migration job
+(observed on a freshly-provisioned stage tenant).
+
+**Fork fix** (`server/goose/migrate.go`, marked `OPENFRAME(migration-race)`): when
+`GetDBVersion` finds the version table present but with no applied row, it returns
+version `0` instead of panicking. The process then treats the DB as unmigrated and
+lets the **idempotent** migrations proceed/retry — so it self-heals (rather than
+crash-loops) from both this race and a version table whose rows were lost. Pinned by
+`TestGetDBVersion_EmptyVersionTableReturnsZeroNotPanic`
+(`server/goose/migrate_openframe_test.go`, go-sqlmock, no live MySQL).
+
+> This is a defensive guard. The **root cause** is the missing ordering; the durable
+> fix is to restore the migration job's `pre-install,pre-upgrade` Helm hook (or add a
+> wait-for-migration init container to the server Deployment) so migrations complete
+> before the server starts — see [helm-chart.md](helm-chart.md).
