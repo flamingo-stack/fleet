@@ -117,6 +117,53 @@ exactly-once semantics.
 | Deployment annotations | `deploymentAnnotations` | Arbitrary annotations merged onto the Fleet Deployment metadata (e.g. for ArgoCD / reloader). |
 | Additional CA certs | `fleet.additionalCAs.*` | Init-container injection of CA bundles from named ConfigMaps/Secrets, for private PKI. |
 | Dedicated vuln processing | `vulnProcessing.dedicated`, `vulnProcessing.schedule` | When `true`, runs vulnerability processing as a separate CronJob ([cron-vulnprocessing.yaml](../../charts/fleet/templates/cron-vulnprocessing.yaml)) and disables it in the main deployment. |
+| Vuln feed persistence | `vulnProcessing.persistence.*`, `vulnProcessing.staggerSchedule` | See [below](#vulnerability-feed-persistence-vuln-persistence). |
+
+## Vulnerability feed persistence (`vuln-persistence`)
+
+Fleet downloads ~800MB of vulnerability feeds (NVD, CPE, OSV, OVAL, MSRC, …) into
+`FLEET_VULNERABILITIES_DATABASES_PATH` (`/tmp/vuln`). Upstream mounts `/tmp` as an
+`emptyDir`, so every pod replacement re-downloads the full set, even though Fleet's
+sync code is delta-aware (per-file mtime / SHA-256 / `.meta` comparisons that skip
+unchanged artifacts when the directory survives a restart).
+
+The fork adds first-class persistence for the **dedicated cron** mode:
+
+```yaml
+vulnProcessing:
+  dedicated: true        # required — persistence only wires into the CronJob
+  staggerSchedule: true  # hourly at a minute derived from the release namespace
+  persistence:
+    enabled: true
+    size: 5Gi
+    # storageClassName: ""   # cluster default
+    # existingClaim: ""      # reuse a pre-created PVC
+```
+
+What this renders:
+
+- [pvc-vulnprocessing.yaml](../../charts/fleet/templates/pvc-vulnprocessing.yaml)
+  — a `ReadWriteOnce` PVC `fleet-vulnprocessing` (skipped when `existingClaim` is
+  set). RWO is safe because the CronJob runs with `concurrencyPolicy: Forbid`, so
+  at most one pod attaches it at a time.
+- The CronJob mounts the PVC at `/tmp/vuln` (nested inside the `/tmp` emptyDir)
+  and gets a pod-level `securityContext` with `fsGroup` =
+  `fleet.securityContext.runAsGroup` (+ `fsGroupChangePolicy: OnRootMismatch`) —
+  without it uid 3333 cannot write a fresh root-owned PVC.
+- With `staggerSchedule: true`, `vulnProcessing.schedule` is ignored and the cron
+  fires hourly at `adler32sum(namespace) mod 60`, so tenants sharing a cluster
+  don't all hit the feed mirrors at `:00`.
+
+Combined effect: server pods never download feeds (redeploys are free), and each
+hourly job only fetches deltas (EPSS/CISA and, when Amazon Linux hosts exist,
+goval-dictionary sqlite files are always re-fetched — they are the small part).
+Do **not** enable `dedicated` without `persistence` on a busy schedule: each job
+pod would start with an empty `/tmp` and re-download the full set every run.
+
+Caveat: `cpe.sqlite` is versionless on disk (schema lives in the `cpe_2` table
+name) and the sync skips it when its mtime is "today", so after a Fleet upgrade a
+persisted copy can lag by up to a day. Deleting the PVC (the data is a disposable
+cache) forces a full re-sync.
 
 ## Operator quick reference
 
@@ -146,7 +193,8 @@ helm upgrade --install fleet oci://ghcr.io/flamingo-stack/fleetmdm/helm-charts/f
 | `charts/fleet/templates/secret.yaml` | **New** — generated DB password / admin-setup Secrets |
 | `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container |
 | `charts/fleet/templates/job-migration.yaml` | `waitForMysql` init container, hook removal, TTL removal |
-| `charts/fleet/templates/cron-vulnprocessing.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX` |
+| `charts/fleet/templates/cron-vulnprocessing.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX`, feed-cache PVC mount, fsGroup, schedule stagger |
+| `charts/fleet/templates/pvc-vulnprocessing.yaml` | **New** — PVC persisting the vulnerability feed cache across cron runs |
 | `charts/fleet/Chart.yaml` | Fork chart version, MySQL/Redis subchart pins |
 
 ## Rebase notes
