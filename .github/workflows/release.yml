@@ -21,9 +21,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to Release (e.g., v1.2.3)"
-        required: true
+        description: "Version to Release (x.y.z). Leave empty for auto patch bump."
+        required: false
         type: string
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -34,6 +35,23 @@ env:
 # =============================================================================
 
 jobs:
+  resolve:
+    name: Resolve Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: resolve
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./.github/steps/resolve-version
+        with:
+          version: ${{ inputs.version }}
+
   changes:
     name: Detect Changes
     uses: ./.github/workflows/changes.yml
@@ -44,11 +62,11 @@ jobs:
 
   build_client:
     name: "Build Client (${{ matrix.os }})"
-    needs: [changes]
+    needs: [resolve, changes]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'push' && needs.changes.outputs.client == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.version != '')
+      (github.event_name == 'workflow_dispatch' && needs.resolve.outputs.version != '')
     defaults:
       run:
         shell: bash
@@ -137,11 +155,11 @@ jobs:
 
   build:
     name: "Build Fleet"
-    needs: [changes]
+    needs: [resolve, changes]
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'push' && needs.changes.outputs.server == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.version != '')
+      (github.event_name == 'workflow_dispatch' && needs.resolve.outputs.version != '')
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@63c24ba6bd7ba022e95695ff85de572c04a18142 # v2.7.0
@@ -193,18 +211,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY: ${{ env.REGISTRY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          DOCKER_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || 'latest' }}
+          DOCKER_TAG: ${{ github.event_name == 'workflow_dispatch' && needs.resolve.outputs.version || 'latest' }}
           DOCKER_PUSH: "true"
         run: goreleaser release --clean
 
 
   build_helm:
     name: "Build Helm Chart"
-    needs: [changes]
+    needs: [resolve, changes]
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'push' && needs.changes.outputs.helm == 'true') ||
-      (github.event_name == 'workflow_dispatch' && inputs.version != '')
+      (github.event_name == 'workflow_dispatch' && needs.resolve.outputs.version != '')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -226,7 +244,7 @@ jobs:
 
   release:
     name: "Create Release"
-    needs: [changes, build, build_client, build_helm]
+    needs: [resolve, changes, build, build_client, build_helm]
     runs-on: ubuntu-latest
     if: ${{ !failure() && !cancelled() }} 
     steps:
@@ -260,7 +278,7 @@ jobs:
 
       - name: Generate release header
         run: |
-          VERSION="${{ inputs.version || 'latest' }}"
+          VERSION="${{ needs.resolve.outputs.version || 'latest' }}"
           cat > RELEASE_HEADER.md <<EOF
           ## Images
           - \`${{ env.REGISTRY }}/${{ github.repository }}/fleet:${VERSION}\`
@@ -282,8 +300,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version || 'latest' }}
-          name: "🦩 ${{ inputs.version || 'latest' }}"
+          tag_name: ${{ needs.resolve.outputs.version || 'latest' }}
+          name: "🦩 ${{ needs.resolve.outputs.version || 'latest' }}"
           draft: false
           prerelease: ${{ github.event_name == 'push' }}
           token: ${{ secrets.GITHUB_TOKEN }}
