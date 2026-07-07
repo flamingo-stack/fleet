@@ -225,7 +225,7 @@ jobs:
         with:
           name: fleet
           repository: ${{ github.repository }}/helm-charts
-          tag: ${{ inputs.version || '9.9.9' }}
+          tag: ${{ needs.version.outputs.version || '9.9.9' }}
           path: ./charts/fleet
           registry: ${{ env.REGISTRY }}
           registry_username: ${{ github.actor }}
