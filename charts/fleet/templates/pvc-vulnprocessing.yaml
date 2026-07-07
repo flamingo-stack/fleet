@@ -1,0 +1,25 @@
+# >>> OPENFRAME(vuln-persistence): fork-added PVC caching vulnerability feeds across cron runs — openframe/docs/helm-chart.md
+# ReadWriteOnce is safe here: the CronJob runs with concurrencyPolicy=Forbid, so
+# at most one pod attaches the volume at any time.
+{{- if and .Values.vulnProcessing.dedicated .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled (not .Values.vulnProcessing.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fleet-vulnprocessing
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: fleet
+    chart: fleet
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.vulnProcessing.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.vulnProcessing.persistence.size }}
+{{- end }}
+# <<< OPENFRAME(vuln-persistence)
