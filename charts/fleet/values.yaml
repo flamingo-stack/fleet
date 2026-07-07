@@ -185,6 +185,10 @@ vulnProcessing:
     # existingClaim: ""  # reuse a pre-created PVC instead of the chart-managed one
     storageClassName: ""  # empty = cluster default
     size: 5Gi
+    # Extra annotations for the chart-managed PVC. With WaitForFirstConsumer
+    # storage classes the claim stays Pending until the first cron tick; Argo CD
+    # users may want: argocd.argoproj.io/ignore-healthcheck: "true"
+    annotations: {}
   # <<< OPENFRAME(vuln-persistence)
   resources:
     limits:
