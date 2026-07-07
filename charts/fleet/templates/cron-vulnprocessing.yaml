@@ -10,7 +10,13 @@ metadata:
   name: fleet-vulnprocessing
   namespace: {{ .Release.Namespace }}
 spec:
-  schedule: {{ .Values.vulnProcessing.schedule }}
+  # >>> OPENFRAME(vuln-persistence): optional namespace-derived hourly stagger — openframe/docs/helm-chart.md
+  {{- if .Values.vulnProcessing.staggerSchedule }}
+  schedule: "{{ mod (atoi (adler32sum .Release.Namespace)) 60 }} * * * *"
+  {{- else }}
+  schedule: {{ .Values.vulnProcessing.schedule | quote }}
+  {{- end }}
+  # <<< OPENFRAME(vuln-persistence)
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
@@ -68,6 +74,13 @@ spec:
           # <<< OPENFRAME(helm)
           restartPolicy: Never
           shareProcessNamespace: true
+          # >>> OPENFRAME(vuln-persistence): fsGroup so uid 3333 can write the PVC (emptyDir was 0777) — openframe/docs/helm-chart.md
+          {{- if and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled .Values.fleet.securityContext.runAsGroup }}
+          securityContext:
+            fsGroup: {{ int64 .Values.fleet.securityContext.runAsGroup }}
+            fsGroupChangePolicy: OnRootMismatch
+          {{- end }}
+          # <<< OPENFRAME(vuln-persistence)
           containers:
           - name: fleet-vulnprocessing
             command: ["/bin/sh", "-c"]
@@ -310,6 +323,12 @@ spec:
             volumeMounts:
               - name: tmp
                 mountPath: /tmp
+              # >>> OPENFRAME(vuln-persistence): PVC nested under the tmp emptyDir at the feeds path — openframe/docs/helm-chart.md
+              {{- if and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled }}
+              - name: vuln-data
+                mountPath: /tmp/vuln
+              {{- end }}
+              # <<< OPENFRAME(vuln-persistence)
               {{- if .Values.database.tls.enabled }}
               - name: mysql-tls
                 readOnly: true
@@ -359,6 +378,13 @@ spec:
           volumes:
             - name: tmp
               emptyDir:
+            # >>> OPENFRAME(vuln-persistence): fork-added persistent feed cache — openframe/docs/helm-chart.md
+            {{- if and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled }}
+            - name: vuln-data
+              persistentVolumeClaim:
+                claimName: {{ default "fleet-vulnprocessing" .Values.vulnProcessing.persistence.existingClaim }}
+            {{- end }}
+            # <<< OPENFRAME(vuln-persistence)
             {{- if .Values.database.tls.enabled }}
             - name: mysql-tls
               secret:

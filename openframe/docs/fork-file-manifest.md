@@ -34,7 +34,7 @@ This manifest is therefore built by:
 
 | Class | Files | Where |
 |-------|------:|-------|
-| **Created** | ~28 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 2 chart templates |
+| **Created** | ~29 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 3 chart templates |
 | **Modified** | ~516 | 473 upstream migrations made idempotent + ~43 server/orbit/chart/CI files |
 | **Deleted** | ~84 | entirely under `.github/` (upstream CI/CD, issue templates, scripts) |
 
@@ -51,7 +51,7 @@ confined to `.github/`. New directories are purely additive.
 | `server/datastore/mysql/migrations/openframe/` | **created** | Separate goose migration pipeline (3 files). |
 | `.github/steps/` | **created** | macOS/Windows signing composite actions. |
 | `server/datastore/mysql/migrations/tables/` + `…/data/` | **modified (bulk)** | 473 upstream migrations rewritten idempotent. |
-| `charts/fleet/` | **modified + created files** | Fork-owned chart; 2 new templates (`configmap.yaml`, `secret.yaml`), 8 modified. |
+| `charts/fleet/` | **modified + created files** | Fork-owned chart; 3 new templates (`configmap.yaml`, `secret.yaml`, `pvc-vulnprocessing.yaml`), 8 modified. |
 | `server/fleet/`, `server/datastore/`, `server/service/`, `server/mock/`, `cmd/fleet/` | **modified** | Host-assignment, Redis-prefix, TTL-cleanup, osquery-id features. |
 | `orbit/cmd/orbit/`, `orbit/pkg/osquery/` | **modified** | Agent OpenFrame mode. |
 | `.github/workflows/`, `.github/ISSUE_TEMPLATE/`, `.github/scripts/`, `.github/actions/` | **mostly deleted** | Upstream CI/community automation stripped; replaced by the fork's lean pipeline. |
@@ -91,6 +91,7 @@ server/fleet/openframe.go                           # IsOpenframeMode() gate
 .github/workflows/changes.yml
 .github/workflows/sync-upstream.yml
 charts/fleet/templates/configmap.yaml
+charts/fleet/templates/pvc-vulnprocessing.yaml
 charts/fleet/templates/secret.yaml
 ```
 
@@ -177,7 +178,7 @@ Computed from the fork working tree vs the upstream baseline
 `server/datastore/mysql/migrations/data/` (the ~473 idempotent upstream migrations —
 see [migrations.md](migrations.md)). Paths are repo-root-relative.
 
-### Added (37)
+### Added (38)
 
 ```
 .github/steps/sign-macos-package/action.yml
@@ -188,6 +189,7 @@ see [migrations.md](migrations.md)). Paths are repo-root-relative.
 .github/workflows/test.yml
 CLAUDE.md
 charts/fleet/templates/configmap.yaml
+charts/fleet/templates/pvc-vulnprocessing.yaml
 charts/fleet/templates/secret.yaml
 openframe/docs/README.md
 openframe/docs/agent-openframe-mode.md
