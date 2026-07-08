@@ -246,12 +246,19 @@ jobs:
         continue-on-error: true
 
       - name: Prepare release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
+          set -euo pipefail
           mkdir -p final-artifacts/clients
-          gh release download latest --pattern "*.tar.gz" --pattern "*.zip" --dir final-artifacts/clients || true
 
           # macOS
+          if gh release view latest >/dev/null 2>&1; then
+            gh release download latest --pattern "*.tar.gz" --pattern "*.zip" --dir final-artifacts/clients
+          else
+            echo "No previous 'latest' release yet, skipping carry-forward."
+          fi
+
           if [ -d "release-artifacts/fleet-mac-universal" ]; then
             tar -czf "final-artifacts/clients/fleet-macos-universal.tar.gz" \
               -C "release-artifacts/fleet-mac-universal" fleet
@@ -263,6 +270,20 @@ jobs:
           fi
 
           ls -lh final-artifacts/clients/
+
+          missing=0
+          if [ ! -f final-artifacts/clients/fleet-macos-universal.tar.gz ]; then
+            echo "::error::fleet-macos-universal.tar.gz missing from release artifacts"
+            missing=1
+          fi
+          if [ ! -f final-artifacts/clients/fleet-windows-amd64.zip ]; then
+            echo "::error::fleet-windows-amd64.zip missing from release artifacts"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Release would ship incomplete client binaries, failing."
+            exit 1
+          fi
 
       - name: Generate release header
         run: |
