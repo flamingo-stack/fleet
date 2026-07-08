@@ -204,6 +204,30 @@ jobs:
           DOCKER_PUSH: "true"
         run: goreleaser release --clean
 
+      - name: Verify latest tag was pushed
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${GITHUB_REPOSITORY}/${BINARY_NAME}"
+          latest_digest=$(docker buildx imagetools inspect "${image}:latest" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)
+          if [ -z "$latest_digest" ]; then
+            echo "::error::${image}:latest was not pushed by this release"
+            exit 1
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            ver_digest=$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)
+            if [ -z "$ver_digest" ]; then
+              echo "::error::${image}:${VERSION} was not pushed"
+              exit 1
+            fi
+            if [ "$ver_digest" != "$latest_digest" ]; then
+              echo "::error::${image}:latest did not move to ${VERSION}; dev pins latest and would keep serving a stale image"
+              exit 1
+            fi
+          fi
+
 
   build_helm:
     name: "Build Helm Chart"
