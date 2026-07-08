@@ -115,7 +115,7 @@ The chart surfaces the prefix through the cache config
 Both the main deployment
 ([deployment.yaml](../../charts/fleet/templates/deployment.yaml)) and the
 dedicated vuln-processing cron
-([cron-vulnprocessing.yaml](../../charts/fleet/templates/cron-vulnprocessing.yaml))
+([vulnprocessing/cronjob.yaml](../../charts/fleet/templates/vulnprocessing/cronjob.yaml))
 receive the same prefix, so background jobs share the tenant's keyspace.
 
 ## Cluster seed nodes — `OPENFRAME(redis-seed-nodes)`
@@ -145,7 +145,7 @@ treated as one host:port. This edit was dropped once during an upstream sync
 | `cmd/fleet/serve.go` | Passes the configured prefix into the Redis pool |
 | `charts/fleet/values.yaml` | `cache.keyPrefixKey` knob |
 | `charts/fleet/templates/deployment.yaml` | `FLEET_REDIS_KEY_PREFIX` env var |
-| `charts/fleet/templates/cron-vulnprocessing.yaml` | `FLEET_REDIS_KEY_PREFIX` env var |
+| `charts/fleet/templates/vulnprocessing/cronjob.yaml` | `FLEET_REDIS_KEY_PREFIX` env var |
 
 ## Rebase notes
 

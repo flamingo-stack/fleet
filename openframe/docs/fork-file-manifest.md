@@ -34,7 +34,7 @@ This manifest is therefore built by:
 
 | Class | Files | Where |
 |-------|------:|-------|
-| **Created** | ~29 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 3 chart templates |
+| **Created** | ~30 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 4 chart templates |
 | **Modified** | ~516 | 473 upstream migrations made idempotent + ~43 server/orbit/chart/CI files |
 | **Deleted** | ~84 | entirely under `.github/` (upstream CI/CD, issue templates, scripts) |
 
@@ -51,7 +51,7 @@ confined to `.github/`. New directories are purely additive.
 | `server/datastore/mysql/migrations/openframe/` | **created** | Separate goose migration pipeline (3 files). |
 | `.github/steps/` | **created** | macOS/Windows signing composite actions. |
 | `server/datastore/mysql/migrations/tables/` + `…/data/` | **modified (bulk)** | 473 upstream migrations rewritten idempotent. |
-| `charts/fleet/` | **modified + created files** | Fork-owned chart; 3 new templates (`configmap.yaml`, `secret.yaml`, `pvc-vulnprocessing.yaml`), 8 modified. |
+| `charts/fleet/` | **modified + created files** | Fork-owned chart; 4 new templates (`configmap.yaml`, `secret.yaml`, `vulnprocessing/pvc.yaml`, `vulnprocessing/bind-job.yaml`), 8 modified; vuln-processing templates live under `templates/vulnprocessing/`. |
 | `server/fleet/`, `server/datastore/`, `server/service/`, `server/mock/`, `cmd/fleet/` | **modified** | Host-assignment, Redis-prefix, TTL-cleanup, osquery-id features. |
 | `orbit/cmd/orbit/`, `orbit/pkg/osquery/` | **modified** | Agent OpenFrame mode. |
 | `.github/workflows/`, `.github/ISSUE_TEMPLATE/`, `.github/scripts/`, `.github/actions/` | **mostly deleted** | Upstream CI/community automation stripped; replaced by the fork's lean pipeline. |
@@ -91,8 +91,9 @@ server/fleet/openframe.go                           # IsOpenframeMode() gate
 .github/workflows/changes.yml
 .github/workflows/sync-upstream.yml
 charts/fleet/templates/configmap.yaml
-charts/fleet/templates/pvc-vulnprocessing.yaml
 charts/fleet/templates/secret.yaml
+charts/fleet/templates/vulnprocessing/bind-job.yaml
+charts/fleet/templates/vulnprocessing/pvc.yaml
 ```
 
 ### Documentation (`openframe/docs/`)
@@ -135,7 +136,7 @@ and the heaviest standing rebase cost.
 ### Helm chart (~9 files)
 
 `charts/fleet/values.yaml`, `Chart.yaml`, and templates
-`deployment.yaml`, `job-migration.yaml`, `cron-vulnprocessing.yaml`,
+`deployment.yaml`, `job-migration.yaml`, `vulnprocessing/cronjob.yaml`,
 `_helpers.tpl`, `rbac.yaml`, `sa.yaml` (+ `charts/example-tuf-skaffold.yaml`).
 See [helm-chart.md](helm-chart.md).
 
@@ -189,8 +190,9 @@ see [migrations.md](migrations.md)). Paths are repo-root-relative.
 .github/workflows/test.yml
 CLAUDE.md
 charts/fleet/templates/configmap.yaml
-charts/fleet/templates/pvc-vulnprocessing.yaml
 charts/fleet/templates/secret.yaml
+charts/fleet/templates/vulnprocessing/bind-job.yaml
+charts/fleet/templates/vulnprocessing/pvc.yaml
 openframe/docs/README.md
 openframe/docs/agent-openframe-mode.md
 openframe/docs/api-expose-osquery-host-id.md
@@ -231,7 +233,7 @@ README.md
 charts/example-tuf-skaffold.yaml
 charts/fleet/Chart.yaml
 charts/fleet/templates/_helpers.tpl
-charts/fleet/templates/cron-vulnprocessing.yaml
+charts/fleet/templates/vulnprocessing/cronjob.yaml
 charts/fleet/templates/deployment.yaml
 charts/fleet/templates/job-migration.yaml
 charts/fleet/templates/rbac.yaml
