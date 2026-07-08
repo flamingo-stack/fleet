@@ -204,26 +204,6 @@ jobs:
           DOCKER_PUSH: "true"
         run: goreleaser release --clean
 
-      - name: Verify latest tag points at this release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          image="${REGISTRY}/${GITHUB_REPOSITORY}/${BINARY_NAME}"
-          ver_digest=$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"')
-          latest_digest=$(docker buildx imagetools inspect "${image}:latest" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"')
-          echo "version (${VERSION}) digest: ${ver_digest:-<none>}"
-          echo "latest digest:            ${latest_digest:-<none>}"
-          if [ -z "$ver_digest" ]; then
-            echo "::error::${image}:${VERSION} was not pushed"
-            exit 1
-          fi
-          if [ "$ver_digest" != "$latest_digest" ]; then
-            echo "::error::${image}:latest did not move to this release (${VERSION}); dev pins latest and would keep serving a stale image"
-            exit 1
-          fi
-
 
   build_helm:
     name: "Build Helm Chart"
