@@ -37,7 +37,6 @@ env:
 jobs:
   version:
     name: Resolve Version
-    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/version.yml
     with:
       version: ${{ inputs.version }}
@@ -201,7 +200,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY: ${{ env.REGISTRY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          DOCKER_TAG: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.version || 'latest' }}
+          DOCKER_TAG: ${{ needs.version.outputs.version }}
           DOCKER_PUSH: "true"
         run: goreleaser release --clean
 
@@ -225,7 +224,7 @@ jobs:
         with:
           name: fleet
           repository: ${{ github.repository }}/helm-charts
-          tag: ${{ needs.version.outputs.version || '9.9.9' }}
+          tag: ${{ needs.version.outputs.version }}
           path: ./charts/fleet
           registry: ${{ env.REGISTRY }}
           registry_username: ${{ github.actor }}
@@ -236,7 +235,6 @@ jobs:
     name: "Create Release"
     needs: [version, changes, build, build_client, build_helm]
     runs-on: ubuntu-latest
-    if: ${{ !failure() && !cancelled() }} 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -268,7 +266,7 @@ jobs:
 
       - name: Generate release header
         run: |
-          VERSION="${{ needs.version.outputs.version || 'latest' }}"
+          VERSION="${{ needs.version.outputs.version }}"
           cat > RELEASE_HEADER.md <<EOF
           ## Images
           - \`${{ env.REGISTRY }}/${{ github.repository }}/fleet:${VERSION}\`
@@ -290,8 +288,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.version.outputs.version || 'latest' }}
-          name: "🦩 ${{ needs.version.outputs.version || 'latest' }}"
+          tag_name: ${{ needs.version.outputs.version }}
+          name: "🦩 ${{ needs.version.outputs.version }}"
           draft: false
           prerelease: ${{ github.event_name == 'push' }}
           token: ${{ secrets.GITHUB_TOKEN }}
