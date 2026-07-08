@@ -223,7 +223,7 @@ server/service/openframe/openframe_authorization_manager.go
 server/service/openframe/openframe_token_refresher.go
 ```
 
-### Modified (45)
+### Modified (46)
 
 ```
 .github/pull_request_template.md
@@ -271,4 +271,5 @@ server/service/handler.go
 server/service/labels_util.go
 server/service/orbit_client.go
 server/service/queries.go
+server/vulnerabilities/nvd/cpe.go
 ```

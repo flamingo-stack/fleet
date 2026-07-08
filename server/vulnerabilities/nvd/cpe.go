@@ -78,6 +78,14 @@ func DownloadCPEDBFromGithub(vulnPath string, cpeDBURL string) error {
 			// okay
 		case err != nil:
 			return err
+		// >>> OPENFRAME(vuln-persistence): a 0-byte cpe.sqlite must not satisfy the freshness gates — openframe/docs/helm-chart.md
+		case stat.Size() == 0:
+			// Leftover from a failed sync: the CPE translation phase creates an
+			// empty DB when opening a missing file. Treat it as absent so the
+			// download below runs; the temp-file + atomic rename write path
+			// replaces it safely.
+			stat = nil
+		// <<< OPENFRAME(vuln-persistence)
 		case stat.ModTime().Truncate(24 * time.Hour).Equal(time.Now().Truncate(24 * time.Hour)):
 			// Vulnerability assets are published once per day - if the asset in question has a
 			// mod date of 'today', then we can assume that is already up to day so there's nothing
