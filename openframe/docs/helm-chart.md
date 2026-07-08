@@ -116,7 +116,7 @@ exactly-once semantics.
 |---------|-------------|-------|
 | Deployment annotations | `deploymentAnnotations` | Arbitrary annotations merged onto the Fleet Deployment metadata (e.g. for ArgoCD / reloader). |
 | Additional CA certs | `fleet.additionalCAs.*` | Init-container injection of CA bundles from named ConfigMaps/Secrets, for private PKI. |
-| Dedicated vuln processing | `vulnProcessing.dedicated`, `vulnProcessing.schedule` | When `true`, runs vulnerability processing as a separate CronJob ([cron-vulnprocessing.yaml](../../charts/fleet/templates/cron-vulnprocessing.yaml)) and disables it in the main deployment. |
+| Dedicated vuln processing | `vulnProcessing.dedicated`, `vulnProcessing.schedule` | When `true`, runs vulnerability processing as a separate CronJob ([vulnprocessing/cronjob.yaml](../../charts/fleet/templates/vulnprocessing/cronjob.yaml)) and disables it in the main deployment. |
 | Vuln feed persistence | `vulnProcessing.persistence.*`, `vulnProcessing.staggerSchedule` | See [below](#vulnerability-feed-persistence-vuln-persistence). |
 
 ## Vulnerability feed persistence (`vuln-persistence`)
@@ -142,10 +142,24 @@ vulnProcessing:
 
 What this renders:
 
-- [pvc-vulnprocessing.yaml](../../charts/fleet/templates/pvc-vulnprocessing.yaml)
+- [vulnprocessing/pvc.yaml](../../charts/fleet/templates/vulnprocessing/pvc.yaml)
   — a `ReadWriteOnce` PVC `fleet-vulnprocessing` (skipped when `existingClaim` is
   set). RWO is safe because the CronJob runs with `concurrencyPolicy: Forbid`, so
   at most one pod attaches it at a time.
+- [vulnprocessing/bind-job.yaml](../../charts/fleet/templates/vulnprocessing/bind-job.yaml)
+  — a one-shot Job (`persistence.bindJob.enabled`, default on) that mounts the
+  claim at install, using `bindJob.image` (default `busybox:1.36`, like
+  `fleet.waitForMysql` — any image that can exit 0 works). With a
+  `WaitForFirstConsumer` storage class the claim
+  otherwise stays Pending until the first cron tick — up to an hour during which
+  an Argo CD sync operation sits in `Running` on
+  "waiting for healthy state of /PersistentVolumeClaim/fleet-vulnprocessing"
+  (`ignore-healthcheck` only fixes aggregated app health, not operation gating —
+  argo-cd issue #22940). Argo CD users should also set
+  `bindJob.annotations: {argocd.argoproj.io/sync-options: Replace=true,Force=true}`
+  so later image-tag changes don't hit the Job-spec-immutable apply error. The
+  Job must stay a plain Sync-phase resource — PostSync would deadlock on the very
+  PVC health it unblocks, PreSync runs before the claim exists.
 - The CronJob mounts the PVC at `/tmp/vuln` (nested inside the `/tmp` emptyDir)
   and gets a pod-level `securityContext` with `fsGroup` =
   `fleet.securityContext.runAsGroup` (+ `fsGroupChangePolicy: OnRootMismatch`) —
@@ -164,6 +178,19 @@ Caveat: `cpe.sqlite` is versionless on disk (schema lives in the `cpe_2` table
 name) and the sync skips it when its mtime is "today", so after a Fleet upgrade a
 persisted copy can lag by up to a day. Deleting the PVC (the data is a disposable
 cache) forces a full re-sync.
+
+Server-side guard (`server/vulnerabilities/nvd/cpe.go`): when a feed sync fails
+but the scan continues, the CPE translation phase opens the missing
+`cpe.sqlite` with the sqlite driver, which creates an **empty 0-byte file**. On
+an emptyDir that artifact dies with the pod, but on a persisted volume its
+fresh mtime satisfies both freshness gates in `DownloadCPEDBFromGithub` and the
+real download is never retried — vuln processing wedges until the next
+`fleetdm/nvd` release (~24h) while the Job reports Success. The fork adds a
+`stat.Size() == 0 → treat as absent` case ahead of the mtime gate, so the next
+run after a transient failure (rate limit, GitHub outage) re-downloads
+immediately. The write path is temp-file + atomic rename, so replacing the
+empty file is safe. A non-empty corrupt file would still pass, but that cannot
+be produced by this code path — only by disk corruption.
 
 ## Operator quick reference
 
@@ -193,8 +220,9 @@ helm upgrade --install fleet oci://ghcr.io/flamingo-stack/fleetmdm/helm-charts/f
 | `charts/fleet/templates/secret.yaml` | **New** — generated DB password / admin-setup Secrets |
 | `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container |
 | `charts/fleet/templates/job-migration.yaml` | `waitForMysql` init container, hook removal, TTL removal |
-| `charts/fleet/templates/cron-vulnprocessing.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX`, feed-cache PVC mount, fsGroup, schedule stagger |
-| `charts/fleet/templates/pvc-vulnprocessing.yaml` | **New** — PVC persisting the vulnerability feed cache across cron runs |
+| `charts/fleet/templates/vulnprocessing/cronjob.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX`, feed-cache PVC mount, fsGroup, schedule stagger (moved from `templates/cron-vulnprocessing.yaml`) |
+| `charts/fleet/templates/vulnprocessing/pvc.yaml` | **New** — PVC persisting the vulnerability feed cache across cron runs |
+| `charts/fleet/templates/vulnprocessing/bind-job.yaml` | **New** — one-shot Job binding the WFFC feed PVC at install |
 | `charts/fleet/Chart.yaml` | Fork chart version, MySQL/Redis subchart pins |
 
 ## Rebase notes
