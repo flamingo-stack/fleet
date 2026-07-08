@@ -190,6 +190,7 @@ vulnProcessing:
     # bind immediately instead of at the first cron tick (argo-cd issue #22940).
     bindJob:
       enabled: true
+      image: busybox:1.36  # anything that can exit 0; same default as fleet.waitForMysql
       annotations: {}  # Argo CD users: argocd.argoproj.io/sync-options: Replace=true,Force=true
   # <<< OPENFRAME(vuln-persistence)
   resources:
