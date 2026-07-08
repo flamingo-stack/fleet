@@ -148,7 +148,9 @@ What this renders:
   at most one pod attaches it at a time.
 - [vulnprocessing/bind-job.yaml](../../charts/fleet/templates/vulnprocessing/bind-job.yaml)
   — a one-shot Job (`persistence.bindJob.enabled`, default on) that mounts the
-  claim at install. With a `WaitForFirstConsumer` storage class the claim
+  claim at install, using `bindJob.image` (default `busybox:1.36`, like
+  `fleet.waitForMysql` — any image that can exit 0 works). With a
+  `WaitForFirstConsumer` storage class the claim
   otherwise stays Pending until the first cron tick — up to an hour during which
   an Argo CD sync operation sits in `Running` on
   "waiting for healthy state of /PersistentVolumeClaim/fleet-vulnprocessing"

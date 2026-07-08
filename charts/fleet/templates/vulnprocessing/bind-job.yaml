@@ -40,16 +40,16 @@ spec:
       {{- end }}
       containers:
       - name: bind
-        # The volume attach is the whole job; the image is already on the node.
-        image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
+        # The volume attach is the whole job; any image that can exit 0 works.
+        image: "{{ .Values.vulnProcessing.persistence.bindJob.image }}"
         command: ["/bin/sh", "-c", "echo vulnerability feed PVC bound"]
         resources:
-          limits:
-            cpu: 100m
-            memory: 64Mi
           requests:
             cpu: 10m
             memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
