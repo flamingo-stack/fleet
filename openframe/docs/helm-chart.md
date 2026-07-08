@@ -179,6 +179,19 @@ name) and the sync skips it when its mtime is "today", so after a Fleet upgrade 
 persisted copy can lag by up to a day. Deleting the PVC (the data is a disposable
 cache) forces a full re-sync.
 
+Server-side guard (`server/vulnerabilities/nvd/cpe.go`): when a feed sync fails
+but the scan continues, the CPE translation phase opens the missing
+`cpe.sqlite` with the sqlite driver, which creates an **empty 0-byte file**. On
+an emptyDir that artifact dies with the pod, but on a persisted volume its
+fresh mtime satisfies both freshness gates in `DownloadCPEDBFromGithub` and the
+real download is never retried — vuln processing wedges until the next
+`fleetdm/nvd` release (~24h) while the Job reports Success. The fork adds a
+`stat.Size() == 0 → treat as absent` case ahead of the mtime gate, so the next
+run after a transient failure (rate limit, GitHub outage) re-downloads
+immediately. The write path is temp-file + atomic rename, so replacing the
+empty file is safe. A non-empty corrupt file would still pass, but that cannot
+be produced by this code path — only by disk corruption.
+
 ## Operator quick reference
 
 Tenant-style install (external DB + shared Redis + OpenFrame mode):
