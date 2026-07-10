@@ -178,6 +178,11 @@ vulnProcessing:
   # When true, `schedule` is ignored and the job runs hourly at a minute derived
   # from the release namespace, so tenants sharing a cluster don't all fire at :00.
   staggerSchedule: false
+  # Extra annotations for the CronJob object. Argo CD users: set
+  # argocd.argoproj.io/ignore-healthcheck: "true" — the built-in CronJob health
+  # check marks it Degraded after a single failed run until the next success,
+  # which otherwise degrades the whole Application (argo-cd issue #24429).
+  annotations: {}
   # Persist FLEET_VULNERABILITIES_DATABASES_PATH (/tmp/vuln) across runs so each
   # run only fetches feed deltas instead of the full ~800MB. Requires dedicated=true.
   persistence:

@@ -9,6 +9,10 @@ metadata:
     release: {{ .Release.Name }}
   name: fleet-vulnprocessing
   namespace: {{ .Release.Namespace }}
+  {{- with .Values.vulnProcessing.annotations }}
+  annotations:
+    {{- toYaml . | trim | nindent 4 }}
+  {{- end }}
 spec:
   # >>> OPENFRAME(vuln-persistence): optional namespace-derived hourly stagger — openframe/docs/helm-chart.md
   {{- if .Values.vulnProcessing.staggerSchedule }}
