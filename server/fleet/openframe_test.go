@@ -104,24 +104,29 @@ func TestOpenframeSharedModeDecision(t *testing.T) {
 
 func TestOpenframeMultitenancyConfigError(t *testing.T) {
 	cases := []struct {
-		name         string
-		multitenancy bool
-		teamIDRaw    string
-		err          bool
+		name          string
+		multitenancy  bool
+		teamIDRaw     string
+		tenantUUIDRaw string
+		err           bool
 	}{
 		{name: "off is always nil", multitenancy: false, err: false},
 		{name: "off ignores a bad team id", multitenancy: false, teamIDRaw: "abc", err: false},
+		{name: "off ignores a bad tenant uuid", multitenancy: false, tenantUUIDRaw: "nope", err: false},
 		{name: "on + no pin = shared mode, valid", multitenancy: true, err: false},
 		{name: "on + valid team id = pinned, valid", multitenancy: true, teamIDRaw: "5", err: false},
 		{name: "on + unparsable team id errors", multitenancy: true, teamIDRaw: "abc", err: true},
 		{name: "on + zero team id errors", multitenancy: true, teamIDRaw: "0", err: true},
+		{name: "on + valid tenant uuid = pinned, valid", multitenancy: true, tenantUUIDRaw: "1877e27c-b3fa-488f-82b6-449b80c1cc97", err: false},
+		{name: "on + valid tenant uuid with surrounding space, valid", multitenancy: true, tenantUUIDRaw: "  1877e27c-b3fa-488f-82b6-449b80c1cc97  ", err: false},
+		{name: "on + malformed tenant uuid errors", multitenancy: true, tenantUUIDRaw: "openframe-junk", err: true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			gotErr := openframeMultitenancyConfigError(c.multitenancy, c.teamIDRaw) != nil
+			gotErr := openframeMultitenancyConfigError(c.multitenancy, c.teamIDRaw, c.tenantUUIDRaw) != nil
 			if gotErr != c.err {
-				t.Fatalf("openframeMultitenancyConfigError(%v,%q) err=%v, want %v",
-					c.multitenancy, c.teamIDRaw, gotErr, c.err)
+				t.Fatalf("openframeMultitenancyConfigError(%v,%q,%q) err=%v, want %v",
+					c.multitenancy, c.teamIDRaw, c.tenantUUIDRaw, gotErr, c.err)
 			}
 		})
 	}

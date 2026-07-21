@@ -76,10 +76,25 @@ func openframeTenantHandler(ds openframeTeamEnsurer, logger *slog.Logger, next h
 	})
 }
 
-// openframeTenantExemptPath matches the agent/device/MDM-protocol planes, which derive their
-// tenant from the authenticated principal rather than the gateway header.
+// openframeTenantExemptPath matches the agent/device/MDM-enrollment planes, which derive their
+// tenant from the authenticated principal (host node key / enroll secret / device cert) rather
+// than the gateway X-Tenant-Id header.
+//
+// The MDM marker is "/api/mdm/" — the device enrollment/management endpoints (Apple
+// /api/mdm/apple/{enroll,installer,account_driven_enroll}, Microsoft /api/mdm/microsoft…). It is
+// deliberately NOT the broad "/mdm/": the user-authenticated admin MDM APIs live under
+// /api/{v}/fleet/mdm/… (e.g. .../mdm/apple/commands, .../mdm/apple/enrollment_profile) and MUST
+// still require X-Tenant-Id in shared mode. The raw device protocol (/mdm/apple/scep, /mdm/apple/mdm,
+// SCEP proxy) is served on the root mux and never reaches this wrapper.
+//
+// Residual: a few device-facing DEP endpoints live under /api/{v}/fleet/mdm/ too (GET
+// .../mdm/bootstrap download, GET .../mdm/setup/eula/{token}) and share their path with admin
+// variants that differ only by HTTP method — so path-only matching cannot exempt them without also
+// exempting the admin route. They are NOT exempted here (they'd need X-Tenant-Id). This is
+// acceptable because OpenFrame does not use Apple/Windows MDM; if it ever does, make this exemption
+// method-aware. See openframe/docs/agent-ingestion-isolation.md.
 func openframeTenantExemptPath(path string) bool {
-	for _, marker := range []string{"/osquery/", "/fleet/orbit/", "/fleet/device/", "/mdm/", "/fleet/ota_enrollment"} {
+	for _, marker := range []string{"/osquery/", "/fleet/orbit/", "/fleet/device/", "/api/mdm/", "/fleet/ota_enrollment"} {
 		if strings.Contains(path, marker) {
 			return true
 		}

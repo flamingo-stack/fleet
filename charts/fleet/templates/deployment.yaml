@@ -209,7 +209,7 @@ spec:
           - name: FLEET_OPENFRAME_MODE
             value: {{ .Values.fleet.setup.openframeMode | quote }}
           # <<< OPENFRAME(helm)
-          # >>> OPENFRAME(mysql-multitenancy): shared-DB multitenancy feature envs.
+          # >>> OPENFRAME(mysql-multitenancy): shared-DB multitenancy feature envs — openframe/docs/helm-chart.md
           # Master switch (maps openframe.fleet.multi-tenancy.enabled). "false" ⇒ pre-feature
           # fork behavior. "true" + tenant UUID ⇒ pinned mode (one Fleet per tenant);
           # "true" + no tenant UUID ⇒ shared per-request mode (one Fleet per cluster, fail closed).

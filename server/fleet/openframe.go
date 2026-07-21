@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/google/uuid"
 )
 
 // IsOpenframeMode returns true when FLEET_OPENFRAME_MODE=1 is set.
@@ -156,16 +158,22 @@ func OpenframeTeamID(ctx context.Context) (uint, bool) {
 // ValidateOpenframeMultitenancy validates the multitenancy configuration at startup. When
 // FLEET_OPENFRAME_MULTI_TENANCY_ENABLED is off it is a no-op. When on, both a pinned process
 // (FLEET_OPENFRAME_TENANT_UUID or FLEET_OPENFRAME_TEAM_ID set — one Fleet per tenant) and an
-// unpinned process (shared mode — every request is pinned individually, fail closed) are valid;
-// the only rejected configuration is a FLEET_OPENFRAME_TEAM_ID that is set but unparsable, since
-// silently ignoring a typed pin would boot the process into the wrong mode.
+// unpinned process (shared mode — every request is pinned individually, fail closed) are valid.
+// A set-but-malformed pin is rejected — an unparsable FLEET_OPENFRAME_TEAM_ID (silently ignoring
+// it would boot the wrong mode), or a non-UUID FLEET_OPENFRAME_TENANT_UUID (which would otherwise
+// reach EnsureOpenframeTeamID and create a garbage `openframe-<junk>` team + seed a secret; the
+// shared-mode X-Tenant-Id path already rejects non-UUIDs, so this keeps pinned mode symmetric).
 func ValidateOpenframeMultitenancy() error {
-	return openframeMultitenancyConfigError(IsOpenframeMultitenancy(), os.Getenv("FLEET_OPENFRAME_TEAM_ID"))
+	return openframeMultitenancyConfigError(
+		IsOpenframeMultitenancy(),
+		os.Getenv("FLEET_OPENFRAME_TEAM_ID"),
+		os.Getenv("FLEET_OPENFRAME_TENANT_UUID"),
+	)
 }
 
 // openframeMultitenancyConfigError is the pure decision behind ValidateOpenframeMultitenancy.
 // Separated so it can be unit-tested without mutating process env / the cached pin.
-func openframeMultitenancyConfigError(multitenancyEnabled bool, teamIDRaw string) error {
+func openframeMultitenancyConfigError(multitenancyEnabled bool, teamIDRaw, tenantUUIDRaw string) error {
 	if !multitenancyEnabled {
 		return nil
 	}
@@ -174,6 +182,14 @@ func openframeMultitenancyConfigError(multitenancyEnabled bool, teamIDRaw string
 			return fmt.Errorf(
 				"invalid FLEET_OPENFRAME_TEAM_ID %q: must be a positive integer team id (or unset — with FLEET_OPENFRAME_TENANT_UUID for a pinned process, or neither for shared per-request mode)",
 				teamIDRaw,
+			)
+		}
+	}
+	if tenantUUID := strings.TrimSpace(tenantUUIDRaw); tenantUUID != "" {
+		if _, err := uuid.Parse(tenantUUID); err != nil {
+			return fmt.Errorf(
+				"invalid FLEET_OPENFRAME_TENANT_UUID %q: must be a valid UUID (or unset — with FLEET_OPENFRAME_TEAM_ID for a pinned process, or neither for shared per-request mode)",
+				tenantUUID,
 			)
 		}
 	}

@@ -129,9 +129,9 @@ func TestOpenframeTenantExemptPath(t *testing.T) {
 		"/api/latest/fleet/device/token123/desktop",
 		"/api/fleet/device/ping",
 		"/api/mdm/apple/enroll",
+		"/api/mdm/apple/installer",
+		"/api/mdm/apple/account_driven_enroll",
 		"/api/mdm/microsoft/discovery",
-		"/api/latest/fleet/mdm/bootstrap",
-		"/api/latest/fleet/mdm/setup/eula/token123",
 		"/api/latest/fleet/ota_enrollment",
 	}
 	for _, p := range exempt {
@@ -145,6 +145,15 @@ func TestOpenframeTenantExemptPath(t *testing.T) {
 		"/api/latest/fleet/software",
 		"/api/latest/fleet/login",
 		"/api/latest/fleet/queries",
+		// User-authenticated admin MDM APIs — must still require X-Tenant-Id in shared mode
+		// (these are under /api/{v}/fleet/mdm/, not /api/mdm/).
+		"/api/latest/fleet/mdm/apple/commands",
+		"/api/latest/fleet/mdm/apple/enrollment_profile",
+		"/api/v1/fleet/mdm/commands",
+		// Device-facing DEP paths that share their path with admin variants (method-only difference);
+		// not exempt by path alone. Acceptable — OpenFrame does not use Apple/Windows MDM.
+		"/api/latest/fleet/mdm/bootstrap",
+		"/api/latest/fleet/mdm/setup/eula/token123",
 	}
 	for _, p := range notExempt {
 		assert.False(t, openframeTenantExemptPath(p), "expected NOT exempt: %s", p)

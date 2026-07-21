@@ -24,7 +24,7 @@ data:
 {{- end }}
 ---
 {{- if not .Values.fleet.openframe.multiTenancy.existingConfigMap }}
-# >>> OPENFRAME(mysql-multitenancy): chart-managed ConfigMap holding the tenant UUID.
+# >>> OPENFRAME(mysql-multitenancy): chart-managed ConfigMap holding the tenant UUID — openframe/docs/helm-chart.md
 apiVersion: v1
 kind: ConfigMap
 metadata:
