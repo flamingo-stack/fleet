@@ -55,8 +55,14 @@ fleet:
 
 Rendered env vars ([deployment.yaml](../../charts/fleet/templates/deployment.yaml)):
 `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` is always emitted (`"false"` by default — pre-feature
-fork behavior); `FLEET_OPENFRAME_TENANT_UUID` only when a source is configured (pinned mode);
-neither pin ⇒ shared per-request mode. The **flag is also emitted into
+fork behavior). `FLEET_OPENFRAME_TENANT_UUID` is **always read via `configMapKeyRef`** — there is
+no inline value or branching in the Deployment (same pattern as the DB/cache config) — from one of:
+- `existingConfigMap` set → the operator's own ConfigMap;
+- `existingConfigMap` unset → the chart-managed **`fleet-openframe-tenant`** ConfigMap that
+  [configmap.yaml](../../charts/fleet/templates/configmap.yaml) creates, holding `tenantUuid`.
+
+In shared per-request mode (`enabled: true`, no `tenantUuid`) and flag-off, the value is empty and
+Fleet treats `""` as unset — so no pin. The **flag is also emitted into
 [job-migration.yaml](../../charts/fleet/templates/job-migration.yaml)** so `fleet prepare db`
 takes the `GET_LOCK` serialization on a shared MySQL.
 
@@ -87,6 +93,7 @@ just references them.
 |---------|-------------------|--------------------------------------------------|-------------------------------------|
 | Database | `database.*` | `database.existingConfigMap`, `database.existingSecret` | `fleet-database` ConfigMap (host/port/db/user) + Secret (password) |
 | Cache (Redis) | `cache.*` | `cache.existingConfigMap` | `fleet-cache` ConfigMap (address, key prefix) |
+| Tenant UUID (multi-tenancy) | `fleet.openframe.multiTenancy.*` | `fleet.openframe.multiTenancy.existingConfigMap` | `fleet-openframe-tenant` ConfigMap (`FLEET_OPENFRAME_TENANT_UUID` = `tenantUuid`, empty in shared mode) |
 | Admin setup | `fleet.setup.*` | `fleet.setup.adminPassword.existingSecret` | `fleet-setup` Secret (`FLEET_SETUP_ADMIN_PASSWORD`) |
 
 Keys within the referenced ConfigMap are themselves configurable

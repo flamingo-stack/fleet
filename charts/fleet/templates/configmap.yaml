@@ -22,3 +22,16 @@ data:
   {{ .Values.database.databaseKey }}: {{ .Values.database.database | quote }}
   {{ .Values.database.usernameKey }}: {{ .Values.database.username | quote }}
 {{- end }}
+---
+{{- if not .Values.fleet.openframe.multiTenancy.existingConfigMap }}
+# >>> OPENFRAME(mysql-multitenancy): chart-managed ConfigMap holding the tenant UUID.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-openframe-tenant
+  labels:
+    {{- include "fleet.labels" . | nindent 4 }}
+data:
+  {{ default "FLEET_OPENFRAME_TENANT_UUID" .Values.fleet.openframe.multiTenancy.tenantUuidKey }}: {{ .Values.fleet.openframe.multiTenancy.tenantUuid | quote }}
+{{- end }}
+# <<< OPENFRAME(mysql-multitenancy)

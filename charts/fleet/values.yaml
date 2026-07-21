@@ -115,9 +115,9 @@ fleet:
   openframe:
     multiTenancy:
       enabled: false
-      tenantUuid: ""          # pinned mode only; static value (ignored if existingConfigMap is set)
-      existingConfigMap: ""   # optional: read the tenant UUID from a ConfigMap instead
-      tenantUuidKey: ""       # key within existingConfigMap (default FLEET_OPENFRAME_TENANT_UUID)
+      tenantUuid: ""          # pinned mode: tenant UUID, stored in the chart-managed ConfigMap
+      existingConfigMap: ""   # optional: read the tenant UUID from your own ConfigMap instead
+      tenantUuidKey: ""       # key holding the UUID in either ConfigMap (default FLEET_OPENFRAME_TENANT_UUID)
       teamId: ""              # escape hatch: direct FLEET_OPENFRAME_TEAM_ID pin (prefer tenantUuid)
   # <<< OPENFRAME(mysql-multitenancy)
   mdm:
