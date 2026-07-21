@@ -209,6 +209,27 @@ spec:
           - name: FLEET_OPENFRAME_MODE
             value: {{ .Values.fleet.setup.openframeMode | quote }}
           # <<< OPENFRAME(helm)
+          # >>> OPENFRAME(mysql-multitenancy): shared-DB multitenancy feature envs.
+          # Master switch (maps openframe.fleet.multi-tenancy.enabled). "false" ⇒ pre-feature
+          # fork behavior. "true" + tenant UUID ⇒ pinned mode (one Fleet per tenant);
+          # "true" + no tenant UUID ⇒ shared per-request mode (one Fleet per cluster, fail closed).
+          - name: FLEET_OPENFRAME_MULTI_TENANCY_ENABLED
+            value: {{ .Values.fleet.openframe.multiTenancy.enabled | quote }}
+          {{- if .Values.fleet.openframe.multiTenancy.existingConfigMap }}
+          - name: FLEET_OPENFRAME_TENANT_UUID
+            valueFrom:
+              configMapKeyRef:
+                name: {{ .Values.fleet.openframe.multiTenancy.existingConfigMap }}
+                key: {{ default "FLEET_OPENFRAME_TENANT_UUID" .Values.fleet.openframe.multiTenancy.tenantUuidKey }}
+          {{- else if .Values.fleet.openframe.multiTenancy.tenantUuid }}
+          - name: FLEET_OPENFRAME_TENANT_UUID
+            value: {{ .Values.fleet.openframe.multiTenancy.tenantUuid | quote }}
+          {{- end }}
+          {{- if .Values.fleet.openframe.multiTenancy.teamId }}
+          - name: FLEET_OPENFRAME_TEAM_ID
+            value: {{ .Values.fleet.openframe.multiTenancy.teamId | quote }}
+          {{- end }}
+          # <<< OPENFRAME(mysql-multitenancy)
           ## END FLEET SECTION
           ## BEGIN MYSQL SECTION
           # >>> OPENFRAME(helm): fork-externalized DB connection from ConfigMap/Secret refs — openframe/docs/helm-chart.md

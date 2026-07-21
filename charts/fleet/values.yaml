@@ -111,6 +111,15 @@ fleet:
       existingSecret: ""  # Name of a K8s Secret. If set, secretKeyValue is ignored.
       secretKeyKey: "FLEET_SETUP_ADMIN_PASSWORD"  # Key name within the secret to read the value from.
       secretKeyValue: "fleet"  # Plain text password (for dev/test only). Ignored if secret is set.
+  # >>> OPENFRAME(mysql-multitenancy): OpenFrame feature block.
+  openframe:
+    multiTenancy:
+      enabled: false
+      tenantUuid: ""          # pinned mode only; static value (ignored if existingConfigMap is set)
+      existingConfigMap: ""   # optional: read the tenant UUID from a ConfigMap instead
+      tenantUuidKey: ""       # key within existingConfigMap (default FLEET_OPENFRAME_TENANT_UUID)
+      teamId: ""              # escape hatch: direct FLEET_OPENFRAME_TEAM_ID pin (prefer tenantUuid)
+  # <<< OPENFRAME(mysql-multitenancy)
   mdm:
     windows:
       wstepIdentityCertKey: ""
