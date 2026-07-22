@@ -32,6 +32,6 @@ metadata:
   labels:
     {{- include "fleet.labels" . | nindent 4 }}
 data:
-  {{ default "FLEET_OPENFRAME_TENANT_UUID" .Values.fleet.openframe.multiTenancy.tenantUuidKey }}: {{ .Values.fleet.openframe.multiTenancy.tenantUuid | quote }}
+  {{ .Values.fleet.openframe.multiTenancy.tenantUuidKey }}: {{ .Values.fleet.openframe.multiTenancy.tenantUuid | quote }}
 {{- end }}
 # <<< OPENFRAME(mysql-multitenancy)
