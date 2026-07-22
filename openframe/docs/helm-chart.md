@@ -36,6 +36,50 @@ assignments and the query-results TTL cleanup
 (see [architecture-host-assignments.md](architecture-host-assignments.md),
 [query-results-ttl-cleanup.md](query-results-ttl-cleanup.md)).
 
+## MySQL-multitenancy feature envs (`mysql-multitenancy`)
+
+`values.yaml` exposes a `fleet.openframe.multiTenancy` block — the chart-side wiring of the
+platform property `openframe.fleet.multi-tenancy.enabled` (see
+[process-team-pin.md](process-team-pin.md) for the flag/mode semantics):
+
+```yaml
+fleet:
+  openframe:
+    multiTenancy:
+      enabled: false          # → FLEET_OPENFRAME_MULTI_TENANCY_ENABLED (deployment + migration Job)
+      tenantUuid: ""          # pinned mode: static FLEET_OPENFRAME_TENANT_UUID
+      existingConfigMap: ""   # pinned mode: read the UUID from a ConfigMap instead (wins over tenantUuid)
+      tenantUuidKey: ""       # key within existingConfigMap (default FLEET_OPENFRAME_TENANT_UUID)
+      teamId: ""              # escape hatch: direct FLEET_OPENFRAME_TEAM_ID pin (prefer tenantUuid)
+```
+
+Rendered env vars ([deployment.yaml](../../charts/fleet/templates/deployment.yaml)):
+`FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` is always emitted (`"false"` by default — pre-feature
+fork behavior). `FLEET_OPENFRAME_TENANT_UUID` is **always read via `configMapKeyRef`** — there is
+no inline value or branching in the Deployment (same pattern as the DB/cache config) — from one of:
+- `existingConfigMap` set → the operator's own ConfigMap;
+- `existingConfigMap` unset → the chart-managed **`fleet-openframe-tenant`** ConfigMap that
+  [configmap.yaml](../../charts/fleet/templates/configmap.yaml) creates, holding `tenantUuid`.
+
+In shared per-request mode (`enabled: true`, no `tenantUuid`) and flag-off, the value is empty and
+Fleet treats `""` as unset — so no pin. The **flag is also emitted into
+[job-migration.yaml](../../charts/fleet/templates/job-migration.yaml)** so `fleet prepare db`
+takes the `GET_LOCK` serialization on a shared MySQL.
+
+Downstream (openframe-saas-tenant) pinned-mode wiring can reuse the existing per-namespace
+`tenant` ConfigMap, whose `TENANT_ID` key already holds the tenant UUID (it is the same key the
+Redis prefix reads):
+
+```yaml
+fleetmdm:
+  fleet:
+    openframe:
+      multiTenancy:
+        enabled: true
+        existingConfigMap: "tenant"
+        tenantUuidKey: "TENANT_ID"
+```
+
 ## Externalized configuration (ConfigMaps + Secrets)
 
 Where upstream takes Redis/MySQL connection details as plain Helm values, the fork
@@ -49,6 +93,7 @@ just references them.
 |---------|-------------------|--------------------------------------------------|-------------------------------------|
 | Database | `database.*` | `database.existingConfigMap`, `database.existingSecret` | `fleet-database` ConfigMap (host/port/db/user) + Secret (password) |
 | Cache (Redis) | `cache.*` | `cache.existingConfigMap` | `fleet-cache` ConfigMap (address, key prefix) |
+| Tenant UUID (multi-tenancy) | `fleet.openframe.multiTenancy.*` | `fleet.openframe.multiTenancy.existingConfigMap` | `fleet-openframe-tenant` ConfigMap (`FLEET_OPENFRAME_TENANT_UUID` = `tenantUuid`, empty in shared mode) |
 | Admin setup | `fleet.setup.*` | `fleet.setup.adminPassword.existingSecret` | `fleet-setup` Secret (`FLEET_SETUP_ADMIN_PASSWORD`) |
 
 Keys within the referenced ConfigMap are themselves configurable
@@ -218,7 +263,7 @@ helm upgrade --install fleet oci://ghcr.io/flamingo-stack/fleetmdm/helm-charts/f
 | `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `waitForMysql`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
 | `charts/fleet/templates/configmap.yaml` | **New** — generated DB/cache ConfigMaps |
 | `charts/fleet/templates/secret.yaml` | **New** — generated DB password / admin-setup Secrets |
-| `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container |
+| `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` / `FLEET_OPENFRAME_TENANT_UUID` / `FLEET_OPENFRAME_TEAM_ID`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container |
 | `charts/fleet/templates/job-migration.yaml` | `waitForMysql` init container, hook removal, TTL removal |
 | `charts/fleet/templates/vulnprocessing/cronjob.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX`, feed-cache PVC mount, fsGroup, schedule stagger (moved from `templates/cron-vulnprocessing.yaml`) |
 | `charts/fleet/templates/vulnprocessing/pvc.yaml` | **New** — PVC persisting the vulnerability feed cache across cron runs |

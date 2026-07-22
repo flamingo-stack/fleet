@@ -102,6 +102,12 @@ spec:
           - name: FLEET_SERVER_KEY
             value: "/secrets/tls/{{ .Values.fleet.tls.keySecretKey }}"
           {{- end }}
+          # >>> OPENFRAME(mysql-multitenancy): with multitenancy on, `fleet prepare db`
+          # serializes concurrent migration runs against the shared MySQL via a named lock
+          # (GET_LOCK) — the flag must reach the migration Job, not only the server.
+          - name: FLEET_OPENFRAME_MULTI_TENANCY_ENABLED
+            value: {{ .Values.fleet.openframe.multiTenancy.enabled | quote }}
+          # <<< OPENFRAME(mysql-multitenancy)
           ## END FLEET SECTION
           ## BEGIN MYSQL SECTION
           - name: FLEET_MYSQL_HOST
