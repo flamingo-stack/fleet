@@ -298,7 +298,8 @@ func testNewActivityOpenframeTeamStamping(t *testing.T, env *testEnv) {
 	var actTeam sql.NullInt64
 	var actID uint
 	require.NoError(t, env.DB.QueryRowContext(t.Context(),
-		`SELECT id, team_id FROM activity_past WHERE activity_type = 'ran_script'`).Scan(&actID, &actTeam))
+		`SELECT id, team_id FROM activity_past WHERE activity_type = 'ran_script' AND user_id = ? ORDER BY id DESC LIMIT 1`,
+		userID).Scan(&actID, &actTeam))
 	require.True(t, actTeam.Valid)
 	require.EqualValues(t, pinnedTeam, actTeam.Int64)
 

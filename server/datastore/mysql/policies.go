@@ -957,17 +957,19 @@ func (ds *Datastore) RecordPolicyQueryExecutions(ctx context.Context, host *flee
 
 	err = ds.withTx(ctx, func(tx sqlx.ExtContext) error {
 		if len(vals) > 0 {
+			// >>> OPENFRAME(mysql-multitenancy): the column list and ON DUPLICATE KEY UPDATE
+			// clause carry team_id when the request is team-pinned (see membershipCols above) —
+			// openframe/docs/mysql-multitenancy-feature.md. Upstream hardcodes the columns.
 			query := fmt.Sprintf(
 				// INSERT IGNORE skips rows whose policy_id no longer exists (policy deleted
 				// after query was distributed but before results arrived).
-				// OPENFRAME(mysql-multitenancy): column list / dup-update carry team_id when the
-				// request is team-pinned (see membershipCols above).
 				`INSERT IGNORE INTO policy_membership (%s)
 			VALUES %s ON DUPLICATE KEY UPDATE %s`,
 				membershipCols,
 				strings.Join(bindvars, ","),
 				membershipOnDup,
 			)
+			// <<< OPENFRAME(mysql-multitenancy)
 			if _, err := tx.ExecContext(ctx, query, vals...); err != nil {
 				return ctxerr.Wrapf(ctx, err, "insert policy_membership (%v)", vals)
 			}
