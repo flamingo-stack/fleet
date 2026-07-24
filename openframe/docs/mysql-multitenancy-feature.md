@@ -48,6 +48,7 @@ Applied by `fleet prepare db`. Idempotent (`columnExists`/`indexExists` guards).
 | `20260629000001_AddTeamsOpenframeTenantUUID` | `teams.openframe_tenant_uuid CHAR(36)` + unique key | the UUID→team bridge |
 | `20260626000001_ScopeHostIdentityUniqueToTeam` | `hosts` virtual col `openframe_team_key = IFNULL(team_id,0)` + `UNIQUE(osquery_host_id, openframe_team_key)`, drop global `UNIQUE(osquery_host_id)` | host identity unique **per team** — the same device can exist in two tenants |
 | `20260620000001_ScopeLabelUniqueNameToTeam` | same generated-column pattern for `labels.name` | label names unique per team; built-ins stay global |
+| `20260722000001_AddTeamIdToCdcTables` | nullable `team_id` on `activity_past`, `activity_host_past`, `query_results`, `policy_membership` (no index, no FK) | the Debezium CDC tables must be self-describing on a shared DB — see "CDC team stamping" below |
 
 The `IFNULL(team_id,0)` sentinel collapses all NULL-team rows onto key `0` (team ids start at 1), so
 **flag-off / pre-backfill the uniqueness is bit-for-bit the old global uniqueness**, and the
@@ -101,6 +102,30 @@ the host record (node key → host → team). This is by design and stronger tha
 clusters' migration Jobs pointed at one DB, the first wins and migrates; the rest block, then find
 the schema already applied and no-op. Session-scoped (auto-released if the Job dies). Flag-off runs
 are untouched.
+
+## CDC team stamping (Debezium on the shared DB)
+
+The OpenFrame Debezium pipeline captures `activity_past`, `activity_host_past`, `query_results`
+and `policy_membership`. On a shared DB one connector serves every tenant, and its SMTs are
+stateless — a CDC record must therefore carry its own tenant discriminator. The fork stamps the
+`team_id` column (added by `20260722000001`) at write time:
+
+| Table | Stamp source | Where |
+|---|---|---|
+| `query_results` | request team pin (`fleet.OpenframeTeamID(ctx)` — the agent plane is always pinned in shared mode) | `OverwriteQueryResultRows` |
+| `policy_membership` (sync) | request team pin | `RecordPolicyQueryExecutions` |
+| `policy_membership` (async collector) | the row's own host, `(SELECT team_id FROM hosts WHERE id = ?)` — the cron context is never pinned | `AsyncBatchInsertPolicyMembership` |
+| `activity_past` | request team pin — the only tenant signal for host-less (user/team-level) activities | `server/activity/internal/mysql/new_activity.go` |
+| `activity_host_past` | the row's own host via subselect (host activities can come from unpinned crons; the host is authoritative anyway) | same |
+
+Unpinned writes (flag off, or background crons writing host-less activities) keep the original
+statement **byte-identical** and leave `team_id` NULL; the downstream consumer drops NULL-team
+events (fail closed). The `teams` table (with the `openframe_tenant_uuid` bridge) is also added
+to the connector's capture list platform-side, so consumers can resolve `team_id` → tenant UUID
+without touching Fleet's API. Platform side of this pipeline: shared connector registration in
+`openframe-saas-shared`, and shared-plane consumption in that repo's `openframe-saas-stream`
+(the MeshCentral pattern — per-event tenant resolution, gated by
+`openframe.fleet.multi-tenancy.enabled`).
 
 ## Helm / config wiring (`charts/fleet/`)
 

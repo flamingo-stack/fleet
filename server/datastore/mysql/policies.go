@@ -907,6 +907,21 @@ func (ds *Datastore) RecordPolicyQueryExecutions(ctx context.Context, host *flee
 		return err
 	}
 
+	// >>> OPENFRAME(mysql-multitenancy): stamp the tenant team onto CDC-captured rows so the
+	// shared-DB Debezium pipeline can resolve the tenant per event — openframe/docs/mysql-multitenancy-feature.md.
+	// This path runs with an authenticated-host context, which is team-pinned whenever the
+	// multitenancy flag is on; unpinned (flag off) keeps the original statement byte-identical.
+	membershipCols := "updated_at, policy_id, host_id, passes"
+	membershipOnDup := "updated_at=VALUES(updated_at), passes=VALUES(passes)"
+	membershipRowShape := "(?,?,?,?)"
+	teamID, teamPinned := fleet.OpenframeTeamID(ctx)
+	if teamPinned {
+		membershipCols += ", team_id"
+		membershipOnDup += ", team_id=VALUES(team_id)"
+		membershipRowShape = "(?,?,?,?,?)"
+	}
+	// <<< OPENFRAME(mysql-multitenancy)
+
 	vals := []interface{}{}
 	bindvars := []string{}
 	if len(needsWrite) > 0 {
@@ -919,8 +934,13 @@ func (ds *Datastore) RecordPolicyQueryExecutions(ctx context.Context, host *flee
 
 		for _, policyID := range orderedIDs {
 			matches := results[policyID]
-			bindvars = append(bindvars, "(?,?,?,?)")
+			bindvars = append(bindvars, membershipRowShape)
 			vals = append(vals, updated, policyID, host.ID, matches)
+			// >>> OPENFRAME(mysql-multitenancy)
+			if teamPinned {
+				vals = append(vals, teamID)
+			}
+			// <<< OPENFRAME(mysql-multitenancy)
 		}
 	}
 
@@ -940,9 +960,13 @@ func (ds *Datastore) RecordPolicyQueryExecutions(ctx context.Context, host *flee
 			query := fmt.Sprintf(
 				// INSERT IGNORE skips rows whose policy_id no longer exists (policy deleted
 				// after query was distributed but before results arrived).
-				`INSERT IGNORE INTO policy_membership (updated_at, policy_id, host_id, passes)
-			VALUES %s ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at), passes=VALUES(passes)`,
+				// OPENFRAME(mysql-multitenancy): column list / dup-update carry team_id when the
+				// request is team-pinned (see membershipCols above).
+				`INSERT IGNORE INTO policy_membership (%s)
+			VALUES %s ON DUPLICATE KEY UPDATE %s`,
+				membershipCols,
 				strings.Join(bindvars, ","),
+				membershipOnDup,
 			)
 			if _, err := tx.ExecContext(ctx, query, vals...); err != nil {
 				return ctxerr.Wrapf(ctx, err, "insert policy_membership (%v)", vals)
@@ -2242,17 +2266,39 @@ func (ds *Datastore) AsyncBatchInsertPolicyMembership(ctx context.Context, batch
 	// INSERT IGNORE, to avoid failing if policy / host does not exist (as this
 	// runs asynchronously, they could get deleted in between the data being
 	// received and being upserted).
+	// >>> OPENFRAME(mysql-multitenancy): stamp the tenant team onto CDC-captured rows so the
+	// shared-DB Debezium pipeline can resolve the tenant per event — openframe/docs/mysql-multitenancy-feature.md.
+	// This async collector runs from a cron with no team-pinned context, so the team comes from
+	// the row's own host via a scalar subselect — engaged when the multitenancy flag is on (or
+	// the caller context is explicitly team-pinned, which only tests do on this path). Flag off
+	// keeps the original statement byte-identical.
+	_, ctxPinned := fleet.OpenframeTeamID(ctx)
+	multitenancy := ctxPinned || fleet.IsOpenframeMultitenancy()
 	sql := `INSERT IGNORE INTO policy_membership (policy_id, host_id, passes) VALUES `
-	sql += strings.Repeat(`(?, ?, ?),`, len(batch))
+	rowShape := `(?, ?, ?),`
+	if multitenancy {
+		sql = `INSERT IGNORE INTO policy_membership (policy_id, host_id, passes, team_id) VALUES `
+		rowShape = `(?, ?, ?, (SELECT team_id FROM hosts WHERE id = ?)),`
+	}
+	sql += strings.Repeat(rowShape, len(batch))
 	sql = strings.TrimSuffix(sql, ",")
 	sql += ` ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), passes = VALUES(passes)`
+	if multitenancy {
+		sql += `, team_id = VALUES(team_id)`
+	}
 
-	vals := make([]interface{}, 0, len(batch)*3)
+	vals := make([]interface{}, 0, len(batch)*4)
+	// <<< OPENFRAME(mysql-multitenancy)
 	hostIDs := make([]uint, 0, len(batch))
 	// Group incoming results per host for flip detection.
 	incomingByHost := make(map[uint]map[uint]*bool, len(batch))
 	for _, tup := range batch {
 		vals = append(vals, tup.PolicyID, tup.HostID, tup.Passes)
+		// >>> OPENFRAME(mysql-multitenancy): extra bind for the team subselect
+		if multitenancy {
+			vals = append(vals, tup.HostID)
+		}
+		// <<< OPENFRAME(mysql-multitenancy)
 		hostIDs = append(hostIDs, tup.HostID)
 		m, ok := incomingByHost[tup.HostID]
 		if !ok {

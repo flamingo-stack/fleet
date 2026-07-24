@@ -12,10 +12,12 @@ package mysql
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/fleetdm/fleet/v4/server/fleet"
+	"github.com/fleetdm/fleet/v4/server/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -259,4 +261,71 @@ func TestOpenframeMigrationLock(t *testing.T) {
 	release2, err := ds.AcquireOpenframeMigrationLock(ctx, time.Second)
 	require.NoError(t, err)
 	release2()
+}
+
+// TestMigrateOpenframeCdcTeamIdStamping verifies 20260722000001 (team_id on the Debezium
+// CDC-captured tables) plus the write-path stamping:
+//   - unpinned context (flag off / fork-main behavior) leaves team_id NULL;
+//   - a team-pinned context stamps query_results rows;
+//   - the async policy-membership collector (no pinned context) stamps each row from its
+//     host's own team via the flag-gated scalar subselect.
+func TestMigrateOpenframeCdcTeamIdStamping(t *testing.T) {
+	ds := CreateMySQLDS(t)
+	ctx := context.Background()
+
+	require.NoError(t, ds.MigrateOpenframe(ctx))
+	for _, table := range []string{"activity_past", "activity_host_past", "query_results", "policy_membership"} {
+		var n int
+		require.NoError(t, ds.writer(ctx).GetContext(ctx, &n,
+			"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'team_id'",
+			table))
+		require.Equal(t, 1, n, "expected %s.team_id after MigrateOpenframe", table)
+	}
+
+	user := test.NewUser(t, ds, "CDC User", "cdc@example.com", true)
+	query := test.NewQuery(t, ds, nil, "CDC Query", "SELECT 1", user.ID, true)
+	host := test.NewHost(t, ds, "cdc-host", "192.168.1.10", "cdc-key", "cdc-uuid", time.Now())
+
+	rows := []*fleet.ScheduledQueryResultRow{
+		{QueryID: query.ID, HostID: host.ID, LastFetched: time.Now().UTC().Truncate(time.Second)},
+	}
+
+	// Unpinned: team_id stays NULL — byte-identical to fork-main.
+	_, err := ds.OverwriteQueryResultRows(ctx, rows, fleet.DefaultMaxQueryReportRows)
+	require.NoError(t, err)
+	var teamIDs []sql.NullInt64
+	require.NoError(t, ds.writer(ctx).SelectContext(ctx, &teamIDs,
+		"SELECT team_id FROM query_results WHERE host_id = ?", host.ID))
+	require.Len(t, teamIDs, 1)
+	require.False(t, teamIDs[0].Valid)
+
+	// Pinned: stamped with the pin (overwrite deletes + reinserts the host's rows).
+	pinned := fleet.NewOpenframeTeamContext(ctx, 42)
+	_, err = ds.OverwriteQueryResultRows(pinned, rows, fleet.DefaultMaxQueryReportRows)
+	require.NoError(t, err)
+	require.NoError(t, ds.writer(ctx).SelectContext(ctx, &teamIDs,
+		"SELECT team_id FROM query_results WHERE host_id = ?", host.ID))
+	require.Len(t, teamIDs, 1)
+	require.True(t, teamIDs[0].Valid)
+	require.EqualValues(t, 42, teamIDs[0].Int64)
+
+	// Async policy membership: stamping comes from the host row via the flag-gated subselect.
+	// The gate is (multitenancy env || ctx pin); the pinned context triggers it here without
+	// t.Setenv (forbidden — CreateMySQLDS forces t.Parallel), and the SQL ignores the pin value
+	// and reads hosts.team_id, exactly as the unpinned production cron path does.
+	team, err := ds.NewTeam(ctx, &fleet.Team{Name: "cdc-team"})
+	require.NoError(t, err)
+	require.NoError(t, ds.AddHostsToTeam(ctx, fleet.NewAddHostsToTeamParams(&team.ID, []uint{host.ID})))
+	pol, err := ds.NewGlobalPolicy(ctx, &user.ID, fleet.PolicyPayload{Name: "cdc-policy", Query: "SELECT 1"})
+	require.NoError(t, err)
+
+	passes := true
+	require.NoError(t, ds.AsyncBatchInsertPolicyMembership(pinned, []fleet.PolicyMembershipResult{
+		{PolicyID: pol.ID, HostID: host.ID, Passes: &passes},
+	}))
+	var memberTeam sql.NullInt64
+	require.NoError(t, ds.writer(ctx).GetContext(ctx, &memberTeam,
+		"SELECT team_id FROM policy_membership WHERE policy_id = ? AND host_id = ?", pol.ID, host.ID))
+	require.True(t, memberTeam.Valid)
+	require.EqualValues(t, team.ID, memberTeam.Int64)
 }
