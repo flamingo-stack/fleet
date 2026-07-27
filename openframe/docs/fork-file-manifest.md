@@ -212,6 +212,7 @@ openframe/scripts/test_host_assignments.sh
 openframe/scripts/verify.sh
 server/datastore/mysql/migrations/openframe/20260301000001_AddPolicyHostsJoinTable.go
 server/datastore/mysql/migrations/openframe/20260301000002_AddQueryHostsJoinTable.go
+server/datastore/mysql/migrations/openframe/20260722000001_AddTeamIdToCdcTables.go
 server/datastore/mysql/migrations/openframe/migration.go
 server/datastore/mysql/migrations_openframe_test.go
 server/datastore/redis/keyprefix.go
@@ -247,6 +248,7 @@ go.mod
 go.sum
 orbit/cmd/orbit/orbit.go
 orbit/pkg/osquery/osquery.go
+server/activity/internal/mysql/new_activity.go
 server/archtest/README.md
 server/archtest/test_files/dependency/dependency.go
 server/config/config.go
