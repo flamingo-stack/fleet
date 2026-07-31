@@ -268,7 +268,8 @@ osquery:
 ## Section: database
 # All of the connection settings for MySQL
 database:
-  # Name of the Secret resource containing MySQL password and TLS secrets
+  # Name of the Secret resource containing MySQL password and TLS secrets.
+  # Only used when existingSecret is empty — see existingSecret below.
   secretName: mysql
   # >>> OPENFRAME(helm): fork-externalized DB connection config (ConfigMap/Secret refs) — openframe/docs/helm-chart.md
   # To read connection details from a ConfigMap instead of using static values below:
