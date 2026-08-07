@@ -2944,6 +2944,9 @@ func TestDirectIngestHostCertificatesDarwinHexEscapes(t *testing.T) {
 	require.True(t, ds.UpdateHostCertificatesFuncInvoked)
 }
 
+// >>> OPENFRAME(waf-inventory-shape): covers the hex-encoded DN columns the certificates detail
+// queries emit, the pre-encoding fallback during a server upgrade, and malformed input —
+// openframe/docs/agent-inventory-waf-shape.md
 func TestDirectIngestHostCertificatesHexEncodedDN(t *testing.T) {
 	const (
 		commonName = "Ловушка"
@@ -3065,6 +3068,8 @@ func TestDirectIngestHostCertificatesHexEncodedDN(t *testing.T) {
 		}
 	}
 }
+
+// <<< OPENFRAME(waf-inventory-shape)
 
 func TestDirectIngestHostCertificatesWindows(t *testing.T) {
 	ds := new(mock.Store)

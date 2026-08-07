@@ -3503,7 +3503,9 @@ func GetDetailQueries(
 
 var rxExtractUsernameFromHostCertPath = regexp.MustCompile(`^/Users/([^/]+)/Library/Keychains/login\.keychain\-db$`)
 
-// >>> OPENFRAME(waf-inventory-shape): openframe/docs/agent-inventory-waf-shape.md
+// >>> OPENFRAME(waf-inventory-shape): the certificates detail queries hex-encode their DN columns
+// so raw X.509 punctuation never reaches the edge WAF (CRS 942431/942432 count `/` and `=` as SQL
+// special characters); this decodes them back — openframe/docs/agent-inventory-waf-shape.md
 var certificateDNColumns = []string{"common_name", "subject", "issuer"}
 
 // decodeCertificateDNColumns normalizes the DN columns of one certificates row in place, so the
@@ -3546,7 +3548,8 @@ func directIngestHostCertificatesDarwin(
 
 	certs := make([]*fleet.HostCertificateRecord, 0, len(rows))
 	for _, row := range rows {
-		// >>> OPENFRAME(waf-inventory-shape): openframe/docs/agent-inventory-waf-shape.md
+		// >>> OPENFRAME(waf-inventory-shape): the DN columns arrive hex-encoded from the detail
+		// query and must be decoded before use — openframe/docs/agent-inventory-waf-shape.md
 		decodeCertificateDNColumns(ctx, logger, row)
 		// <<< OPENFRAME(waf-inventory-shape)
 
@@ -3637,7 +3640,8 @@ func directIngestHostCertificatesWindows(
 	// SHA1 sum + username
 	existsSha1User := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		// >>> OPENFRAME(waf-inventory-shape): openframe/docs/agent-inventory-waf-shape.md
+		// >>> OPENFRAME(waf-inventory-shape): the DN columns arrive hex-encoded from the detail
+		// query and must be decoded before use — openframe/docs/agent-inventory-waf-shape.md
 		decodeCertificateDNColumns(ctx, logger, row)
 		// <<< OPENFRAME(waf-inventory-shape)
 
