@@ -74,13 +74,16 @@ covered field today — [`pkg/fleethttpsig`](../../pkg/fleethttpsig/fleethttpsig
 `@method`, `@authority`, `@path`, `@query`, `content-digest` — but signing the final header
 set stays correct if that list ever widens.
 
-Regression tests: [`client/json_content_type_test.go`](../../client/json_content_type_test.go),
+Regression tests:
+[`client/orbit_client_content_type_test.go`](../../client/orbit_client_content_type_test.go),
 covering both the header on body-carrying requests and its absence on bodyless ones.
 
-> **Naming trap:** that test file cannot be called `orbit_*`. `.gitignore` has an unanchored
-> `orbit**` / `osquery**` (fork-added, intended for build artifacts), which silently ignores
-> any new file whose basename starts with `orbit` or `osquery` — 63 currently-tracked files
-> match it and survive only because ignores do not apply to tracked files.
+Adding that test surfaced a second fork bug, fixed here too: `.gitignore` carried an
+unanchored `orbit**` / `osquery**` alongside the anchored `/orbit-*` / `/osquery-*`. Unanchored
+patterns match a basename at any depth, so they silently ignored `orbit/`, `client/orbit_*.go`
+and any new `orbit_*_test.go` — 63 tracked files matched, surviving only because ignores do not
+apply to already-tracked files. The anchored pair (plus `/build`) covers the real artifacts, so
+the unanchored lines were dropped.
 
 ## Upstream
 
