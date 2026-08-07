@@ -273,6 +273,7 @@ server/service/global_policies.go
 server/service/handler.go
 server/service/labels_util.go
 server/service/orbit_client.go
+server/service/osquery_utils/queries.go
 server/service/queries.go
 server/vulnerabilities/nvd/cpe.go
 ```
