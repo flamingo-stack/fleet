@@ -173,6 +173,11 @@ func (oc *OrbitClient) requestWithExternal(verb string, pathOrURL string, params
 			return err
 		}
 		oc.SetClientCapabilitiesHeader(request)
+		// >>> OPENFRAME(agent-json-content-type): declare JSON so a WAF parses the body instead of regexing it whole — openframe/docs/agent-json-content-type.md
+		if len(bodyBytes) > 0 {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		// <<< OPENFRAME(agent-json-content-type)
 		// >>> OPENFRAME(agent-openframe-mode): inject Bearer auth + x-machine-id headers on every request when in openframe mode — openframe/docs/agent-openframe-mode.md
 		if oc.openFrameMode {
 			authToken := oc.authManager.GetToken()

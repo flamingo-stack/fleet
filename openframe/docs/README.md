@@ -49,6 +49,7 @@ The agent has its own switch, `--openframe-mode` / `ORBIT_OPENFRAME_MODE`.
 |-----|--------|
 | [agent-openframe-mode.md](agent-openframe-mode.md) | OpenFrame agent mode: gateway URL prefix, encrypted bearer-token pipeline (extract / decrypt / refresh), custom osqueryd, `orbit uuid` command. |
 | [node-key-management.md](node-key-management.md) | Node-key enrollment caching, 401 re-enrollment, Windows file-lock resilience. |
+| [agent-json-content-type.md](agent-json-content-type.md) | Orbit sets `Content-Type: application/json` on requests with a body (upstream sets none). Without it a WAF cannot JSON-parse the body — Cloud Armor flagged 100% of `/orbit/config` polls as SQLi. Unconditional, not gated on OpenFrame mode. |
 
 ## Database migrations
 

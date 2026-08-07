@@ -624,7 +624,9 @@ spec:
         {{- if .Values.database.tls.enabled }}
         - name: mysql-tls
           secret:
-            secretName: "{{ .Values.database.secretName }}"
+            # >>> OPENFRAME(helm): the server CA rides in the same externally managed Secret as
+            secretName: "{{ default .Values.database.secretName .Values.database.existingSecret }}"
+            # <<< OPENFRAME(helm)
         {{- end }}
         {{- if or (eq .Values.osquery.logging.statusPlugin "filesystem") (eq .Values.osquery.logging.resultPlugin "filesystem") }}
         - name: osquery-logs

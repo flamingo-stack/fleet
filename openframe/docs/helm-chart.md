@@ -92,6 +92,13 @@ just references them.
 | Concern | values.yaml block | `existingConfigMap` / `existingSecret` override | Generated object (when no override) |
 |---------|-------------------|--------------------------------------------------|-------------------------------------|
 | Database | `database.*` | `database.existingConfigMap`, `database.existingSecret` | `fleet-database` ConfigMap (host/port/db/user) + Secret (password) |
+
+`database.existingSecret` covers **both** MySQL secrets: the password (`database.passwordKey`) is read
+from it as an env var, and — when `database.tls.enabled` — the same Secret is mounted at
+`/secrets/mysql`, where `database.tls.caCertKey` names the server CA file. It therefore takes
+precedence over the legacy `database.secretName`, which still applies when `existingSecret` is unset.
+The mount is whole-Secret (no `items:` projection), so every key in it surfaces as a file in the Fleet
+container; keep unrelated material out of that Secret if that matters to you.
 | Cache (Redis) | `cache.*` | `cache.existingConfigMap` | `fleet-cache` ConfigMap (address, key prefix) |
 | Tenant UUID (multi-tenancy) | `fleet.openframe.multiTenancy.*` | `fleet.openframe.multiTenancy.existingConfigMap` | `fleet-openframe-tenant` ConfigMap (`FLEET_OPENFRAME_TENANT_UUID` = `tenantUuid`, empty in shared mode) |
 | Admin setup | `fleet.setup.*` | `fleet.setup.adminPassword.existingSecret` | `fleet-setup` Secret (`FLEET_SETUP_ADMIN_PASSWORD`) |
