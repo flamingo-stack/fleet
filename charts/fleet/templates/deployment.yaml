@@ -571,10 +571,16 @@ spec:
       {{- if .Values.gke.cloudSQL.enableProxy }}
       - name: cloudsql-proxy
         image: "{{ .Values.gke.cloudSQL.imageRepository }}:{{ .Values.gke.cloudSQL.imageTag }}"
-        command:
-        - "/cloud_sql_proxy"
-        - "-verbose={{ .Values.gke.cloudSQL.verbose}}"
-        - "-instances={{ .Values.gke.cloudSQL.instanceName }}=tcp:3306"
+        # >>> OPENFRAME(cloudsql-v2): v2 CLI — entrypoint is /cloud-sql-proxy, instance is positional — openframe/docs/helm-chart.md
+        args:
+        - "--port=3306"
+        - "--structured-logs"
+        - "--auto-ip"
+        {{- if not .Values.gke.cloudSQL.verbose }}
+        - "--quiet"
+        {{- end }}
+        - "{{ required "gke.cloudSQL.instanceName is required when gke.cloudSQL.enableProxy is true" .Values.gke.cloudSQL.instanceName }}"
+        # <<< OPENFRAME(cloudsql-v2)
         resources:
           limits:
             cpu: 0.5 # 500Mhz
@@ -582,21 +588,12 @@ spec:
           requests:
             cpu: 0.1 # 100Mhz
             memory: 50Mi
+        # >>> OPENFRAME(hardening): proxy runs nonroot with a read-only rootfs
+        {{- with .Values.gke.cloudSQL.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: [ALL]
-          privileged: false
-          readOnlyRootFilesystem: true
-          {{- if .Values.fleet.securityContext.runAsGroup }}
-          runAsGroup: {{ int64 .Values.fleet.securityContext.runAsGroup }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsUser }}
-          runAsUser: {{ int64 .Values.fleet.securityContext.runAsUser }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsNonRoot }}
-          runAsNonRoot: {{ .Values.fleet.securityContext.runAsNonRoot }}
-          {{- end }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        # <<< OPENFRAME(hardening)
       {{- end }}
       hostPID: false
       hostNetwork: false
