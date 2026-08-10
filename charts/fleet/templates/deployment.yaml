@@ -38,21 +38,26 @@ spec:
         heritage: {{ .Release.Service }}
         release: {{ .Release.Name }}
     spec:
+      # >>> OPENFRAME(hardening): pod-level non-root context — openframe/docs/helm-chart.md
+      {{- with .Values.fleet.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # <<< OPENFRAME(hardening)
       initContainers:
       # >>> OPENFRAME(helm): fork-added init container installing custom CA certs into truststore — openframe/docs/helm-chart.md
       {{- if include "fleet.additionalCAs.enabled" . }}
       - name: install-trusted-cas
         image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
+        {{- with .Values.fleet.securityContext }}
         securityContext:
-          runAsUser: 0
-          runAsNonRoot: false
-          allowPrivilegeEscalation: false
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         command:
           - sh
           - -c
           - |
             set -e
-            apk add ca-certificates
             echo "Installing trusted CA certificates..."
 
             for dir in /custom-ca/*; do
@@ -73,6 +78,8 @@ spec:
             mountPath: /custom-ca/secret-{{ .name }}
             readOnly: true
       {{- end }}
+          - name: ca-local
+            mountPath: /usr/local/share/ca-certificates
           - name: ca-certs
             mountPath: /etc/ssl/certs
       {{- end }}
@@ -513,21 +520,12 @@ spec:
                 key: {{ .valueFrom.secretKeyRef.key }}
           {{- end }}
           {{- end }}
+        # >>> OPENFRAME(hardening): full container context from values
+        {{- with .Values.fleet.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: [ALL]
-          privileged: false
-          readOnlyRootFilesystem: true
-          {{- if .Values.fleet.securityContext.runAsGroup }}
-          runAsGroup: {{ int64 .Values.fleet.securityContext.runAsGroup }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsUser }}
-          runAsUser: {{ int64 .Values.fleet.securityContext.runAsUser }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsNonRoot }}
-          runAsNonRoot: {{ .Values.fleet.securityContext.runAsNonRoot }}
-          {{- end }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        # <<< OPENFRAME(hardening)
         livenessProbe:
           httpGet:
             path: /healthz
@@ -608,8 +606,9 @@ spec:
         {{- toYaml . | nindent 8}}
       {{- end }}
       serviceAccountName: fleet
-      {{- if or (.Values.fleet.tls.enabled) (.Values.database.tls.enabled) (eq .Values.osquery.logging.statusPlugin "filesystem") (eq .Values.osquery.logging.resultPlugin "filesystem") }}
+      # >>> OPENFRAME(hardening): unconditional — tmp is always mounted
       volumes:
+        # <<< OPENFRAME(hardening)
         - name: tmp
           emptyDir:
         {{- if .Values.fleet.tls.enabled }}
@@ -648,11 +647,12 @@ spec:
           secret:
             secretName: {{ .name }}
         {{- end }}
+        - name: ca-local
+          emptyDir: {}
         - name: ca-certs
           emptyDir: {}
         {{- end }}
         # <<< OPENFRAME(helm)
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

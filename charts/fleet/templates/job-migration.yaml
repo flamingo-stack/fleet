@@ -30,12 +30,22 @@ spec:
     spec:
       restartPolicy: Never
       shareProcessNamespace: true
+      # >>> OPENFRAME(hardening): pod-level non-root context — openframe/docs/helm-chart.md
+      {{- with .Values.fleet.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # <<< OPENFRAME(hardening)
 
       # >>> OPENFRAME(helm): fork-added init container blocking migration until MySQL is reachable — openframe/docs/helm-chart.md
       {{- if .Values.fleet.waitForMysql.enabled }}
       initContainers:
       - name: wait-for-mysql
         image: {{ .Values.fleet.waitForMysql.image | quote }}
+        {{- with .Values.fleet.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         command: ['sh', '-c', 'until nc -z -w 2 "$HOST" "$PORT"; do sleep 5; done']
         env:
           - name: HOST
@@ -162,26 +172,18 @@ spec:
             value: "{{ .Values.database.tls.serverName }}"
           {{- end }}
           ## END MYSQL SECTION
+        # >>> OPENFRAME(hardening): context from values; caps kept local so the proxy can still add SYS_PTRACE — openframe/docs/helm-chart.md
         securityContext:
-          allowPrivilegeEscalation: false
+          {{- with omit .Values.fleet.securityContext "capabilities" }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
           capabilities:
+            drop: [ALL]
             {{- if .Values.gke.cloudSQL.enableProxy }}
             add:
               - SYS_PTRACE
-            {{- else }}
-            drop: [ALL]
             {{- end }}
-          privileged: false
-          readOnlyRootFilesystem: true
-          {{- if .Values.fleet.securityContext.runAsGroup }}
-          runAsGroup: {{ int64 .Values.fleet.securityContext.runAsGroup }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsUser }}
-          runAsUser: {{ int64 .Values.fleet.securityContext.runAsUser }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsNonRoot }}
-          runAsNonRoot: {{ .Values.fleet.securityContext.runAsNonRoot }}
-          {{- end }}
+        # <<< OPENFRAME(hardening)
         volumeMounts:
           {{- if .Values.database.tls.enabled }}
           - name: mysql-tls
