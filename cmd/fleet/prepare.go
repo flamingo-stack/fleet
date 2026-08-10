@@ -138,6 +138,16 @@ To setup Fleet infrastructure, use one of the available commands.
 			}
 			// <<< OPENFRAME(host-assignments)
 
+			// >>> OPENFRAME(mysql-multitenancy): grant the Debezium account its replication
+			// privileges from the same run that owns the schema — openframe/docs/mysql-multitenancy-feature.md.
+			if fleet.IsOpenframeMultitenancy() {
+				if err := ds.EnsureOpenframeCdcPrivileges(cmd.Context(), config.Mysql.Username); err != nil {
+					initFatal(err, "granting openframe cdc privileges")
+				}
+				fmt.Printf("OpenFrame CDC privileges granted to %q.\n", config.Mysql.Username)
+			}
+			// <<< OPENFRAME(mysql-multitenancy)
+
 			fmt.Println("Migrations completed.")
 		},
 	}

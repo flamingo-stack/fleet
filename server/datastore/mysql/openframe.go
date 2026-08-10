@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/fleetdm/fleet/v4/server"
@@ -218,4 +219,25 @@ func (ds *Datastore) AcquireOpenframeMigrationLock(ctx context.Context, timeout 
 		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", openframeMigrationLockName)
 		_ = conn.Close()
 	}, nil
+}
+
+const openframeAnyHostLiteral = "'%'"
+
+// EnsureOpenframeCdcPrivileges grants Fleet's own database user — the account Debezium also streams
+// as — the two privileges it needs to read the binary log.
+func (ds *Datastore) EnsureOpenframeCdcPrivileges(ctx context.Context, username string) error {
+	if username == "" {
+		return ctxerr.New(ctx, "openframe cdc username must not be empty")
+	}
+
+	account := openframeQuoteString(username) + "@" + openframeAnyHostLiteral
+	//nolint:gosec // G201/G202: MySQL accepts no bind parameters for account names or privilege targets;
+	if _, err := ds.writer(ctx).ExecContext(ctx, "GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO "+account); err != nil {
+		return ctxerr.Wrapf(ctx, err, "granting openframe cdc privileges to %q", username)
+	}
+	return nil
+}
+
+func openframeQuoteString(s string) string {
+	return "'" + strings.NewReplacer("'", "''", `\`, `\\`).Replace(s) + "'"
 }
