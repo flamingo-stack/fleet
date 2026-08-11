@@ -131,6 +131,7 @@ and the heaviest standing rebase cost.
 | Query-results TTL cleanup | `server/config/config.go`, `server/fleet/{cron_schedules,datastore}.go`, `server/datastore/mysql/query_results.go`, `cmd/fleet/{cron,serve}.go` |
 | Redis key prefix | `server/datastore/redis/redis.go`, `server/config/config.go`, `cmd/fleet/serve.go` |
 | Agent OpenFrame mode | `orbit/cmd/orbit/orbit.go`, `orbit/pkg/osquery/osquery.go`, `server/service/orbit_client.go`, `server/service/base_client.go` |
+| Agent JSON content-type | `client/orbit_client.go`, `client/device_client.go`, `orbit/cmd/fetch_cert/main.go`, `client/orbit_client_content_type_test.go` |
 | Build / meta | `go.mod`, `go.sum`, `.gitignore`, `README.md`, `.github/pull_request_template.md`, `server/archtest/*` |
 
 ### Helm chart (~9 files)
@@ -272,6 +273,7 @@ server/service/global_policies.go
 server/service/handler.go
 server/service/labels_util.go
 server/service/orbit_client.go
+server/service/osquery_utils/queries.go
 server/service/queries.go
 server/vulnerabilities/nvd/cpe.go
 ```
