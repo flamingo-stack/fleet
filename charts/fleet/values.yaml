@@ -374,7 +374,7 @@ gke:
     imageRepository: gcr.io/cloud-sql-connectors/cloud-sql-proxy
     imageTag: 2.25.0-alpine
     verbose: true
-    instanceName: ""
+    instanceName: "" # my-proj:us-central1:fleet-db, append ?private-ip=true for a private instance
     # >>> OPENFRAME(hardening): proxy image ships its own nonroot uid
     # uid and gid 65532 nonroot user in the proxy image
     securityContext:

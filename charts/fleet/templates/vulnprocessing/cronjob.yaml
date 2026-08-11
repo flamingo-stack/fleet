@@ -92,7 +92,7 @@ spec:
                 /usr/bin/fleet vuln_processing;
                 {{- if .Values.gke.cloudSQL.enableProxy }}
                 rc=$?;
-                wget -q -Y off -T 5 -O- http://127.0.0.1:9091/quitquitquit || true;
+                timeout 10 sh -c 'until wget -q -Y off -T 2 -O- http://127.0.0.1:9091/quitquitquit; do sleep 1; done' || true;
                 exit $rc;
                 {{- end }}
             image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
@@ -339,7 +339,6 @@ spec:
             - "--port=3306"
             - "--structured-logs"
             - "--quitquitquit"
-            - "--auto-ip"
             {{- if not .Values.gke.cloudSQL.verbose }}
             - "--quiet"
             {{- end }}

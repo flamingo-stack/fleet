@@ -575,7 +575,6 @@ spec:
         args:
         - "--port=3306"
         - "--structured-logs"
-        - "--auto-ip"
         {{- if not .Values.gke.cloudSQL.verbose }}
         - "--quiet"
         {{- end }}
