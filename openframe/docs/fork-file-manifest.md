@@ -88,7 +88,7 @@ server/fleet/openframe.go                           # IsOpenframeMode() gate
 .github/steps/sign-windows-package/action.yml
 .github/workflows/release.yml
 .github/workflows/test.yml
-.github/workflows/changes.yml
+.github/workflows/changes.yaml
 .github/workflows/sync-upstream.yml
 charts/fleet/templates/configmap.yaml
 charts/fleet/templates/secret.yaml
@@ -184,7 +184,7 @@ see [migrations.md](migrations.md)). Paths are repo-root-relative.
 ```
 .github/steps/sign-macos-package/action.yml
 .github/steps/sign-windows-package/action.yml
-.github/workflows/changes.yml
+.github/workflows/changes.yaml
 .github/workflows/release.yml
 .github/workflows/sync-upstream.yml
 .github/workflows/test.yml

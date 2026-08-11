@@ -213,8 +213,8 @@ What this renders:
   Job must stay a plain Sync-phase resource — PostSync would deadlock on the very
   PVC health it unblocks, PreSync runs before the claim exists.
 - The CronJob mounts the PVC at `/tmp/vuln` (nested inside the `/tmp` emptyDir)
-  and gets a pod-level `securityContext` with `fsGroup` =
-  `fleet.securityContext.runAsGroup` (+ `fsGroupChangePolicy: OnRootMismatch`) —
+  and gets a pod-level `securityContext` from `fleet.podSecurityContext`, whose
+  `fsGroup` (+ `fsGroupChangePolicy: OnRootMismatch`) is what lets it write —
   without it uid 3333 cannot write a fresh root-owned PVC.
 - With `staggerSchedule: true`, `vulnProcessing.schedule` is ignored and the cron
   fires hourly at `adler32sum(namespace) mod 60`, so tenants sharing a cluster
