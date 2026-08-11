@@ -29,7 +29,6 @@ spec:
 
     spec:
       restartPolicy: Never
-      shareProcessNamespace: true
       # >>> OPENFRAME(hardening): pod-level non-root context — openframe/docs/helm-chart.md
       {{- with .Values.fleet.podSecurityContext }}
       securityContext:
@@ -174,19 +173,17 @@ spec:
             value: "{{ .Values.database.tls.serverName }}"
           {{- end }}
           ## END MYSQL SECTION
-        # >>> OPENFRAME(hardening): context from values; caps kept local so the proxy can still add SYS_PTRACE — openframe/docs/helm-chart.md
+        # >>> OPENFRAME(hardening): non-root, read-only rootfs — openframe/docs/helm-chart.md
+        {{- with .Values.fleet.securityContext }}
         securityContext:
-          {{- with omit .Values.fleet.securityContext "capabilities" }}
           {{- toYaml . | nindent 10 }}
-          {{- end }}
-          capabilities:
-            drop: [ALL]
-            {{- if .Values.gke.cloudSQL.enableProxy }}
-            add:
-              - SYS_PTRACE
-            {{- end }}
+        {{- end }}
         # <<< OPENFRAME(hardening)
         volumeMounts:
+          # >>> OPENFRAME(hardening): writable /tmp under the read-only rootfs — openframe/docs/helm-chart.md
+          - name: tmp
+            mountPath: /tmp
+          # <<< OPENFRAME(hardening)
           {{- if .Values.database.tls.enabled }}
           - name: mysql-tls
             readOnly: true
@@ -226,6 +223,10 @@ spec:
       {{- end }}
       serviceAccountName: fleet
       volumes:
+        # >>> OPENFRAME(hardening): writable /tmp under the read-only rootfs — openframe/docs/helm-chart.md
+        - name: tmp
+          emptyDir:
+        # <<< OPENFRAME(hardening)
         {{- if .Values.database.tls.enabled }}
         - name: mysql-tls
           secret:

@@ -74,7 +74,6 @@ spec:
           {{- end }}
           # <<< OPENFRAME(helm)
           restartPolicy: Never
-          shareProcessNamespace: true
           # >>> OPENFRAME(vuln-persistence): fsGroup so uid 3333 can write the PVC (emptyDir was 0777) — openframe/docs/helm-chart.md
           {{- $persist := and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled }}
           {{- with .Values.fleet.podSecurityContext }}
@@ -306,17 +305,11 @@ spec:
                     key: {{ .valueFrom.secretKeyRef.key }}
               {{- end }}
               {{- end }}
-            # >>> OPENFRAME(hardening): context from values; caps kept local so the proxy can still add SYS_PTRACE — openframe/docs/helm-chart.md
+            # >>> OPENFRAME(hardening): non-root, read-only rootfs — openframe/docs/helm-chart.md
+            {{- with .Values.fleet.securityContext }}
             securityContext:
-              {{- with omit .Values.fleet.securityContext "capabilities" }}
               {{- toYaml . | nindent 14 }}
-              {{- end }}
-              capabilities:
-                drop: [ALL]
-                {{- if .Values.gke.cloudSQL.enableProxy }}
-                add:
-                  - SYS_PTRACE
-                {{- end }}
+            {{- end }}
             # <<< OPENFRAME(hardening)
             volumeMounts:
               - name: tmp
