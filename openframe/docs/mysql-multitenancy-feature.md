@@ -127,41 +127,12 @@ without touching Fleet's API. Platform side of this pipeline: shared connector r
 (the MeshCentral pattern — per-event tenant resolution, gated by
 `openframe.fleet.multi-tenancy.enabled`).
 
-## CDC privileges (`fleet prepare db`)
-
-Debezium streams as **Fleet's own database user** — one account, shared by the Fleet servers and
-the connector — so the only provisioning needed is the binlog grant.
-`EnsureOpenframeCdcPrivileges` (`server/datastore/mysql/openframe.go`) is called from
-`cmd/fleet/prepare.go` after the OpenFrame migrations and issues a single idempotent statement:
-`GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO '<user>'@'%'`.
-
-This replaces the standalone privileged Job that used to do it out of band
-(`openframe-saas-tenant/manifests/tenant/templates/mysql-fleetmdm/init-privileges-job.yaml`): the
-grant now ships and versions with the schema it serves, and a failure fails the migration loudly
-instead of leaving CDC silently producing nothing.
-
-**`RELOAD`/`FLUSH_TABLES` are deliberately not granted**, though that Job did grant them: they
-exist only to satisfy Debezium's default snapshot locking, Cloud SQL cannot grant them at all, and
-every environment therefore runs the connector with `snapshot.locking.mode=none`. `SELECT` is not
-granted either — the app user already has it.
-
-The account is the migration's own connection user (`FLEET_MYSQL_USERNAME`) — on the shared DB,
-Fleet and the connector authenticate as one MySQL user, so the migration self-grants and nothing
-extra has to be configured. The step is gated on the master flag, like the `GET_LOCK` guard above;
-flag off ⇒ no statement is issued. A per-tenant deployment (flag off, own MySQL, own connector)
-therefore keeps granting via its chart's `init-privileges-job`.
-
-Prerequisite: that user must be able to grant these privileges to itself. On Cloud SQL any
-API-created user qualifies — `cloudsqlsuperuser` carries both WITH GRANT OPTION — so no extra
-credentials are needed. Confirm with `SHOW GRANTS FOR CURRENT_USER;` on stage before rollout.
-
 ## Helm / config wiring (`charts/fleet/`)
 
 `values.yaml` adds `fleet.openframe.multiTenancy` (`enabled: false` default; `tenantUuid` /
 `existingConfigMap`+`tenantUuidKey` / `teamId`). `deployment.yaml` injects
 `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` (+ optional `FLEET_OPENFRAME_TENANT_UUID` /
-`FLEET_OPENFRAME_TEAM_ID`); `job-migration.yaml` gets the flag too, which now drives both the
-`GET_LOCK` guard and the CDC grant — no additional wiring.
+`FLEET_OPENFRAME_TEAM_ID`); `job-migration.yaml` gets the flag too (so the `GET_LOCK` guard engages).
 
 ## Backward compatibility
 
@@ -177,11 +148,8 @@ flag-on-pinned (team auto-created + secret seeded, `team_id=1`), and flag-on-sha
 MySQL-backed (`MYSQL_TEST=1`), all in `*_openframe_test.go`: enrollment isolation, host-identity
 per-team, host by-id/list/identifier fences, policy/query CRUD + by-id + GitOps, enroll-secret
 fence, host-assignment fence, live-query target fence, teams read fence, app-config isolation,
-`EnsureOpenframeTeamID` (incl. secret seeding), delete-global-policies pin, migration pipeline,
-`EnsureOpenframeCdcPrivileges` (grant set, idempotence, rejected input).
-Flag-parsing / mode-precedence unit tests in `server/fleet/openframe_test.go`; the CDC grant's
-account-literal escaping has a database-free unit test (`TestOpenframeQuoting`) that runs on every
-`go test`. Middleware tests in
+`EnsureOpenframeTeamID` (incl. secret seeding), delete-global-policies pin, migration pipeline.
+Flag-parsing / mode-precedence unit tests in `server/fleet/openframe_test.go`. Middleware tests in
 `server/service/openframe_middleware_test.go`. Harness: `make openframe-verify` (add `MYSQL_TEST=1`
 + Docker for the deep tier).
 
