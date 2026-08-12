@@ -149,14 +149,32 @@ fleet:
     licenseKey: license-key
   extraVolumes: []
   extraVolumeMounts: []
-  # Currently only passes runAsNonRoot, runAsUser, runAsGroup
+
+  # >>> OPENFRAME(hardening): non-root + read-only rootfs for every fleet container
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 3333
+    runAsGroup: 3333
+    fsGroup: 3333
+    seccompProfile:
+      type: RuntimeDefault
+
   securityContext:
     runAsNonRoot: true
     runAsUser: 3333
     runAsGroup: 3333
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    privileged: false
+    readOnlyRootFilesystem: true
+    seccompProfile:
+      type: RuntimeDefault
+  # <<< OPENFRAME(hardening)
   # >>> OPENFRAME(helm): fork-added custom CA truststore support — openframe/docs/helm-chart.md
   # Add additional CA's to the Fleet container truststore
-  # To add CA's, set enabled: true 
+  # To add CA's, set enabled: true
   # Supports adding CA's from Config maps and Secrets
   # configMaps:
   #   - name: fleet-ca-config
@@ -353,10 +371,25 @@ gke:
   # The CloudSQL Proxy runs as a container in the Fleet Pod that proxies connections to a Cloud SQL instance
   cloudSQL:
     enableProxy: false
-    imageRepository: gcr.io/cloudsql-docker/gce-proxy
-    imageTag: 1.17-alpine
+    imageRepository: gcr.io/cloud-sql-connectors/cloud-sql-proxy
+    imageTag: 2.25.0-alpine
     verbose: true
-    instanceName: ""
+    instanceName: "" # my-proj:us-central1:fleet-db, append ?private-ip=true for a private instance
+    # >>> OPENFRAME(hardening): proxy image ships its own nonroot uid
+    # uid and gid 65532 nonroot user in the proxy image
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      seccompProfile:
+        type: RuntimeDefault
+    # <<< OPENFRAME(hardening)
   # The GKE Ingress requires a few changes that other ingress controllers don't
   ingress:
     useManagedCertificate: false
@@ -395,4 +428,3 @@ mysql:
 
 redis:
   enabled: false
-
