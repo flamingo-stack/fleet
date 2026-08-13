@@ -34,7 +34,7 @@ This manifest is therefore built by:
 
 | Class | Files | Where |
 |-------|------:|-------|
-| **Created** | ~28 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 2 chart templates |
+| **Created** | ~30 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 4 chart templates |
 | **Modified** | ~516 | 473 upstream migrations made idempotent + ~43 server/orbit/chart/CI files |
 | **Deleted** | ~84 | entirely under `.github/` (upstream CI/CD, issue templates, scripts) |
 
@@ -51,7 +51,7 @@ confined to `.github/`. New directories are purely additive.
 | `server/datastore/mysql/migrations/openframe/` | **created** | Separate goose migration pipeline (3 files). |
 | `.github/steps/` | **created** | macOS/Windows signing composite actions. |
 | `server/datastore/mysql/migrations/tables/` + `…/data/` | **modified (bulk)** | 473 upstream migrations rewritten idempotent. |
-| `charts/fleet/` | **modified + created files** | Fork-owned chart; 2 new templates (`configmap.yaml`, `secret.yaml`), 8 modified. |
+| `charts/fleet/` | **modified + created files** | Fork-owned chart; 4 new templates (`configmap.yaml`, `secret.yaml`, `vulnprocessing/pvc.yaml`, `vulnprocessing/bind-job.yaml`), 8 modified; vuln-processing templates live under `templates/vulnprocessing/`. |
 | `server/fleet/`, `server/datastore/`, `server/service/`, `server/mock/`, `cmd/fleet/` | **modified** | Host-assignment, Redis-prefix, TTL-cleanup, osquery-id features. |
 | `orbit/cmd/orbit/`, `orbit/pkg/osquery/` | **modified** | Agent OpenFrame mode. |
 | `.github/workflows/`, `.github/ISSUE_TEMPLATE/`, `.github/scripts/`, `.github/actions/` | **mostly deleted** | Upstream CI/community automation stripped; replaced by the fork's lean pipeline. |
@@ -88,10 +88,12 @@ server/fleet/openframe.go                           # IsOpenframeMode() gate
 .github/steps/sign-windows-package/action.yml
 .github/workflows/release.yml
 .github/workflows/test.yml
-.github/workflows/changes.yml
+.github/workflows/changes.yaml
 .github/workflows/sync-upstream.yml
 charts/fleet/templates/configmap.yaml
 charts/fleet/templates/secret.yaml
+charts/fleet/templates/vulnprocessing/bind-job.yaml
+charts/fleet/templates/vulnprocessing/pvc.yaml
 ```
 
 ### Documentation (`openframe/docs/`)
@@ -129,12 +131,13 @@ and the heaviest standing rebase cost.
 | Query-results TTL cleanup | `server/config/config.go`, `server/fleet/{cron_schedules,datastore}.go`, `server/datastore/mysql/query_results.go`, `cmd/fleet/{cron,serve}.go` |
 | Redis key prefix | `server/datastore/redis/redis.go`, `server/config/config.go`, `cmd/fleet/serve.go` |
 | Agent OpenFrame mode | `orbit/cmd/orbit/orbit.go`, `orbit/pkg/osquery/osquery.go`, `server/service/orbit_client.go`, `server/service/base_client.go` |
+| Agent JSON content-type | `client/orbit_client.go`, `client/device_client.go`, `orbit/cmd/fetch_cert/main.go`, `client/orbit_client_content_type_test.go` |
 | Build / meta | `go.mod`, `go.sum`, `.gitignore`, `README.md`, `.github/pull_request_template.md`, `server/archtest/*` |
 
 ### Helm chart (~9 files)
 
 `charts/fleet/values.yaml`, `Chart.yaml`, and templates
-`deployment.yaml`, `job-migration.yaml`, `cron-vulnprocessing.yaml`,
+`deployment.yaml`, `job-migration.yaml`, `vulnprocessing/cronjob.yaml`,
 `_helpers.tpl`, `rbac.yaml`, `sa.yaml` (+ `charts/example-tuf-skaffold.yaml`).
 See [helm-chart.md](helm-chart.md).
 
@@ -177,18 +180,20 @@ Computed from the fork working tree vs the upstream baseline
 `server/datastore/mysql/migrations/data/` (the ~473 idempotent upstream migrations —
 see [migrations.md](migrations.md)). Paths are repo-root-relative.
 
-### Added (37)
+### Added (38)
 
 ```
 .github/steps/sign-macos-package/action.yml
 .github/steps/sign-windows-package/action.yml
-.github/workflows/changes.yml
+.github/workflows/changes.yaml
 .github/workflows/release.yml
 .github/workflows/sync-upstream.yml
 .github/workflows/test.yml
 CLAUDE.md
 charts/fleet/templates/configmap.yaml
 charts/fleet/templates/secret.yaml
+charts/fleet/templates/vulnprocessing/bind-job.yaml
+charts/fleet/templates/vulnprocessing/pvc.yaml
 openframe/docs/README.md
 openframe/docs/agent-openframe-mode.md
 openframe/docs/api-expose-osquery-host-id.md
@@ -208,6 +213,7 @@ openframe/scripts/test_host_assignments.sh
 openframe/scripts/verify.sh
 server/datastore/mysql/migrations/openframe/20260301000001_AddPolicyHostsJoinTable.go
 server/datastore/mysql/migrations/openframe/20260301000002_AddQueryHostsJoinTable.go
+server/datastore/mysql/migrations/openframe/20260722000001_AddTeamIdToCdcTables.go
 server/datastore/mysql/migrations/openframe/migration.go
 server/datastore/mysql/migrations_openframe_test.go
 server/datastore/redis/keyprefix.go
@@ -219,7 +225,7 @@ server/service/openframe/openframe_authorization_manager.go
 server/service/openframe/openframe_token_refresher.go
 ```
 
-### Modified (45)
+### Modified (46)
 
 ```
 .github/pull_request_template.md
@@ -229,7 +235,7 @@ README.md
 charts/example-tuf-skaffold.yaml
 charts/fleet/Chart.yaml
 charts/fleet/templates/_helpers.tpl
-charts/fleet/templates/cron-vulnprocessing.yaml
+charts/fleet/templates/vulnprocessing/cronjob.yaml
 charts/fleet/templates/deployment.yaml
 charts/fleet/templates/job-migration.yaml
 charts/fleet/templates/rbac.yaml
@@ -243,6 +249,7 @@ go.mod
 go.sum
 orbit/cmd/orbit/orbit.go
 orbit/pkg/osquery/osquery.go
+server/activity/internal/mysql/new_activity.go
 server/archtest/README.md
 server/archtest/test_files/dependency/dependency.go
 server/config/config.go
@@ -266,5 +273,7 @@ server/service/global_policies.go
 server/service/handler.go
 server/service/labels_util.go
 server/service/orbit_client.go
+server/service/osquery_utils/queries.go
 server/service/queries.go
+server/vulnerabilities/nvd/cpe.go
 ```

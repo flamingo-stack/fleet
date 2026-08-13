@@ -1,0 +1,413 @@
+{{- if .Values.vulnProcessing.dedicated }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app: fleet
+    chart: fleet
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+  name: fleet-vulnprocessing
+  namespace: {{ .Release.Namespace }}
+spec:
+  # >>> OPENFRAME(vuln-persistence): optional namespace-derived hourly stagger — openframe/docs/helm-chart.md
+  {{- if .Values.vulnProcessing.staggerSchedule }}
+  schedule: "{{ mod (atoi (adler32sum .Release.Namespace)) 60 }} * * * *"
+  {{- else }}
+  schedule: {{ .Values.vulnProcessing.schedule | quote }}
+  {{- end }}
+  # <<< OPENFRAME(vuln-persistence)
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 100
+      template:
+        metadata:
+{{- with .Values.podAnnotations }}
+          annotations:
+{{- toYaml . | trim | nindent 12 }}
+{{- end }}
+          labels:
+            app: fleet
+            chart: fleet
+            heritage: {{ .Release.Service }}
+            release: {{ .Release.Name }}
+        spec:
+          initContainers:
+          # >>> OPENFRAME(helm): fork-added init container installing custom CA certs into truststore — openframe/docs/helm-chart.md
+          {{- if include "fleet.additionalCAs.enabled" . }}
+          - name: install-trusted-cas
+            image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
+            {{- with .Values.fleet.securityContext }}
+            securityContext:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            command:
+              - sh
+              - -c
+              - |
+                set -e
+                echo "Installing trusted CA certificates..."
+
+                for dir in /custom-ca/*; do
+                  if [ -d "$dir" ]; then
+                    cp "$dir"/*.crt /usr/local/share/ca-certificates/
+                  fi
+                done
+
+                update-ca-certificates
+            volumeMounts:
+          {{- range .Values.fleet.additionalCAs.configMaps }}
+              - name: ca-configmap-{{ .name }}
+                mountPath: /custom-ca/configmap-{{ .name }}
+                readOnly: true
+          {{- end }}
+          {{- range .Values.fleet.additionalCAs.secrets }}
+              - name: ca-secret-{{ .name }}
+                mountPath: /custom-ca/secret-{{ .name }}
+                readOnly: true
+          {{- end }}
+              - name: ca-local
+                mountPath: /usr/local/share/ca-certificates
+              - name: ca-certs
+                mountPath: /etc/ssl/certs
+          {{- end }}
+          # <<< OPENFRAME(helm)
+          restartPolicy: Never
+          # >>> OPENFRAME(vuln-persistence): fsGroup so uid 3333 can write the PVC (emptyDir was 0777) — openframe/docs/helm-chart.md
+          {{- $persist := and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled }}
+          {{- with .Values.fleet.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+            {{- if $persist }}
+            fsGroupChangePolicy: OnRootMismatch
+            {{- end }}
+          {{- end }}
+          # <<< OPENFRAME(vuln-persistence)
+          containers:
+          - name: fleet-vulnprocessing
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                /usr/bin/fleet vuln_processing;
+                {{- if .Values.gke.cloudSQL.enableProxy }}
+                rc=$?;
+                timeout 10 sh -c 'until wget -q -Y off -T 2 -O- http://127.0.0.1:9091/quitquitquit; do sleep 1; done' || true;
+                exit $rc;
+                {{- end }}
+            image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
+            resources:
+              limits:
+                cpu: {{ .Values.vulnProcessing.resources.limits.cpu }}
+                memory: {{ .Values.vulnProcessing.resources.limits.memory }}
+              requests:
+                cpu: {{ .Values.vulnProcessing.resources.requests.cpu }}
+                memory: {{ .Values.vulnProcessing.resources.requests.memory }}
+            env:
+              ## BEGIN FLEET SECTION
+              - name: FLEET_VULNERABILITIES_DATABASES_PATH
+                value: /tmp/vuln # /tmp might not work on all cloud providers by default
+              # - name: FLEET_SERVER_ADDRESS
+              #   value: "0.0.0.0:{{ .Values.fleet.listenPort }}"
+              # - name: FLEET_AUTH_BCRYPT_COST
+              #   value: "{{ .Values.fleet.auth.bcryptCost }}"
+              # - name: FLEET_AUTH_SALT_KEY_SIZE
+              #   value: "{{ .Values.fleet.auth.saltKeySize }}"
+              # - name: FLEET_APP_TOKEN_KEY_SIZE
+              #   value: "{{ .Values.fleet.app.tokenKeySize }}"
+              # - name: FLEET_APP_TOKEN_VALIDITY_PERIOD
+              #   value: "{{ .Values.fleet.app.inviteTokenValidityPeriod }}"
+              # - name: FLEET_SESSION_KEY_SIZE
+              #   value: "{{ .Values.fleet.session.keySize }}"
+              # - name: FLEET_SESSION_DURATION
+              #   value: "{{ .Values.fleet.session.duration }}"
+              - name: FLEET_LOGGING_DEBUG
+                value: "{{ .Values.fleet.logging.debug }}"
+              - name: FLEET_LOGGING_JSON
+                value: "{{ .Values.fleet.logging.json }}"
+              - name: FLEET_LOGGING_DISABLE_BANNER
+                value: "{{ .Values.fleet.logging.disableBanner }}"
+              # - name: FLEET_SERVER_TLS
+              #   value: "{{ .Values.fleet.tls.enabled }}"
+              # {{- if .Values.fleet.tls.enabled }}
+              # - name: FLEET_SERVER_TLS_COMPATIBILITY
+              #   value: "{{ .Values.fleet.tls.compatibility }}"
+              # - name: FLEET_SERVER_CERT
+              #   value: "/secrets/tls/{{ .Values.fleet.tls.certSecretKey }}"
+              # - name: FLEET_SERVER_KEY
+              #   value: "/secrets/tls/{{ .Values.fleet.tls.keySecretKey }}"
+              # {{- end }}
+              {{- if .Values.fleet.license.secretName }}
+              - name: FLEET_LICENSE_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: {{ .Values.fleet.license.licenseKey }}
+                    name: {{ .Values.fleet.license.secretName }}
+              {{- end }}
+              ## END FLEET SECTION
+              ## BEGIN MYSQL SECTION
+              - name: FLEET_MYSQL_HOST
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                    key: {{ .Values.database.hostKey }}
+              - name: FLEET_MYSQL_PORT
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                    key: {{ .Values.database.portKey }}
+              - name: FLEET_MYSQL_ADDRESS
+                value: "$(FLEET_MYSQL_HOST):$(FLEET_MYSQL_PORT)"
+              - name: FLEET_MYSQL_DATABASE
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                    key: {{ .Values.database.databaseKey }}
+              - name: FLEET_MYSQL_USERNAME
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-database" .Values.database.existingConfigMap }}
+                    key: {{ .Values.database.usernameKey }}
+              - name: FLEET_MYSQL_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ default "fleet-database" .Values.database.existingSecret }}
+                    key: {{ .Values.database.passwordKey}}
+              - name: FLEET_MYSQL_MAX_OPEN_CONNS
+                value: "{{ .Values.database.maxOpenConns }}"
+              - name: FLEET_MYSQL_MAX_IDLE_CONNS
+                value: "{{ .Values.database.maxIdleConns }}"
+              - name: FLEET_MYSQL_CONN_MAX_LIFETIME
+                value: "{{ .Values.database.connMaxLifetime }}"
+              {{- if .Values.database.tls.enabled }}
+              {{- if .Values.database.tls.caCertKey }}
+              - name: FLEET_MYSQL_TLS_CA
+                value: "/secrets/mysql/{{ .Values.database.tls.caCertKey }}"
+              {{- end }}
+              {{- if .Values.database.tls.certKey }}
+              - name: FLEET_MYSQL_TLS_CERT
+                value: "/secrets/mysql/{{ .Values.database.tls.certKey }}"
+              {{- end }}
+              {{- if .Values.database.tls.keyKey }}
+              - name: FLEET_MYSQL_TLS_KEY
+                value: "/secrets/mysql/{{ .Values.database.tls.keyKey }}"
+              {{- end }}
+              - name: FLEET_MYSQL_TLS_CONFIG
+                value: "{{ .Values.database.tls.config }}"
+              - name: FLEET_MYSQL_TLS_SERVER_NAME
+                value: "{{ .Values.database.tls.serverName }}"
+              {{- end }}
+              ## END MYSQL SECTION
+              ## BEGIN MYSQL READ REPLICA SECTION
+              {{- if .Values.database_read_replica }}
+              {{- if .Values.database_read_replica.address }}
+              - name: FLEET_MYSQL_READ_REPLICA_ADDRESS
+                value: "{{ .Values.database_read_replica.address }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.database }}
+              - name: FLEET_MYSQL_READ_REPLICA_DATABASE
+                value: "{{ .Values.database_read_replica.database }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.username }}
+              - name: FLEET_MYSQL_READ_REPLICA_USERNAME
+                value: "{{ .Values.database_read_replica.username }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.passwordPath }}
+              - name: FLEET_MYSQL_READ_REPLICA_PASSWORD_PATH
+                value: "{{ .Values.database_read_replica.passwordPath }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.secretName }}
+              - name: FLEET_MYSQL_READ_REPLICA_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ .Values.database_read_replica.secretName }}
+                    key: {{ .Values.database_read_replica.passwordKey }}
+              {{- end }}
+              {{- if .Values.database_read_replica.maxOpenConns }}
+              - name: FLEET_MYSQL_READ_REPLICA_MAX_OPEN_CONNS
+                value: "{{ .Values.database_read_replica.maxOpenConns }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.maxIdleConns }}
+              - name: FLEET_MYSQL_READ_REPLICA_MAX_IDLE_CONNS
+                value: "{{ .Values.database_read_replica.maxIdleConns }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.connMaxLifetime }}
+              - name: FLEET_MYSQL_READ_REPLICA_CONN_MAX_LIFETIME
+                value: "{{ .Values.database_read_replica.connMaxLifetime }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.tls.enabled }}
+              {{- if .Values.database_read_replica.tls.caCertKey }}
+              - name: FLEET_MYSQL_READ_REPLICA_TLS_CA
+                value: "/secrets/mysql/{{ .Values.database_read_replica.tls.caCertKey }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.tls.certKey }}
+              - name: FLEET_MYSQL_READ_REPLICA_TLS_CERT
+                value: "/secrets/mysql/{{ .Values.database_read_replica.tls.certKey }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.tls.keyKey }}
+              - name: FLEET_MYSQL_READ_REPLICA_TLS_KEY
+                value: "/secrets/mysql/{{ .Values.database_read_replica.tls.keyKey }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.tls.config }}
+              - name: FLEET_MYSQL_READ_REPLICA_TLS_CONFIG
+                value: "{{ .Values.database_read_replica.tls.config }}"
+              {{- end }}
+              {{- if .Values.database_read_replica.tls.serverName }}
+              - name: FLEET_MYSQL_READ_REPLICA_TLS_SERVER_NAME
+                value: "{{ .Values.database_read_replica.tls.serverName }}"
+              {{- end }}
+              {{- end }}
+              {{- end }}
+              ## END MYSQL READ REPLICA SECTION
+              ## BEGIN REDIS SECTION
+              # >>> OPENFRAME(helm): fork-externalized Redis address from ConfigMap ref — openframe/docs/helm-chart.md
+              - name: FLEET_REDIS_ADDRESS
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
+                    key: {{ .Values.cache.addressKey }}
+              # <<< OPENFRAME(helm)
+              - name: FLEET_REDIS_DATABASE
+                value: "{{ .Values.cache.database }}"
+              {{- if .Values.cache.usePassword }}
+              - name: FLEET_REDIS_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: "{{ .Values.cache.secretName }}"
+                    key: "{{ .Values.cache.passwordKey }}"
+              {{- end }}
+              # >>> OPENFRAME(redis-key-prefix): fork-added Redis key prefix for multi-tenant sharing — openframe/docs/redis-key-prefix.md
+              {{- if .Values.cache.keyPrefixKey }}
+              - name: FLEET_REDIS_KEY_PREFIX
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ default "fleet-cache" .Values.cache.existingConfigMap }}
+                    key: {{ .Values.cache.keyPrefixKey }}
+              {{- end }}
+              # <<< OPENFRAME(redis-key-prefix)
+              ## END REDIS SECTION
+              ## APPEND ENVIRONMENT VARIABLES FROM VALUES
+              {{- range $key, $value := .Values.environments }}
+              - name: {{ $key }}
+                value: {{ $value | quote }}
+              {{- end }}
+              ## APPEND ENVIRONMENT VARIABLES FROM SECRETS/CMs
+              {{- range .Values.envsFrom }}
+              - name: {{ .name }}
+                valueFrom:
+              {{- if .valueFrom.configMapKeyRef }}
+                  configMapKeyRef:
+                    name: {{ .valueFrom.configMapKeyRef.name }}
+                    key: {{ .valueFrom.configMapKeyRef.key }}
+              {{- else if .valueFrom.secretKeyRef }}
+                  secretKeyRef:
+                    name: {{ .valueFrom.secretKeyRef.name }}
+                    key: {{ .valueFrom.secretKeyRef.key }}
+              {{- end }}
+              {{- end }}
+            # >>> OPENFRAME(hardening): non-root, read-only rootfs — openframe/docs/helm-chart.md
+            {{- with .Values.fleet.securityContext }}
+            securityContext:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            # <<< OPENFRAME(hardening)
+            volumeMounts:
+              - name: tmp
+                mountPath: /tmp
+              # >>> OPENFRAME(vuln-persistence): PVC nested under the tmp emptyDir at the feeds path — openframe/docs/helm-chart.md
+              {{- if and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled }}
+              - name: vuln-data
+                mountPath: /tmp/vuln
+              {{- end }}
+              # <<< OPENFRAME(vuln-persistence)
+              {{- if .Values.database.tls.enabled }}
+              - name: mysql-tls
+                readOnly: true
+                mountPath: /secrets/mysql
+              {{- end }}
+              # >>> OPENFRAME(helm): fork-added CA truststore volume mount — openframe/docs/helm-chart.md
+              {{- if include "fleet.additionalCAs.enabled" . }}
+              - name: ca-certs
+                mountPath: /etc/ssl/certs
+              {{- end }}
+              # <<< OPENFRAME(helm)
+          {{- if .Values.gke.cloudSQL.enableProxy }}
+          - name: cloudsql-proxy
+            image: "{{ .Values.gke.cloudSQL.imageRepository }}:{{ .Values.gke.cloudSQL.imageTag }}"
+            # >>> OPENFRAME(cloudsql-v2): v2 CLI + quitquitquit so the vuln container can stop the sidecar — openframe/docs/helm-chart.md
+            args:
+            - "--port=3306"
+            - "--structured-logs"
+            - "--quitquitquit"
+            {{- if not .Values.gke.cloudSQL.verbose }}
+            - "--quiet"
+            {{- end }}
+            - "{{ required "gke.cloudSQL.instanceName is required when gke.cloudSQL.enableProxy is true" .Values.gke.cloudSQL.instanceName }}"
+            # <<< OPENFRAME(cloudsql-v2)
+            resources:
+              limits:
+                cpu: 0.5 # 500Mhz
+                memory: 150Mi
+              requests:
+                cpu: 0.1 # 100Mhz
+                memory: 50Mi
+            # >>> OPENFRAME(hardening): proxy runs nonroot with a read-only rootfs — openframe/docs/helm-chart.md
+            {{- with .Values.gke.cloudSQL.securityContext }}
+            securityContext:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+            # <<< OPENFRAME(hardening)
+          {{- end }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12}}
+          {{- end }}
+          serviceAccountName: fleet
+          volumes:
+            - name: tmp
+              emptyDir:
+            # >>> OPENFRAME(vuln-persistence): fork-added persistent feed cache — openframe/docs/helm-chart.md
+            {{- if and .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled }}
+            - name: vuln-data
+              persistentVolumeClaim:
+                claimName: {{ default "fleet-vulnprocessing" .Values.vulnProcessing.persistence.existingClaim }}
+            {{- end }}
+            # <<< OPENFRAME(vuln-persistence)
+            {{- if .Values.database.tls.enabled }}
+            - name: mysql-tls
+              secret:
+                # >>> OPENFRAME(helm): the server CA rides in the same externally managed Secret
+                secretName: "{{ default .Values.database.secretName .Values.database.existingSecret }}"
+                # <<< OPENFRAME(helm)
+            {{- end }}
+            # >>> OPENFRAME(helm): fork-added CA truststore volumes (configmaps/secrets) — openframe/docs/helm-chart.md
+            {{- if include "fleet.additionalCAs.enabled" . }}
+            {{- range .Values.fleet.additionalCAs.configMaps }}
+            - name: ca-configmap-{{ .name }}
+              configMap:
+                name: {{ .name }}
+            {{- end }}
+            {{- range .Values.fleet.additionalCAs.secrets }}
+            - name: ca-secret-{{ .name }}
+              secret:
+                secretName: {{ .name }}
+            {{- end }}
+            - name: ca-local
+              emptyDir: {}
+            - name: ca-certs
+              emptyDir: {}
+            {{- end }}
+            # <<< OPENFRAME(helm)
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+{{- end }}

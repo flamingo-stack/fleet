@@ -256,6 +256,29 @@ func TestCPETranslations(t *testing.T) {
 	}
 }
 
+// >>> OPENFRAME(vuln-persistence): regression test — 0-byte cpe.sqlite must trigger a re-download — openframe/docs/helm-chart.md
+func TestDownloadCPEDBFromGithubEmptyFile(t *testing.T) {
+	nettest.Run(t)
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "cpe.sqlite")
+
+	// A 0-byte cpe.sqlite with a fresh mtime is what a failed sync leaves
+	// behind on a persistent volume: the scan phase opens the missing DB with
+	// the sqlite driver, which creates it empty. It must be treated as absent
+	// ("download"), not as "already downloaded today".
+	require.NoError(t, os.WriteFile(dbPath, nil, 0o644))
+
+	err := DownloadCPEDBFromGithub(tempDir, "")
+	require.NoError(t, err)
+
+	stat, err := os.Stat(dbPath)
+	require.NoError(t, err)
+	require.Greater(t, stat.Size(), int64(0))
+}
+
+// <<< OPENFRAME(vuln-persistence)
+
 func TestSyncCPEDatabase(t *testing.T) {
 	nettest.Run(t)
 

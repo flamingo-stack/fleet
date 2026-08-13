@@ -1,0 +1,95 @@
+package mysql
+
+import (
+	"context"
+	"testing"
+
+	"github.com/fleetdm/fleet/v4/server/fleet"
+	"github.com/stretchr/testify/require"
+)
+
+// TestOpenframeEnsureTeamID verifies the UUID→team_id bridge: EnsureOpenframeTeamID creates a team
+// for a new tenant UUID and is idempotent (same UUID → same id; different UUID → different id).
+// Runs only under MYSQL_TEST=1.
+func TestOpenframeEnsureTeamID(t *testing.T) {
+	ds := CreateMySQLDS(t)
+	ctx := context.Background()
+
+	// The bridge column lives in the openframe migration pipeline (not schema.sql).
+	require.NoError(t, ds.MigrateOpenframe(ctx))
+
+	const uuidA = "3f1a9b2c-0000-4d5e-8f00-00000000000a"
+	const uuidB = "3f1a9b2c-0000-4d5e-8f00-00000000000b"
+
+	// First call creates the team.
+	idA, err := ds.EnsureOpenframeTeamID(ctx, uuidA)
+	require.NoError(t, err)
+	require.NotZero(t, idA)
+
+	// Idempotent: same UUID resolves to the same id, no duplicate team.
+	idA2, err := ds.EnsureOpenframeTeamID(ctx, uuidA)
+	require.NoError(t, err)
+	require.Equal(t, idA, idA2)
+
+	// A different tenant UUID gets its own team.
+	idB, err := ds.EnsureOpenframeTeamID(ctx, uuidB)
+	require.NoError(t, err)
+	require.NotZero(t, idB)
+	require.NotEqual(t, idA, idB)
+
+	// The resolved id is a real team, and the bridge column is populated.
+	team, err := ds.TeamLite(ctx, idA)
+	require.NoError(t, err)
+	require.Equal(t, idA, team.ID)
+
+	var storedUUID string
+	require.NoError(t, ds.writer(ctx).GetContext(ctx, &storedUUID,
+		"SELECT openframe_tenant_uuid FROM teams WHERE id = ?", idA))
+	require.Equal(t, uuidA, storedUUID)
+
+	// A newly created team is seeded with exactly one team-scoped enroll secret, so a fresh
+	// tenant can enroll agents without any operator step.
+	secretsA, err := ds.GetEnrollSecrets(ctx, &idA)
+	require.NoError(t, err)
+	require.Len(t, secretsA, 1)
+	require.NotEmpty(t, secretsA[0].Secret)
+	require.NotNil(t, secretsA[0].TeamID)
+	require.Equal(t, idA, *secretsA[0].TeamID)
+
+	// Each tenant gets its own distinct secret.
+	secretsB, err := ds.GetEnrollSecrets(ctx, &idB)
+	require.NoError(t, err)
+	require.Len(t, secretsB, 1)
+	require.NotEqual(t, secretsA[0].Secret, secretsB[0].Secret)
+
+	// The seeded secret enrolls into the right team: VerifyEnrollSecret accepts it under the
+	// owning team's pin and rejects it under another tenant's pin (the enrollment fence).
+	ctxA := fleet.NewOpenframeTeamContext(ctx, idA)
+	verified, err := ds.VerifyEnrollSecret(ctxA, secretsA[0].Secret)
+	require.NoError(t, err)
+	require.NotNil(t, verified.TeamID)
+	require.Equal(t, idA, *verified.TeamID)
+
+	ctxB := fleet.NewOpenframeTeamContext(ctx, idB)
+	_, err = ds.VerifyEnrollSecret(ctxB, secretsA[0].Secret)
+	require.Error(t, err, "tenant A's seeded secret must not verify under tenant B's pin")
+
+	// Resolving an existing team again must not add or replace secrets.
+	_, err = ds.EnsureOpenframeTeamID(ctx, uuidA)
+	require.NoError(t, err)
+	secretsAAgain, err := ds.GetEnrollSecrets(ctx, &idA)
+	require.NoError(t, err)
+	require.Len(t, secretsAAgain, 1)
+	require.Equal(t, secretsA[0].Secret, secretsAAgain[0].Secret)
+
+	// A team with operator-applied (or backfilled) secrets keeps them: replace A's secret set,
+	// re-resolve, and confirm the applied set is untouched.
+	applied := []*fleet.EnrollSecret{{Secret: "openframe-test-applied-secret-A", TeamID: &idA}}
+	require.NoError(t, ds.ApplyEnrollSecrets(ctx, &idA, applied))
+	_, err = ds.EnsureOpenframeTeamID(ctx, uuidA)
+	require.NoError(t, err)
+	secretsAApplied, err := ds.GetEnrollSecrets(ctx, &idA)
+	require.NoError(t, err)
+	require.Len(t, secretsAApplied, 1)
+	require.Equal(t, "openframe-test-applied-secret-A", secretsAApplied[0].Secret)
+}

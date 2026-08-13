@@ -1,0 +1,82 @@
+{{- if and .Values.vulnProcessing.dedicated .Values.vulnProcessing.persistence .Values.vulnProcessing.persistence.enabled .Values.vulnProcessing.persistence.bindJob .Values.vulnProcessing.persistence.bindJob.enabled }}
+# >>> OPENFRAME(vuln-persistence): fork-added one-shot Job binding the feed PVC at install — openframe/docs/helm-chart.md
+# A WaitForFirstConsumer claim stays Pending until the first cron tick, and Argo CD
+# sync operations gate on its health even with ignore-healthcheck (issue #22940).
+# Must stay a plain Sync-phase resource: post-install/PostSync would deadlock on the
+# very PVC health it unblocks, and pre-install/PreSync runs before the claim exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: fleet
+    chart: fleet
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+  name: fleet-vulnprocessing-bind
+  namespace: {{ .Release.Namespace }}
+  {{- with .Values.vulnProcessing.persistence.bindJob.annotations }}
+  annotations:
+    {{- toYaml . | trim | nindent 4 }}
+  {{- end }}
+spec:
+  template:
+    metadata:
+{{- with .Values.podAnnotations }}
+      annotations:
+{{- toYaml . | trim | nindent 8 }}
+{{- end }}
+      labels:
+        app: fleet
+        chart: fleet
+        heritage: {{ .Release.Service }}
+        release: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      # Same fsGroup as the CronJob so the fresh claim is chowned on first mount.
+      {{- with .Values.fleet.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+        fsGroupChangePolicy: OnRootMismatch
+      {{- end }}
+      containers:
+      - name: bind
+        # The volume attach is the whole job; any image that can exit 0 works.
+        image: "{{ .Values.vulnProcessing.persistence.bindJob.image }}"
+        command: ["/bin/sh", "-c", "echo vulnerability feed PVC bound"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        {{- with .Values.fleet.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: vuln-data
+          mountPath: /tmp/vuln
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: fleet
+      volumes:
+      - name: vuln-data
+        persistentVolumeClaim:
+          claimName: {{ default "fleet-vulnprocessing" .Values.vulnProcessing.persistence.existingClaim }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+# <<< OPENFRAME(vuln-persistence)
+{{- end }}

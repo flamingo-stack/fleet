@@ -188,6 +188,16 @@ func (svc *Service) EnrollOrbit(ctx context.Context, hostInfo fleet.OrbitHostInf
 		return "", fleet.OrbitError{Message: err.Error()}
 	}
 
+	// >>> OPENFRAME(mysql-multitenancy): shared mode — pin the request to the enroll secret's
+	// team (fail closed) so the enrollment fence scopes matching.
+	if fleet.IsOpenframeSharedMode() {
+		if secret.TeamID == nil || *secret.TeamID == 0 {
+			return "", fleet.NewAuthFailedError("openframe shared mode: enroll secret has no team")
+		}
+		ctx = fleet.NewOpenframeTeamContext(ctx, *secret.TeamID)
+	}
+	// <<< OPENFRAME(mysql-multitenancy)
+
 	identifier := hostInfo.OsqueryIdentifier
 	if identifier == "" {
 		identifier = hostInfo.HardwareUUID
