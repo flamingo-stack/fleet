@@ -526,10 +526,10 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         # <<< OPENFRAME(hardening)
-        # >>> OPENFRAME(helm): /healthz reports MySQL and Redis, so liveness uses /version instead — openframe/docs/helm-chart.md
+        # >>> OPENFRAME(helm): /healthz reports MySQL and Redis, so only readiness uses it — openframe/docs/helm-chart.md
         startupProbe:
           httpGet:
-            path: /healthz
+            path: /version
             port: {{ .Values.fleet.listenPort }}
             {{- if .Values.fleet.tls.enabled }}
             scheme: HTTPS

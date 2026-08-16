@@ -178,8 +178,9 @@ Upstream puts both liveness and readiness on `/healthz`. That endpoint checks My
 and Redis (`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)), and
 that breaks in two ways:
 
-- **Slow start.** Fleet waits for the database on its own, about 105s
-  (`defaultMaxAttempts = 15`, see
+- **Slow start.** Fleet waits for the database on its own, about 105s: 15 attempts
+  sleeping 0,1,2,…,14 seconds ([common.go](../../server/platform/mysql/common.go),
+  count from `defaultMaxAttempts` in
   [config.go](../../server/datastore/mysql/config.go)). While it waits it isn't
   listening on `listenPort` yet, so the default liveness kills it after 30s and it
   never gets to finish waiting. Happens every time MySQL and Fleet come up together
@@ -187,18 +188,36 @@ that breaks in two ways:
   once. Restarting them doesn't bring Redis back, it just piles a restart storm on
   top of the outage
 
-So the fork splits the probes:
+So only readiness looks at the dependencies:
 
 | Probe | Path | Why |
 |-------|------|-----|
-| `startupProbe` | `/healthz` | Keeps liveness and readiness quiet until the deps answer. 40 × 15s = 10 min |
+| `startupProbe` | `/version` | An answer on `/version` already means the boot finished. Fleet opens the listener at [serve.go:1148](../../cmd/fleet/serve.go), long after `initDatastore` and the migration check, so nothing serves before MySQL is in |
 | `livenessProbe` | `/version` | Restart only if the process itself is stuck. [version.go](../../server/version/version.go) returns a static struct, no auth, no MySQL, no Redis |
 | `readinessProbe` | `/healthz` | A pod that can't reach its deps drops out of the Service instead of dying |
 
-Numbers live under `fleet.probes.{startup,liveness,readiness}`. The failure budget is
-`initialDelaySeconds + failureThreshold × periodSeconds`
-([k8s probe docs](https://kubernetes.io/docs/concepts/workloads/pods/probes/)), and we
-leave `initialDelaySeconds` at 0.
+Putting `/healthz` on startup would have kept the same bug at boot: with Redis down,
+a pod that gets rescheduled mid outage never starts, gets killed and lands in
+CrashLoopBackOff. Tenants run one replica, so that is full downtime that outlives the
+Redis outage by the backoff. On `/version` the pod comes up, stays out of the Service
+and joins it the moment Redis is back, with no restart.
+
+Numbers live under `fleet.probes.{startup,liveness,readiness}`. The first probe runs at
+t=0, so the Nth failure lands at `(N - 1) × periodSeconds`: startup gives up at 6 min,
+liveness and readiness at 2.5 min.
+
+The startup number has a floor and no real ceiling. The floor is the ~105s Fleet spends
+retrying MySQL with the port still closed: go under it and the probe cuts a legitimate
+wait short, which is the original bug with liveness playing that role at 30s. Above the
+floor it only catches a hang, because a MySQL that never answers ends the process
+anyway, through `initFatal` in `initDatastore` ([serve.go:256](../../cmd/fleet/serve.go))
+or `os.Exit(1)` on an unapplied migration ([serve.go:272](../../cmd/fleet/serve.go)).
+So 6 min reads as "how long we tolerate a stuck boot", not "how long we wait for the
+database". That wait is Fleet's own and a probe can only cut it short, never extend it.
+
+Readiness holds a broken pod in the Service for 2.5 min, which is deliberate. On one
+replica dropping it earlier changes nothing, the tenant is down regardless. Lower it
+if you ever run Fleet with more than one replica per tenant.
 
 `timeoutSeconds` is 10s on all three because the default is 1s, and `/healthz` does
 real MySQL and Redis round trips on a node that may still be busy starting everything
