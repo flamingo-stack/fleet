@@ -170,6 +170,40 @@ exactly-once semantics.
 | Additional CA certs | `fleet.additionalCAs.*` | Init-container injection of CA bundles from named ConfigMaps/Secrets, for private PKI. |
 | Dedicated vuln processing | `vulnProcessing.dedicated`, `vulnProcessing.schedule` | When `true`, runs vulnerability processing as a separate CronJob ([vulnprocessing/cronjob.yaml](../../charts/fleet/templates/vulnprocessing/cronjob.yaml)) and disables it in the main deployment. |
 | Vuln feed persistence | `vulnProcessing.persistence.*`, `vulnProcessing.staggerSchedule` | See [below](#vulnerability-feed-persistence-vuln-persistence). |
+| Probe split | `fleet.probes.*` | See [below](#probes). |
+
+## Probes
+
+Upstream puts both liveness and readiness on `/healthz`. That endpoint checks MySQL
+and Redis (`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)), and
+that breaks in two ways:
+
+- **Slow start.** Fleet waits for the database on its own, about 105s
+  (`defaultMaxAttempts = 15`, see
+  [config.go](../../server/datastore/mysql/config.go)). While it waits it isn't
+  listening on `listenPort` yet, so the default liveness kills it after 30s and it
+  never gets to finish waiting. Happens every time MySQL and Fleet come up together
+- **Redis blip.** One Redis outage makes `/healthz` return 500 in every Fleet pod at
+  once. Restarting them doesn't bring Redis back, it just piles a restart storm on
+  top of the outage
+
+So the fork splits the probes:
+
+| Probe | Path | Why |
+|-------|------|-----|
+| `startupProbe` | `/healthz` | Keeps liveness and readiness quiet until the deps answer. 40 × 15s = 10 min |
+| `livenessProbe` | `/version` | Restart only if the process itself is stuck. [version.go](../../server/version/version.go) returns a static struct, no auth, no MySQL, no Redis |
+| `readinessProbe` | `/healthz` | A pod that can't reach its deps drops out of the Service instead of dying |
+
+Numbers live under `fleet.probes.{startup,liveness,readiness}`. The failure budget is
+`initialDelaySeconds + failureThreshold × periodSeconds`
+([k8s probe docs](https://kubernetes.io/docs/concepts/workloads/pods/probes/)), and we
+leave `initialDelaySeconds` at 0.
+
+`timeoutSeconds` is 10s on all three because the default is 1s, and `/healthz` does
+real MySQL and Redis round trips on a node that may still be busy starting everything
+else. It caps a single attempt and sits inside the period, it isn't added on top, so
+keep it under `periodSeconds` or the timeout becomes the real cadence
 
 ## Vulnerability feed persistence (`vuln-persistence`)
 
@@ -267,10 +301,10 @@ helm upgrade --install fleet oci://ghcr.io/flamingo-stack/fleetmdm/helm-charts/f
 
 | File | Purpose |
 |------|---------|
-| `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `waitForMysql`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
+| `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `waitForMysql`, `probes`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
 | `charts/fleet/templates/configmap.yaml` | **New** — generated DB/cache ConfigMaps |
 | `charts/fleet/templates/secret.yaml` | **New** — generated DB password / admin-setup Secrets |
-| `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` / `FLEET_OPENFRAME_TENANT_UUID` / `FLEET_OPENFRAME_TEAM_ID`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container |
+| `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` / `FLEET_OPENFRAME_TENANT_UUID` / `FLEET_OPENFRAME_TEAM_ID`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container, probe split |
 | `charts/fleet/templates/job-migration.yaml` | `waitForMysql` init container, hook removal, TTL removal |
 | `charts/fleet/templates/vulnprocessing/cronjob.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX`, feed-cache PVC mount, fsGroup, schedule stagger (moved from `templates/cron-vulnprocessing.yaml`) |
 | `charts/fleet/templates/vulnprocessing/pvc.yaml` | **New** — PVC persisting the vulnerability feed cache across cron runs |

@@ -81,6 +81,25 @@ fleet:
     enabled: true
     image: busybox:1.36
   # <<< OPENFRAME(helm)
+  # >>> OPENFRAME(helm): startup waits, liveness ignores dependencies — openframe/docs/helm-chart.md
+  # Failure budget is initialDelaySeconds + failureThreshold × periodSeconds
+  probes:
+    # failure budget 40 × 15 = 10 min
+    startup:
+      periodSeconds: 15
+      failureThreshold: 40
+      timeoutSeconds: 10
+    # failure budget 10 × 15 = 2.5 min
+    liveness:
+      periodSeconds: 15
+      failureThreshold: 10
+      timeoutSeconds: 10
+    # failure budget 10 × 15 = 2.5 min
+    readiness:
+      periodSeconds: 15
+      failureThreshold: 10
+      timeoutSeconds: 10
+  # <<< OPENFRAME(helm)
   tls:
     enabled: true
     # Set to true if you need a separate secret for just TLS data.

@@ -526,13 +526,27 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         # <<< OPENFRAME(hardening)
-        livenessProbe:
+        # >>> OPENFRAME(helm): /healthz reports MySQL and Redis, so liveness uses /version instead — openframe/docs/helm-chart.md
+        startupProbe:
           httpGet:
             path: /healthz
             port: {{ .Values.fleet.listenPort }}
             {{- if .Values.fleet.tls.enabled }}
             scheme: HTTPS
             {{- end }}
+          periodSeconds: {{ .Values.fleet.probes.startup.periodSeconds }}
+          failureThreshold: {{ .Values.fleet.probes.startup.failureThreshold }}
+          timeoutSeconds: {{ .Values.fleet.probes.startup.timeoutSeconds }}
+        livenessProbe:
+          httpGet:
+            path: /version
+            port: {{ .Values.fleet.listenPort }}
+            {{- if .Values.fleet.tls.enabled }}
+            scheme: HTTPS
+            {{- end }}
+          periodSeconds: {{ .Values.fleet.probes.liveness.periodSeconds }}
+          failureThreshold: {{ .Values.fleet.probes.liveness.failureThreshold }}
+          timeoutSeconds: {{ .Values.fleet.probes.liveness.timeoutSeconds }}
         readinessProbe:
           httpGet:
             path: /healthz
@@ -540,6 +554,10 @@ spec:
             {{- if .Values.fleet.tls.enabled }}
             scheme: HTTPS
             {{- end }}
+          periodSeconds: {{ .Values.fleet.probes.readiness.periodSeconds }}
+          failureThreshold: {{ .Values.fleet.probes.readiness.failureThreshold }}
+          timeoutSeconds: {{ .Values.fleet.probes.readiness.timeoutSeconds }}
+        # <<< OPENFRAME(helm)
         # >>> OPENFRAME(hardening): unconditional — tmp is always mounted — openframe/docs/helm-chart.md
         volumeMounts:
           - name: tmp
