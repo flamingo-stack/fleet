@@ -192,9 +192,17 @@ So only readiness looks at the dependencies:
 
 | Probe | Path | Why |
 |-------|------|-----|
-| `startupProbe` | `/version` | An answer on `/version` already means the boot finished. Fleet opens the listener at [serve.go:1148](../../cmd/fleet/serve.go), long after `initDatastore` and the migration check, so nothing serves before MySQL is in |
-| `livenessProbe` | `/version` | Restart only if the process itself is stuck. [version.go](../../server/version/version.go) returns a static struct, no auth, no MySQL, no Redis |
+| `startupProbe` | `/version` | An answer on `/version` already means the boot finished. Fleet reaches `srv.ListenAndServe` long after `initDatastore` and `evalMigrationStatus`, so nothing serves before MySQL is in |
+| `livenessProbe` | `/version` | Restart only if the listener stops answering. [version.go](../../server/version/version.go) returns a static struct, no auth, no MySQL, no Redis |
 | `readinessProbe` | `/healthz` | A pod that can't reach its deps drops out of the Service instead of dying |
+
+That liveness is deliberately narrow. A Fleet that still answers on `/version` but is
+wedged on an exhausted connection pool will not be restarted, because a restart is not
+what fixes that. Readiness is what takes it out of rotation.
+
+The startup probe is close to a duplicate of liveness, both on `/version`, and liveness
+alone already covers the 105s. It earns its place with two things: a wider window for a
+stuck boot, 6 min against 2.5, and keeping readiness quiet until the process is up.
 
 Putting `/healthz` on startup would have kept the same bug at boot: with Redis down,
 a pod that gets rescheduled mid outage never starts, gets killed and lands in
@@ -210,8 +218,8 @@ The startup number has a floor and no real ceiling. The floor is the ~105s Fleet
 retrying MySQL with the port still closed: go under it and the probe cuts a legitimate
 wait short, which is the original bug with liveness playing that role at 30s. Above the
 floor it only catches a hang, because a MySQL that never answers ends the process
-anyway, through `initFatal` in `initDatastore` ([serve.go:256](../../cmd/fleet/serve.go))
-or `os.Exit(1)` on an unapplied migration ([serve.go:272](../../cmd/fleet/serve.go)).
+anyway, through `initFatal` in `initDatastore` or `os.Exit(1)` on an unapplied
+migration in `evalMigrationStatus` (both in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)).
 So 6 min reads as "how long we tolerate a stuck boot", not "how long we wait for the
 database". That wait is Fleet's own and a probe can only cut it short, never extend it.
 

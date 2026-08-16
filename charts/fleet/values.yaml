@@ -84,19 +84,20 @@ fleet:
   # >>> OPENFRAME(helm): only readiness looks at dependencies — openframe/docs/helm-chart.md
   # First probe runs at t=0, so the Nth failure lands at (N-1) × periodSeconds
   probes:
-    # Startup has to stay above the ~105s fleet spends retrying MySQL with the
-    # port still closed, or the probe cuts a legitimate wait short. Above that it only
-    # catches a hang, because a MySQL that never answers exits the process by itself
+    # gives up on the 25th failure, 24 × 15 = 6 min. Has to stay above the ~105s fleet
+    # spends retrying MySQL with the port still closed, or the probe cuts a legitimate
+    # wait short. Above that it only catches a hang, because a MySQL that never answers
+    # exits the process by itself
     startup:
       periodSeconds: 15
       failureThreshold: 25
       timeoutSeconds: 10
-    # restarts after 10 × 15 = 2.5 min
+    # restarts on the 11th failure, 10 × 15 = 2.5 min
     liveness:
       periodSeconds: 15
       failureThreshold: 11
       timeoutSeconds: 10
-    # leaves the Service after 10 × 15 = 2.5 min
+    # leaves the Service on the 11th failure, 10 × 15 = 2.5 min
     readiness:
       periodSeconds: 15
       failureThreshold: 11
