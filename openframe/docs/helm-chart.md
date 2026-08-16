@@ -211,12 +211,24 @@ endpoint. So upstream's liveness on `/healthz` was not only an oversight, it was
 self-heal after a database failover, and `connMaxLifetime: 0` means the pool never
 recycles those connections on its own.
 
-We give that up knowingly, because we cannot reach the state it repairs. Each tenant
-runs its own single MySQL StatefulSet in its own namespace
-(`fleetmdm-mysql-0.fleetmdm-mysql.<namespace>.svc.cluster.local`), with no replica, no
-reader endpoint and nothing that promotes or demotes. When that MySQL goes away the
-connections break with socket errors and `database/sql` opens new ones. `@@read_only`
-only turns 1 if somebody sets it by hand.
+We give that up knowingly, because neither database we run gets into the state it
+repairs.
+
+Tenant Fleet talks to a single MySQL StatefulSet in its own namespace,
+`fleetmdm-mysql-0.fleetmdm-mysql.<namespace>.svc.cluster.local` out of the
+`fleetmdm-mysql` ConfigMap. No replica, no reader endpoint, nothing that promotes or
+demotes. When that MySQL goes away the connections break with socket errors and
+`database/sql` opens new ones. `@@read_only` only turns 1 if somebody sets it by hand.
+
+The chart can also be pointed at Cloud SQL, which is what the platform-level Fleet app
+does. A Cloud SQL HA failover doesn't leave a demoted writer behind a stable endpoint
+either: the standby serves on the same shared static IP, the old primary is destroyed
+and recreated as the new standby, and open connections are closed rather than turned
+read-only ([Cloud SQL HA](https://cloud.google.com/sql/docs/mysql/high-availability)).
+
+That failover takes about 60 seconds, and 60 seconds fits inside the 2.5 min readiness
+budget. So a Cloud SQL failover doesn't even push the pod out of the Service, and
+liveness on `/version` leaves it alone while `database/sql` reconnects.
 
 If Fleet ever moves onto a database that can demote a writer behind a stable endpoint,
 put this back. `health.Handler` ([health.go](../../server/health/health.go)) supports a
