@@ -81,13 +81,10 @@ fleet:
     enabled: true
     image: busybox:1.36
   # <<< OPENFRAME(helm)
-  # >>> OPENFRAME(helm): only readiness looks at dependencies — openframe/docs/helm-chart.md
+  # >>> OPENFRAME(helm): only liveness ignores dependencies — openframe/docs/helm-chart.md
   # First probe runs at t=0, so the Nth failure lands at (N-1) × periodSeconds
   probes:
-    # gives up on the 25th failure, 24 × 15 = 6 min. Has to stay above the ~105s fleet
-    # spends retrying MySQL with the port still closed, or the probe cuts a legitimate
-    # wait short. Above that it only catches a hang, because a MySQL that never answers
-    # exits the process by itself
+    # gives up on the 25th failure, 24 × 15 = 6 min
     startup:
       periodSeconds: 15
       failureThreshold: 25
