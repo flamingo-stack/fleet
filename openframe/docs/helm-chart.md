@@ -174,105 +174,61 @@ exactly-once semantics.
 
 ## Probes
 
-All three probes use `/healthz`, the same endpoint upstream uses. It checks MySQL and
-Redis (`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)), and that is
-deliberate: Fleet cannot serve without either one, and `Datastore.HealthCheck`
-([mysql.go](../../server/datastore/mysql/mysql.go)) goes further than a ping, failing on
-`SELECT @@read_only = 1` specifically so the orchestrator restarts Fleet with fresh
-connections after a database failover.
+All three probes keep upstream's endpoint, `/healthz`, which checks MySQL and Redis
+(`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)). What the fork adds
+is timings, which upstream leaves unset, and a retry on the first Redis dial.
 
-| Probe | Path | Budget |
-|-------|------|--------|
-| `startupProbe` | `/healthz` | 6 min |
-| `livenessProbe` | `/healthz` | 2 min |
-| `readinessProbe` | `/healthz` | 1 min |
+| Probe | Budget | `fleet.probes.*` |
+|-------|--------|------------------|
+| `startupProbe` | 6 min | `25 × 15s` |
+| `livenessProbe` | 2 min | `9 × 15s` |
+| `readinessProbe` | 1 min | `5 × 15s` |
 
-What the fork changes is the timing, not the endpoint. Upstream sets no timings at all,
-so every probe runs on the Kubernetes defaults: 1s timeout, 10s period, 3 failures. That
-kills a container 30s after the first failed probe, and Fleet needs far longer than that
-in two ordinary situations.
+Without timings every probe runs on the Kubernetes defaults, which kill a container 30s
+after the first failure. That is far too short for Fleet: it waits for MySQL on its own
+for about 105s (15 attempts sleeping 0,1,…,14s, see
+[common.go](../../server/platform/mysql/common.go) and `defaultMaxAttempts` in
+[config.go](../../server/datastore/mysql/config.go)) and does not listen on `listenPort`
+while it waits.
 
-- **Slow start.** Fleet waits for the database on its own, about 105s: 15 attempts
-  sleeping 0,1,2,…,14 seconds ([common.go](../../server/platform/mysql/common.go),
-  count from `defaultMaxAttempts` in
-  [config.go](../../server/datastore/mysql/config.go)). While it waits it isn't
-  listening on `listenPort` yet, so the default liveness kills it at 30s and it never
-  gets to finish waiting. This happens every time MySQL and Fleet come up together,
-  which on a tenant cluster is every reschedule. The `startupProbe` covers it: liveness
-  and readiness do not start until the process is serving.
-- **Dependency outages.** A hiccup shorter than 2 min no longer restarts anything. At
-  30s it did, which is what turned a five minute Redis absence into a fleet-wide restart
-  storm on 2026-08-16.
+That is what the `startupProbe` is for. Liveness and readiness do not run until it
+succeeds, so the boot gets its own budget and the other two can stay short.
 
-Past 2 min a pod does still get killed, and that is fine now only because
-`cache.connectRetryAttempts` changed what a restart costs. Before it, a killed pod could
-not come back while Redis was still missing and simply crashlooped for the length of the
-outage. With the retry it restarts once and then waits the outage out.
+The three budgets are ordered by how expensive the action is. Readiness is reversible and
+so the shortest; liveness throws away a warm process; startup supervises a boot that is
+legitimately slow. The minute between readiness and liveness is deliberate: it is the
+window where a pod takes no traffic but can still recover on its own.
 
-The three budgets are ordered by how expensive the action is. Readiness is cheapest and
-shortest: a pod out of rotation walks back in on the first successful probe. Liveness
-throws away a warm process, so it waits longer, and the minute between them is the point:
-that is the window where a pod takes no traffic but still has a chance to recover on its
-own. Set them equal and readiness stops meaning anything, because the pod dies at the same
-moment it leaves the Service. Startup is by far the longest, because with the Redis retry
-in place it is the probe that actually holds a pod through an outage.
+### Why `cache.connectRetryAttempts` is set
 
-If that trade ever needs revisiting, the lever is the endpoint, not the timings.
-`health.Handler` ([health.go](../../server/health/health.go)) takes a `?check=<name>`
-filter, so `/healthz?check=mysql` gives a liveness that keeps the failover self-heal but
-drops Redis out of the restart decision. `/version`
-([version.go](../../server/version/version.go)) is the other end of the scale: a static
-struct with no auth and no dependencies, which restarts only on a wedged listener.
+A probe budget only means something while the process is alive. Upstream defaults
+`redis.connect_retry_attempts` to 0 ([config.go](../../server/config/config.go)), a single
+dial, so a boot during a Redis outage ended in `initFatal` within seconds and the pod
+crashlooped for the length of the outage with no probe ever consulted.
 
-One case the timings handle well: a Cloud SQL HA failover takes about 60 seconds, and
-60 seconds fits inside every budget here, so it passes without a restart and without the
-pod leaving the Service ([Cloud SQL HA](https://cloud.google.com/sql/docs/mysql/high-availability)).
-On upstream's 30s it would not have.
+The fork sets it to 20, which turns that dial into an exponential backoff (`backoff/v4`
+defaults, capped at 60s per attempt). The process now stays up retrying and the 6 min
+startup budget becomes the real ceiling.
 
-Numbers live under `fleet.probes.{startup,liveness,readiness}`. The first probe runs at
-t=0, so the Nth failure lands at `(N - 1) × periodSeconds`: startup gives up at 6 min,
-liveness at 2 min, readiness at 1 min.
+One caveat: the retry only covers errors Go reports as temporary or as timeouts, while a
+plain `connection refused` is `backoff.Permanent` and still exits at once
+([redis.go](../../server/datastore/redis/redis.go)).
 
-The startup number has a floor and no real ceiling. The floor is the ~105s Fleet spends
-retrying MySQL with the port still closed: go under it and the probe cuts a legitimate
-wait short, which is the original bug with liveness playing that role at 30s. Above the
-floor it only catches a hang, because a boot that cannot reach its dependencies ends the
-process anyway. So 6 min reads as "how long we tolerate a stuck boot", not "how long we
-wait for the database". That wait is Fleet's own and a probe can only cut it short,
-never extend it.
+### Notes
 
-Readiness is deliberately the shortest of the three. It is the reversible one: a pod that
-drops out of the Service walks back in on the first successful probe, so reacting early
-costs nothing.
+`timeoutSeconds` is 10s everywhere, up from the 1s default, because `/healthz` does real
+MySQL and Redis round trips. It caps one attempt and sits inside the period rather than
+adding to it, so keep it under `periodSeconds`.
 
-### Why the startup budget needs `cache.connectRetryAttempts`
+The first probe runs at t=0, so the Nth failure lands at `(N - 1) × periodSeconds`. A
+Cloud SQL HA failover takes about 60s and therefore passes without a restart and without
+leaving the Service ([Cloud SQL HA](https://cloud.google.com/sql/docs/mysql/high-availability));
+on upstream's 30s it would not have.
 
-A probe budget only means something while the process is alive. Fleet waits for MySQL on
-its own, so the startup probe genuinely covers that. Redis was different: upstream
-defaults `redis.connect_retry_attempts` to 0
-([config.go](../../server/config/config.go)), which is a single dial. A boot during a
-Redis outage failed that dial, `redis.NewPool` returned the error, and `initFatal` ended
-the process in seconds. The container was gone before the startup probe asked anything,
-so its budget never applied and the pod just crashlooped for the length of the outage.
-
-The fork sets `cache.connectRetryAttempts: 20`, which turns that single dial into an
-exponential backoff (`backoff/v4` defaults: 500ms initial, ×1.5, capped at 60s per
-attempt). Now the process stays up and retrying, which is exactly the state a startup
-probe is meant to supervise, and the 6 min startup budget becomes the real ceiling: Redis
-back within it and the pod boots, still missing and the probe kills the container.
-
-One caveat on the retry. It only applies to errors Go reports as temporary or as
-timeouts; a plain `connection refused` is wrapped in `backoff.Permanent` and is not
-retried ([redis.go](../../server/datastore/redis/redis.go)). A vanished node pool leaves
-the DNS names resolving and the dials timing out, which is the retryable shape, but a
-Redis that is up and actively refusing connections still exits immediately.
-
-`timeoutSeconds` is 10s on all three. The point is getting away from the 1s default:
-readiness needs it because `/healthz` does real MySQL and Redis round trips, and even
-`/version` can miss a 1s deadline on a node still busy starting everything else. One
-number everywhere keeps it readable. It caps a single attempt and sits inside the
-period, it isn't added on top, so keep it under `periodSeconds` or the timeout becomes
-the real cadence
+If the endpoint ever needs to change rather than the timings, `health.Handler`
+([health.go](../../server/health/health.go)) takes a `?check=<name>` filter, and `/version`
+([version.go](../../server/version/version.go)) is a static struct with no dependencies at
+all.
 
 ## Vulnerability feed persistence (`vuln-persistence`)
 
