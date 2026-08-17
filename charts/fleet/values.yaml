@@ -378,7 +378,7 @@ cache:
   secretName: redis
   passwordKey: redis-password
   # >>> OPENFRAME(helm): upstream defaults this to 0, so a boot without Redis dies at once — openframe/docs/helm-chart.md
-  connectRetryAttempts: 20
+  connectRetryAttempts: 10
   # <<< OPENFRAME(helm)
   # >>> OPENFRAME(redis-key-prefix): fork-added per-tenant Redis key prefix — openframe/docs/redis-key-prefix.md
   # When set, wires FLEET_REDIS_KEY_PREFIX from existingConfigMap[keyPrefixKey].
