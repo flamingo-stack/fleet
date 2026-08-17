@@ -174,83 +174,64 @@ exactly-once semantics.
 
 ## Probes
 
-Upstream puts both liveness and readiness on `/healthz`. That endpoint checks MySQL
-and Redis (`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)), and
-that breaks in two ways:
+All three probes use `/healthz`, the same endpoint upstream uses. It checks MySQL and
+Redis (`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)), and that is
+deliberate: Fleet cannot serve without either one, and `Datastore.HealthCheck`
+([mysql.go](../../server/datastore/mysql/mysql.go)) goes further than a ping, failing on
+`SELECT @@read_only = 1` specifically so the orchestrator restarts Fleet with fresh
+connections after a database failover.
+
+| Probe | Path | Budget |
+|-------|------|--------|
+| `startupProbe` | `/healthz` | 6 min |
+| `livenessProbe` | `/healthz` | 4 min |
+| `readinessProbe` | `/healthz` | 2 min |
+
+What the fork changes is the timing, not the endpoint. Upstream sets no timings at all,
+so every probe runs on the Kubernetes defaults: 1s timeout, 10s period, 3 failures. That
+kills a container 30s after the first failed probe, and Fleet needs far longer than that
+in two ordinary situations.
 
 - **Slow start.** Fleet waits for the database on its own, about 105s: 15 attempts
   sleeping 0,1,2,…,14 seconds ([common.go](../../server/platform/mysql/common.go),
   count from `defaultMaxAttempts` in
   [config.go](../../server/datastore/mysql/config.go)). While it waits it isn't
-  listening on `listenPort` yet, so the default liveness kills it after 30s and it
-  never gets to finish waiting. Happens every time MySQL and Fleet come up together
-- **Redis blip.** One Redis outage makes `/healthz` return 500 in every Fleet pod at
-  once. Restarting them doesn't bring Redis back, it just piles a restart storm on
-  top of the outage
+  listening on `listenPort` yet, so the default liveness kills it at 30s and it never
+  gets to finish waiting. This happens every time MySQL and Fleet come up together,
+  which on a tenant cluster is every reschedule. The `startupProbe` covers it: liveness
+  and readiness do not start until the process is serving.
+- **Dependency outages.** A hiccup shorter than 4 min no longer restarts anything. At
+  30s it did, which is what turned a five minute Redis absence into a fleet-wide restart
+  storm on 2026-08-16.
 
-So liveness is the one that stops looking at the dependencies:
+Past 4 min a pod does still get killed, and that is fine now only because
+`cache.connectRetryAttempts` changed what a restart costs. Before it, a killed pod could
+not come back while Redis was still missing and simply crashlooped for the length of the
+outage. With the retry it restarts once and then waits the outage out.
 
-| Probe | Path | Why |
-|-------|------|-----|
-| `startupProbe` | `/healthz` | Holds liveness and readiness off until the process is up and its deps answer |
-| `livenessProbe` | `/version` | Restart only if the listener stops answering. [version.go](../../server/version/version.go) returns a static struct, no auth, no MySQL, no Redis |
-| `readinessProbe` | `/healthz` | A pod that can't reach its deps drops out of the Service instead of dying |
+The three budgets are ordered by how expensive the action is. Readiness is cheapest and
+shortest: a pod out of rotation walks back in on the first successful probe. Liveness
+throws away a warm process, so it waits longer, and the two minutes between them are the
+point: that is the window where a pod takes no traffic but still has a chance to recover
+on its own. Set them equal and readiness stops meaning anything, because the pod dies at
+the same moment it leaves the Service. Startup is longest because it supervises a boot
+that is legitimately slow.
 
-Startup keeps `/healthz` because on that path the two endpoints are nearly the same
-thing. Fleet never reaches the listener without its dependencies: `initDatastore` gives
-up on MySQL and `redis.NewPool` fails its cluster refresh, both through `initFatal` and
-`os.Exit(1)`. By the time anything answers on `listenPort`, MySQL and Redis were both
-reachable anyway.
+If that trade ever needs revisiting, the lever is the endpoint, not the timings.
+`health.Handler` ([health.go](../../server/health/health.go)) takes a `?check=<name>`
+filter, so `/healthz?check=mysql` gives a liveness that keeps the failover self-heal but
+drops Redis out of the restart decision. `/version`
+([version.go](../../server/version/version.go)) is the other end of the scale: a static
+struct with no auth and no dependencies, which restarts only on a wedged listener.
 
-That liveness is deliberately narrow. A Fleet that still answers on `/version` but is
-wedged on an exhausted connection pool will not be restarted, because a restart is not
-what fixes that. Readiness is what takes it out of rotation.
-
-The chain this breaks is the one that took every tenant down at once. Redis went away,
-running pods started failing `/healthz`, liveness killed them, and from then on they
-could not come back, because a fresh boot dies in `redis.NewPool` while Redis is still
-missing. Liveness on `/version` removes the first link: a running pod rides the outage
-out and rejoins the Service when Redis returns. A pod that restarts mid outage for some
-other reason still cannot start, and no probe setting changes that.
-
-### What moving liveness off `/healthz` gives up
-
-The MySQL checker is not a ping. `Datastore.HealthCheck`
-([mysql.go](../../server/datastore/mysql/mysql.go)) runs `SELECT @@read_only` and
-returns an error when the answer is 1, with the comment saying so outright: fail the
-endpoint so the orchestrator restarts Fleet with fresh DB connections. Upstream added
-it for AWS Aurora, where a failover demotes the old writer to a reader behind the same
-endpoint. So upstream's liveness on `/healthz` was not only an oversight, it was also a
-self-heal after a database failover, and `connMaxLifetime: 0` means the pool never
-recycles those connections on its own.
-
-We give that up knowingly, because neither database we run gets into the state it
-repairs.
-
-Tenant Fleet talks to a single MySQL StatefulSet in its own namespace,
-`fleetmdm-mysql-0.fleetmdm-mysql.<namespace>.svc.cluster.local` out of the
-`fleetmdm-mysql` ConfigMap. No replica, no reader endpoint, nothing that promotes or
-demotes. When that MySQL goes away the connections break with socket errors and
-`database/sql` opens new ones. `@@read_only` only turns 1 if somebody sets it by hand.
-
-The chart can also be pointed at Cloud SQL, which is what the platform-level Fleet app
-does. A Cloud SQL HA failover doesn't leave a demoted writer behind a stable endpoint
-either: the standby serves on the same shared static IP, the old primary is destroyed
-and recreated as the new standby, and open connections are closed rather than turned
-read-only ([Cloud SQL HA](https://cloud.google.com/sql/docs/mysql/high-availability)).
-
-That failover takes about 60 seconds, and 60 seconds fits inside the 2.5 min readiness
-budget. So a Cloud SQL failover doesn't even push the pod out of the Service, and
-liveness on `/version` leaves it alone while `database/sql` reconnects.
-
-If Fleet ever moves onto a database that can demote a writer behind a stable endpoint,
-put this back. `health.Handler` ([health.go](../../server/health/health.go)) supports a
-`?check=<name>` filter, so a narrow `/healthz?check=mysql` liveness is available without
-dragging Redis back into the restart decision.
+One case the timings handle well: a Cloud SQL HA failover takes about 60 seconds, and
+60 seconds fits inside every budget here, so it passes without a restart and without the
+pod leaving the Service ([Cloud SQL HA](https://cloud.google.com/sql/docs/mysql/high-availability)).
+On upstream's 30s it would not have.
 
 Numbers live under `fleet.probes.{startup,liveness,readiness}`. The first probe runs at
 t=0, so the Nth failure lands at `(N - 1) × periodSeconds`: startup gives up at 6 min,
-liveness and readiness at 2.5 min.
+liveness at 4 min, readiness at 2 min.
 
 The startup number has a floor and no real ceiling. The floor is the ~105s Fleet spends
 retrying MySQL with the port still closed: go under it and the probe cuts a legitimate
@@ -260,9 +241,31 @@ process anyway. So 6 min reads as "how long we tolerate a stuck boot", not "how 
 wait for the database". That wait is Fleet's own and a probe can only cut it short,
 never extend it.
 
-Readiness holds a broken pod in the Service for 2.5 min, which is deliberate. On one
-replica dropping it earlier changes nothing, the tenant is down regardless. Lower it
-if you ever run Fleet with more than one replica per tenant.
+Readiness is deliberately the shortest of the three. It is the reversible one: a pod that
+drops out of the Service walks back in on the first successful probe, so reacting early
+costs nothing.
+
+### Why the startup budget needs `cache.connectRetryAttempts`
+
+A probe budget only means something while the process is alive. Fleet waits for MySQL on
+its own, so the startup probe genuinely covers that. Redis was different: upstream
+defaults `redis.connect_retry_attempts` to 0
+([config.go](../../server/config/config.go)), which is a single dial. A boot during a
+Redis outage failed that dial, `redis.NewPool` returned the error, and `initFatal` ended
+the process in seconds. The container was gone before the startup probe asked anything,
+so its budget never applied and the pod just crashlooped for the length of the outage.
+
+The fork sets `cache.connectRetryAttempts: 20`, which turns that single dial into an
+exponential backoff (`backoff/v4` defaults: 500ms initial, ×1.5, capped at 60s per
+attempt). Now the process stays up and retrying, which is exactly the state a startup
+probe is meant to supervise, and the 6 min startup budget becomes the real ceiling: Redis
+back within it and the pod boots, still missing and the probe kills the container.
+
+One caveat on the retry. It only applies to errors Go reports as temporary or as
+timeouts; a plain `connection refused` is wrapped in `backoff.Permanent` and is not
+retried ([redis.go](../../server/datastore/redis/redis.go)). A vanished node pool leaves
+the DNS names resolving and the dials timing out, which is the retryable shape, but a
+Redis that is up and actively refusing connections still exits immediately.
 
 `timeoutSeconds` is 10s on all three. The point is getting away from the 1s default:
 readiness needs it because `/healthz` does real MySQL and Redis round trips, and even
@@ -367,7 +370,7 @@ helm upgrade --install fleet oci://ghcr.io/flamingo-stack/fleetmdm/helm-charts/f
 
 | File | Purpose |
 |------|---------|
-| `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `waitForMysql`, `probes`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
+| `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `cache.connectRetryAttempts`, `waitForMysql`, `probes`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
 | `charts/fleet/templates/configmap.yaml` | **New** — generated DB/cache ConfigMaps |
 | `charts/fleet/templates/secret.yaml` | **New** — generated DB password / admin-setup Secrets |
 | `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` / `FLEET_OPENFRAME_TENANT_UUID` / `FLEET_OPENFRAME_TEAM_ID`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container, probe split |

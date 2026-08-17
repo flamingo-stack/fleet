@@ -81,23 +81,22 @@ fleet:
     enabled: true
     image: busybox:1.36
   # <<< OPENFRAME(helm)
-  # >>> OPENFRAME(helm): only liveness ignores dependencies — openframe/docs/helm-chart.md
-  # First probe runs at t=0, so the Nth failure lands at (N-1) × periodSeconds
+  # >>> OPENFRAME(helm): upstream sets no probe timings and the defaults kill too early — openframe/docs/helm-chart.md
   probes:
-    # gives up on the 25th failure, 24 × 15 = 6 min
+    # 24 × 15 = 6 min
     startup:
       periodSeconds: 15
       failureThreshold: 25
       timeoutSeconds: 10
-    # restarts on the 11th failure, 10 × 15 = 2.5 min
+    # 16 × 15 = 4 min, keep it above readiness
     liveness:
       periodSeconds: 15
-      failureThreshold: 11
+      failureThreshold: 17
       timeoutSeconds: 10
-    # leaves the Service on the 11th failure, 10 × 15 = 2.5 min
+    # 8 × 15 = 2 min
     readiness:
       periodSeconds: 15
-      failureThreshold: 11
+      failureThreshold: 9
       timeoutSeconds: 10
   # <<< OPENFRAME(helm)
   tls:
@@ -378,6 +377,9 @@ cache:
   usePassword: false
   secretName: redis
   passwordKey: redis-password
+  # >>> OPENFRAME(helm): upstream defaults this to 0, so a boot without Redis dies at once — openframe/docs/helm-chart.md
+  connectRetryAttempts: 20
+  # <<< OPENFRAME(helm)
   # >>> OPENFRAME(redis-key-prefix): fork-added per-tenant Redis key prefix — openframe/docs/redis-key-prefix.md
   # When set, wires FLEET_REDIS_KEY_PREFIX from existingConfigMap[keyPrefixKey].
   # Required when sharing one Redis across multiple Fleet servers (multi-tenant).

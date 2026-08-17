@@ -359,6 +359,10 @@ spec:
           # <<< OPENFRAME(helm)
           - name: FLEET_REDIS_DATABASE
             value: "{{ .Values.cache.database }}"
+          # >>> OPENFRAME(helm): retry the first Redis dial — openframe/docs/helm-chart.md
+          - name: FLEET_REDIS_CONNECT_RETRY_ATTEMPTS
+            value: "{{ .Values.cache.connectRetryAttempts }}"
+          # <<< OPENFRAME(helm)
           {{- if .Values.cache.usePassword }}
           - name: FLEET_REDIS_PASSWORD
             valueFrom:
@@ -526,7 +530,7 @@ spec:
           {{- toYaml . | nindent 10 }}
         {{- end }}
         # <<< OPENFRAME(hardening)
-        # >>> OPENFRAME(helm): /healthz reports MySQL and Redis, so liveness uses /version instead — openframe/docs/helm-chart.md
+        # >>> OPENFRAME(helm): probe timings, upstream sets none — openframe/docs/helm-chart.md
         startupProbe:
           httpGet:
             path: /healthz
@@ -539,7 +543,7 @@ spec:
           timeoutSeconds: {{ .Values.fleet.probes.startup.timeoutSeconds }}
         livenessProbe:
           httpGet:
-            path: /version
+            path: /healthz
             port: {{ .Values.fleet.listenPort }}
             {{- if .Values.fleet.tls.enabled }}
             scheme: HTTPS
