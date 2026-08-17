@@ -39,7 +39,8 @@ func (p *OpenFrameMachineIdProvider) GetMachineId() string {
 	}
 
 	p.machineId = p.readFromFile()
-	p.initialized = true
+	// Don't cache an empty read: the file may not be written yet, retry on the next call
+	p.initialized = p.machineId != ""
 	return p.machineId
 }
 
