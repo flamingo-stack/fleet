@@ -184,8 +184,8 @@ connections after a database failover.
 | Probe | Path | Budget |
 |-------|------|--------|
 | `startupProbe` | `/healthz` | 6 min |
-| `livenessProbe` | `/healthz` | 4 min |
-| `readinessProbe` | `/healthz` | 2 min |
+| `livenessProbe` | `/healthz` | 2 min |
+| `readinessProbe` | `/healthz` | 1 min |
 
 What the fork changes is the timing, not the endpoint. Upstream sets no timings at all,
 so every probe runs on the Kubernetes defaults: 1s timeout, 10s period, 3 failures. That
@@ -200,22 +200,22 @@ in two ordinary situations.
   gets to finish waiting. This happens every time MySQL and Fleet come up together,
   which on a tenant cluster is every reschedule. The `startupProbe` covers it: liveness
   and readiness do not start until the process is serving.
-- **Dependency outages.** A hiccup shorter than 4 min no longer restarts anything. At
+- **Dependency outages.** A hiccup shorter than 2 min no longer restarts anything. At
   30s it did, which is what turned a five minute Redis absence into a fleet-wide restart
   storm on 2026-08-16.
 
-Past 4 min a pod does still get killed, and that is fine now only because
+Past 2 min a pod does still get killed, and that is fine now only because
 `cache.connectRetryAttempts` changed what a restart costs. Before it, a killed pod could
 not come back while Redis was still missing and simply crashlooped for the length of the
 outage. With the retry it restarts once and then waits the outage out.
 
 The three budgets are ordered by how expensive the action is. Readiness is cheapest and
 shortest: a pod out of rotation walks back in on the first successful probe. Liveness
-throws away a warm process, so it waits longer, and the two minutes between them are the
-point: that is the window where a pod takes no traffic but still has a chance to recover
-on its own. Set them equal and readiness stops meaning anything, because the pod dies at
-the same moment it leaves the Service. Startup is longest because it supervises a boot
-that is legitimately slow.
+throws away a warm process, so it waits longer, and the minute between them is the point:
+that is the window where a pod takes no traffic but still has a chance to recover on its
+own. Set them equal and readiness stops meaning anything, because the pod dies at the same
+moment it leaves the Service. Startup is by far the longest, because with the Redis retry
+in place it is the probe that actually holds a pod through an outage.
 
 If that trade ever needs revisiting, the lever is the endpoint, not the timings.
 `health.Handler` ([health.go](../../server/health/health.go)) takes a `?check=<name>`
@@ -231,7 +231,7 @@ On upstream's 30s it would not have.
 
 Numbers live under `fleet.probes.{startup,liveness,readiness}`. The first probe runs at
 t=0, so the Nth failure lands at `(N - 1) × periodSeconds`: startup gives up at 6 min,
-liveness at 4 min, readiness at 2 min.
+liveness at 2 min, readiness at 1 min.
 
 The startup number has a floor and no real ceiling. The floor is the ~105s Fleet spends
 retrying MySQL with the port still closed: go under it and the probe cuts a legitimate

@@ -88,15 +88,15 @@ fleet:
       periodSeconds: 15
       failureThreshold: 25
       timeoutSeconds: 10
-    # 16 × 15 = 4 min, keep it above readiness
+    # 8 × 15 = 2 min, keep it above readiness
     liveness:
       periodSeconds: 15
-      failureThreshold: 17
+      failureThreshold: 9
       timeoutSeconds: 10
-    # 8 × 15 = 2 min
+    # 4 × 15 = 1 min
     readiness:
       periodSeconds: 15
-      failureThreshold: 9
+      failureThreshold: 5
       timeoutSeconds: 10
   # <<< OPENFRAME(helm)
   tls:
