@@ -38,21 +38,26 @@ spec:
         heritage: {{ .Release.Service }}
         release: {{ .Release.Name }}
     spec:
+      # >>> OPENFRAME(hardening): pod-level non-root context — openframe/docs/helm-chart.md
+      {{- with .Values.fleet.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # <<< OPENFRAME(hardening)
       initContainers:
       # >>> OPENFRAME(helm): fork-added init container installing custom CA certs into truststore — openframe/docs/helm-chart.md
       {{- if include "fleet.additionalCAs.enabled" . }}
       - name: install-trusted-cas
         image: "{{ .Values.imageRepository }}:{{ .Values.imageTag }}"
+        {{- with .Values.fleet.securityContext }}
         securityContext:
-          runAsUser: 0
-          runAsNonRoot: false
-          allowPrivilegeEscalation: false
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         command:
           - sh
           - -c
           - |
             set -e
-            apk add ca-certificates
             echo "Installing trusted CA certificates..."
 
             for dir in /custom-ca/*; do
@@ -73,6 +78,8 @@ spec:
             mountPath: /custom-ca/secret-{{ .name }}
             readOnly: true
       {{- end }}
+          - name: ca-local
+            mountPath: /usr/local/share/ca-certificates
           - name: ca-certs
             mountPath: /etc/ssl/certs
       {{- end }}
@@ -513,21 +520,12 @@ spec:
                 key: {{ .valueFrom.secretKeyRef.key }}
           {{- end }}
           {{- end }}
+        # >>> OPENFRAME(hardening): full container context from values
+        {{- with .Values.fleet.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: [ALL]
-          privileged: false
-          readOnlyRootFilesystem: true
-          {{- if .Values.fleet.securityContext.runAsGroup }}
-          runAsGroup: {{ int64 .Values.fleet.securityContext.runAsGroup }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsUser }}
-          runAsUser: {{ int64 .Values.fleet.securityContext.runAsUser }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsNonRoot }}
-          runAsNonRoot: {{ .Values.fleet.securityContext.runAsNonRoot }}
-          {{- end }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        # <<< OPENFRAME(hardening)
         livenessProbe:
           httpGet:
             path: /healthz
@@ -542,10 +540,11 @@ spec:
             {{- if .Values.fleet.tls.enabled }}
             scheme: HTTPS
             {{- end }}
-        {{- if or (.Values.fleet.tls.enabled) (.Values.database.tls.enabled) (eq .Values.osquery.logging.statusPlugin "filesystem") (eq .Values.osquery.logging.resultPlugin "filesystem") (include "fleet.additionalCAs.enabled" .) }}
+        # >>> OPENFRAME(hardening): unconditional — tmp is always mounted — openframe/docs/helm-chart.md
         volumeMounts:
           - name: tmp
             mountPath: /tmp
+          # <<< OPENFRAME(hardening)
           {{- if .Values.fleet.tls.enabled }}
           - name: fleet-tls
             readOnly: true
@@ -569,14 +568,18 @@ spec:
           {{- with .Values.fleet.extraVolumeMounts }}
           {{- toYaml . | nindent 10 }}
           {{- end }}
-        {{- end }}
       {{- if .Values.gke.cloudSQL.enableProxy }}
       - name: cloudsql-proxy
         image: "{{ .Values.gke.cloudSQL.imageRepository }}:{{ .Values.gke.cloudSQL.imageTag }}"
-        command:
-        - "/cloud_sql_proxy"
-        - "-verbose={{ .Values.gke.cloudSQL.verbose}}"
-        - "-instances={{ .Values.gke.cloudSQL.instanceName }}=tcp:3306"
+        # >>> OPENFRAME(cloudsql-v2): v2 CLI — entrypoint is /cloud-sql-proxy, instance is positional — openframe/docs/helm-chart.md
+        args:
+        - "--port=3306"
+        - "--structured-logs"
+        {{- if not .Values.gke.cloudSQL.verbose }}
+        - "--quiet"
+        {{- end }}
+        - "{{ required "gke.cloudSQL.instanceName is required when gke.cloudSQL.enableProxy is true" .Values.gke.cloudSQL.instanceName }}"
+        # <<< OPENFRAME(cloudsql-v2)
         resources:
           limits:
             cpu: 0.5 # 500Mhz
@@ -584,21 +587,12 @@ spec:
           requests:
             cpu: 0.1 # 100Mhz
             memory: 50Mi
+        # >>> OPENFRAME(hardening): proxy runs nonroot with a read-only rootfs
+        {{- with .Values.gke.cloudSQL.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: [ALL]
-          privileged: false
-          readOnlyRootFilesystem: true
-          {{- if .Values.fleet.securityContext.runAsGroup }}
-          runAsGroup: {{ int64 .Values.fleet.securityContext.runAsGroup }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsUser }}
-          runAsUser: {{ int64 .Values.fleet.securityContext.runAsUser }}
-          {{- end }}
-          {{- if .Values.fleet.securityContext.runAsNonRoot }}
-          runAsNonRoot: {{ .Values.fleet.securityContext.runAsNonRoot }}
-          {{- end }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        # <<< OPENFRAME(hardening)
       {{- end }}
       hostPID: false
       hostNetwork: false
@@ -608,8 +602,9 @@ spec:
         {{- toYaml . | nindent 8}}
       {{- end }}
       serviceAccountName: fleet
-      {{- if or (.Values.fleet.tls.enabled) (.Values.database.tls.enabled) (eq .Values.osquery.logging.statusPlugin "filesystem") (eq .Values.osquery.logging.resultPlugin "filesystem") }}
+      # >>> OPENFRAME(hardening): unconditional — tmp is always mounted
       volumes:
+        # <<< OPENFRAME(hardening)
         - name: tmp
           emptyDir:
         {{- if .Values.fleet.tls.enabled }}
@@ -648,11 +643,12 @@ spec:
           secret:
             secretName: {{ .name }}
         {{- end }}
+        - name: ca-local
+          emptyDir: {}
         - name: ca-certs
           emptyDir: {}
         {{- end }}
         # <<< OPENFRAME(helm)
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

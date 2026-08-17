@@ -29,7 +29,7 @@ env:
 jobs:
   changes:
     name: Detect Changes
-    uses: ./.github/workflows/changes.yml
+    uses: ./.github/workflows/changes.yaml
     if: |
       github.event_name == 'pull_request' &&
       !github.event.pull_request.draft
@@ -38,23 +38,10 @@ jobs:
     name: "Test Client (${{ matrix.name }})"
     needs: [changes]
     runs-on: ${{ matrix.os }}
-    if: |
-      github.event_name == 'pull_request' &&
-      !github.event.pull_request.draft &&
-      needs.changes.outputs.client == 'true'
+    if: fromJSON(needs.changes.outputs.changes || '{}').client == 'true'  # draft gate inherited from changes
     strategy:
       matrix:
-        include:
-          - name: macos
-            os: macos-latest
-            go_os: darwin
-            go_arch: ["arm64", "amd64"]
-            artifact_name: fleet-mac-universal
-          - name: windows
-            os: windows-latest
-            go_os: windows
-            go_arch: amd64
-            artifact_name: fleet-windows-amd64.exe
+        include: ${{ fromJson(needs.changes.outputs.clients_matrix) }}
 
     steps:
       - name: Checkout
@@ -122,10 +109,7 @@ jobs:
     name: "Test Server"
     needs: [changes]
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'pull_request' &&
-      !github.event.pull_request.draft &&
-      needs.changes.outputs.server == 'true'
+    if: fromJSON(needs.changes.outputs.changes || '{}').server == 'true'  # draft gate inherited from changes
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@63c24ba6bd7ba022e95695ff85de572c04a18142 # v2.7.0
@@ -175,10 +159,7 @@ jobs:
     name: "Test Helm Chart"
     needs: [changes]
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'pull_request' &&
-      !github.event.pull_request.draft &&
-      needs.changes.outputs.helm == 'true'
+    if: fromJSON(needs.changes.outputs.changes || '{}').helm == 'true'  # draft gate inherited from changes
     steps:
       - name: Checkout
         uses: actions/checkout@v4
