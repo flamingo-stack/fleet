@@ -71,7 +71,7 @@ top. Fork edits inside shared files are wrapped in `// OPENFRAME(<slug>)` marker
 | `server/datastore/redis/redis.go` | pool `keyPrefix` fields, `KeyPrefix()` accessors, `normalizeKeyPrefix`, `newPrefixedConn`/`unwrapConn` around `redisc` | **Critical** — see watchlist; verify every pool `Get()` returns `newPrefixedConn(...)` |
 | `orbit/cmd/orbit/orbit.go` | 4 `openframe-*` flags, custom osqueryd path, token-refresher startup, `uuid` cmd, osquery flag passthrough, `NewOrbitClient(..., openFrameMode, authManager)` args | Keep all; re-thread the two extra `NewOrbitClient` args at both call sites |
 | `server/service/orbit_client.go` | `openFrameMode`/`authManager` fields, bearer-header block, `/tools/agent/fleetmdm-server` url prefix, `NewOrbitClient` signature | Keep the two trailing constructor params and the header/prefix logic |
-| `charts/fleet/*` | externalized config, `FLEET_OPENFRAME_MODE`, `FLEET_REDIS_KEY_PREFIX`, migration job, waitForMysql, additionalCAs | The chart is fork-owned — prefer ours, cherry-pick upstream chart improvements deliberately |
+| `charts/fleet/*` | externalized config, `FLEET_OPENFRAME_MODE`, `FLEET_REDIS_KEY_PREFIX`, migration job, waitForMysql, probe split, additionalCAs | The chart is fork-owned — prefer ours, cherry-pick upstream chart improvements deliberately |
 | `go.mod` / `go.sum` | fork adds `github.com/robfig/cron/v3` (token refresher) | Keep the require line on conflict; run `go mod tidy` after |
 
 ## Semantic-conflict watchlist (no git conflict — the dangerous ones)

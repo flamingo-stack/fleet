@@ -81,6 +81,24 @@ fleet:
     enabled: true
     image: busybox:1.36
   # <<< OPENFRAME(helm)
+  # >>> OPENFRAME(helm): upstream sets no probe timings and the defaults kill too early — openframe/docs/helm-chart.md
+  probes:
+    # 24 × 15 = 6 min
+    startup:
+      periodSeconds: 15
+      failureThreshold: 25
+      timeoutSeconds: 10
+    # 8 × 15 = 2 min, keep it above readiness
+    liveness:
+      periodSeconds: 15
+      failureThreshold: 9
+      timeoutSeconds: 10
+    # 4 × 15 = 1 min
+    readiness:
+      periodSeconds: 15
+      failureThreshold: 5
+      timeoutSeconds: 10
+  # <<< OPENFRAME(helm)
   tls:
     enabled: true
     # Set to true if you need a separate secret for just TLS data.
@@ -359,6 +377,9 @@ cache:
   usePassword: false
   secretName: redis
   passwordKey: redis-password
+  # >>> OPENFRAME(helm): upstream defaults this to 0, so a boot without Redis dies at once — openframe/docs/helm-chart.md
+  connectRetryAttempts: 10
+  # <<< OPENFRAME(helm)
   # >>> OPENFRAME(redis-key-prefix): fork-added per-tenant Redis key prefix — openframe/docs/redis-key-prefix.md
   # When set, wires FLEET_REDIS_KEY_PREFIX from existingConfigMap[keyPrefixKey].
   # Required when sharing one Redis across multiple Fleet servers (multi-tenant).
