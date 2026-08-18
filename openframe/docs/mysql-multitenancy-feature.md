@@ -66,8 +66,10 @@ role-authz grouping upstream; here it is a hard boundary regardless of token rol
   the minor getters `HostLiteByIdentifier`/`HostLiteByID`, `ListHostsLiteByIDs`, `HostIDsByIdentifier`.
   Deliberately **unfenced**: `HostByUUID` (pre-auth iDevice identity lookup — no pin yet).
 - **policies** — list/count/by-id (`Policy`, `PolicyLite`, `PoliciesByID`), create→pinned, save
-  (verify-on-primary), delete (filter foreign ids); service-layer `DeleteGlobalPolicies` treats an
-  own-pinned-team policy as deletable (creation re-homes policies to the team).
+  (verify-on-primary), delete (filter foreign ids); service-layer `DeleteGlobalPolicies` and
+  `modifyPolicy` (the global modify endpoint) treat an own-pinned-team policy as global — creation
+  re-homes "global" policies to the pinned team, so the tenant UI's global endpoints must accept
+  them back.
 - **queries** — list/by-id/name, create→pinned, save-verify, delete, `ApplyQueries` re-home.
 - **enroll_secrets** (`app_configs.go`) — `GetEnrollSecrets`/`ApplyEnrollSecrets` force `teamID =
   pinned`; `VerifyEnrollSecret` only accepts a secret whose `team_id = pinned` (agent boundary).
