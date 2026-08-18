@@ -47,6 +47,13 @@ func TestOpenframeEnsureTeamID(t *testing.T) {
 		"SELECT openframe_tenant_uuid FROM teams WHERE id = ?", idA))
 	require.Equal(t, uuidA, storedUUID)
 
+	// The created team must carry a config with the mdm key: GetOrbitConfig reads
+	// `config->'$.mdm'` (TeamMDMConfig) and dereferences the result unconditionally, so a
+	// config-less team would panic the orbit config endpoint for every host on it.
+	mdmConfig, err := ds.TeamMDMConfig(ctx, idA)
+	require.NoError(t, err)
+	require.NotNil(t, mdmConfig)
+
 	// A newly created team is seeded with exactly one team-scoped enroll secret, so a fresh
 	// tenant can enroll agents without any operator step.
 	secretsA, err := ds.GetEnrollSecrets(ctx, &idA)
