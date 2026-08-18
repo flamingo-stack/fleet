@@ -684,6 +684,16 @@ func (svc *Service) GetOrbitConfig(ctx context.Context) (fleet.OrbitConfig, erro
 			return fleet.OrbitConfig{}, err
 		}
 
+		// >>> OPENFRAME(mysql-multitenancy): fork-minted teams (EnsureOpenframeTeamID) can lack the
+		// config JSON that service-created teams always carry, making TeamMDMConfig nil and the
+		// unconditional dereferences below panic. Treat a config-less team as all-defaults — the
+		// same effective settings a TeamID-less host gets. Flag-gated so flag-off behavior stays
+		// byte-identical to upstream.
+		if mdmConfig == nil && fleet.IsOpenframeMultitenancy() {
+			mdmConfig = &fleet.TeamMDM{}
+		}
+		// <<< OPENFRAME(mysql-multitenancy)
+
 		var nudgeConfig *fleet.NudgeConfig
 		if appConfig.MDM.EnabledAndConfigured &&
 			mdmConfig != nil &&

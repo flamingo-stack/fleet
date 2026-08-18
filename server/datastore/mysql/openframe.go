@@ -157,7 +157,7 @@ func (ds *Datastore) EnsureOpenframeTeamID(ctx context.Context, tenantUUID strin
 	var id uint
 	err := ds.withTx(ctx, func(tx sqlx.ExtContext) error {
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO teams (name, openframe_tenant_uuid) VALUES (?, ?)`,
+			`INSERT INTO teams (name, openframe_tenant_uuid, config) VALUES (?, ?, '{"mdm": {}}')`,
 			"openframe-"+tenantUUID, tenantUUID)
 		if err != nil {
 			return err // likely a concurrent create (unique tenant_uuid / name); re-selected below

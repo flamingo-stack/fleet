@@ -66,12 +66,19 @@ role-authz grouping upstream; here it is a hard boundary regardless of token rol
   the minor getters `HostLiteByIdentifier`/`HostLiteByID`, `ListHostsLiteByIDs`, `HostIDsByIdentifier`.
   Deliberately **unfenced**: `HostByUUID` (pre-auth iDevice identity lookup — no pin yet).
 - **policies** — list/count/by-id (`Policy`, `PolicyLite`, `PoliciesByID`), create→pinned, save
-  (verify-on-primary), delete (filter foreign ids); service-layer `DeleteGlobalPolicies` treats an
-  own-pinned-team policy as deletable (creation re-homes policies to the team).
+  (verify-on-primary), delete (filter foreign ids); service-layer `DeleteGlobalPolicies` and
+  `modifyPolicy` (the global modify endpoint) treat an own-pinned-team policy as global — creation
+  re-homes "global" policies to the pinned team, so the tenant UI's global endpoints must accept
+  them back.
 - **queries** — list/by-id/name, create→pinned, save-verify, delete, `ApplyQueries` re-home.
 - **enroll_secrets** (`app_configs.go`) — `GetEnrollSecrets`/`ApplyEnrollSecrets` force `teamID =
   pinned`; `VerifyEnrollSecret` only accepts a secret whose `team_id = pinned` (agent boundary).
 - **live-query targets** (`targets.go`) — `HostIDsInTargets`/`CountHostsInTargets` scoped.
+- **live-query campaigns** (`campaigns.go`) — `DistributedQueryCampaign`/
+  `DistributedQueryCampaignTargetIDs` fenced via the campaign's query team (`EXISTS` against
+  `queries.team_id`; pinned creation re-homes ad-hoc query rows, so every campaign's query carries
+  its tenant's team). Upstream's only guard is `campaign.UserID`, which is useless on the shared
+  Fleet where every tenant operates as the same Admin user.
 - **host-assignments** (`policy_hosts`/`query_hosts`) — parent verified in team + foreign host ids
   dropped (pre-existing `OPENFRAME(host-assignments)` feature, extended here).
 - **teams** — `TeamLite`/`ListTeams` read fence.
@@ -90,6 +97,12 @@ role-authz grouping upstream; here it is a hard boundary regardless of token rol
   the osquery header pre-auth paths (`osquery_header_auth.go`); fail-closed on a team-less host.
 - **Enrollment** — after `VerifyEnrollSecret`, `osquery.go`/`orbit.go` pin from `secret.TeamID`
   (reject if the secret has no team). The host row is then created carrying that `team_id`.
+- **Live-query results websocket** (`endpoint_campaigns.go`) — the sockjs handler rebuilds its
+  context from `context.Background()`, discarding the middleware-pinned upgrade-request context,
+  so it **re-pins from `session.Request().Context()`** (read once — polling transports mutate the
+  session request). Fail closed: in shared mode an unpinned session is rejected. Without the
+  re-pin the whole campaign stream ran unfenced and the `live_query` activity was stamped
+  `team_id NULL`.
 
 Agents send **no tenant header** — tenant identity flows in via the enroll secret and thereafter via
 the host record (node key → host → team). This is by design and stronger than a header.

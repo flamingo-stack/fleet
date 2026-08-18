@@ -170,6 +170,65 @@ exactly-once semantics.
 | Additional CA certs | `fleet.additionalCAs.*` | Init-container injection of CA bundles from named ConfigMaps/Secrets, for private PKI. |
 | Dedicated vuln processing | `vulnProcessing.dedicated`, `vulnProcessing.schedule` | When `true`, runs vulnerability processing as a separate CronJob ([vulnprocessing/cronjob.yaml](../../charts/fleet/templates/vulnprocessing/cronjob.yaml)) and disables it in the main deployment. |
 | Vuln feed persistence | `vulnProcessing.persistence.*`, `vulnProcessing.staggerSchedule` | See [below](#vulnerability-feed-persistence-vuln-persistence). |
+| Probe split | `fleet.probes.*` | See [below](#probes). |
+
+## Probes
+
+All three probes keep upstream's endpoint, `/healthz`, which checks MySQL and Redis
+(`healthCheckers` in [cmd/fleet/serve.go](../../cmd/fleet/serve.go)). What the fork adds
+is timings, which upstream leaves unset, and a retry on the first Redis dial.
+
+| Probe | Budget | `fleet.probes.*` |
+|-------|--------|------------------|
+| `startupProbe` | 6 min | `25 × 15s` |
+| `livenessProbe` | 2 min | `9 × 15s` |
+| `readinessProbe` | 1 min | `5 × 15s` |
+
+Without timings every probe runs on the Kubernetes defaults, which kill a container 30s
+after the first failure. That is far too short for Fleet: it waits for MySQL on its own
+for about 105s (15 attempts sleeping 0,1,…,14s, see
+[common.go](../../server/platform/mysql/common.go) and `defaultMaxAttempts` in
+[config.go](../../server/datastore/mysql/config.go)) and does not listen on `listenPort`
+while it waits.
+
+That is what the `startupProbe` is for. Liveness and readiness do not run until it
+succeeds, so the boot gets its own budget and the other two can stay short.
+
+The three budgets are ordered by how expensive the action is. Readiness is reversible and
+so the shortest; liveness throws away a warm process; startup supervises a boot that is
+legitimately slow. The minute between readiness and liveness is deliberate: it is the
+window where a pod takes no traffic but can still recover on its own.
+
+### Why `cache.connectRetryAttempts` is set
+
+A probe budget only means something while the process is alive. Upstream defaults
+`redis.connect_retry_attempts` to 0 ([config.go](../../server/config/config.go)), a single
+dial, so a boot during a Redis outage ended in `initFatal` within seconds and the pod
+crashlooped for the length of the outage with no probe ever consulted.
+
+The fork sets it to 20, which turns that dial into an exponential backoff (`backoff/v4`
+defaults, capped at 60s per attempt). The process now stays up retrying and the 6 min
+startup budget becomes the real ceiling.
+
+One caveat: the retry only covers errors Go reports as temporary or as timeouts, while a
+plain `connection refused` is `backoff.Permanent` and still exits at once
+([redis.go](../../server/datastore/redis/redis.go)).
+
+### Notes
+
+`timeoutSeconds` is 10s everywhere, up from the 1s default, because `/healthz` does real
+MySQL and Redis round trips. It caps one attempt and sits inside the period rather than
+adding to it, so keep it under `periodSeconds`.
+
+The first probe runs at t=0, so the Nth failure lands at `(N - 1) × periodSeconds`. A
+Cloud SQL HA failover takes about 60s and therefore passes without a restart and without
+leaving the Service ([Cloud SQL HA](https://cloud.google.com/sql/docs/mysql/high-availability));
+on upstream's 30s it would not have.
+
+If the endpoint ever needs to change rather than the timings, `health.Handler`
+([health.go](../../server/health/health.go)) takes a `?check=<name>` filter, and `/version`
+([version.go](../../server/version/version.go)) is a static struct with no dependencies at
+all.
 
 ## Vulnerability feed persistence (`vuln-persistence`)
 
@@ -267,10 +326,10 @@ helm upgrade --install fleet oci://ghcr.io/flamingo-stack/fleetmdm/helm-charts/f
 
 | File | Purpose |
 |------|---------|
-| `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `waitForMysql`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
+| `charts/fleet/values.yaml` | OpenFrame mode, externalized DB/cache/setup config, `cache.keyPrefixKey`, `cache.connectRetryAttempts`, `waitForMysql`, `probes`, `additionalCAs`, `vulnProcessing`, `deploymentAnnotations` |
 | `charts/fleet/templates/configmap.yaml` | **New** — generated DB/cache ConfigMaps |
 | `charts/fleet/templates/secret.yaml` | **New** — generated DB password / admin-setup Secrets |
-| `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` / `FLEET_OPENFRAME_TENANT_UUID` / `FLEET_OPENFRAME_TEAM_ID`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container |
+| `charts/fleet/templates/deployment.yaml` | `FLEET_OPENFRAME_MODE`, `FLEET_OPENFRAME_MULTI_TENANCY_ENABLED` / `FLEET_OPENFRAME_TENANT_UUID` / `FLEET_OPENFRAME_TEAM_ID`, `FLEET_REDIS_KEY_PREFIX`, ConfigMap/Secret refs, annotations, CA init container, probe split |
 | `charts/fleet/templates/job-migration.yaml` | `waitForMysql` init container, hook removal, TTL removal |
 | `charts/fleet/templates/vulnprocessing/cronjob.yaml` | Dedicated vuln-processing cron + `FLEET_REDIS_KEY_PREFIX`, feed-cache PVC mount, fsGroup, schedule stagger (moved from `templates/cron-vulnprocessing.yaml`) |
 | `charts/fleet/templates/vulnprocessing/pvc.yaml` | **New** — PVC persisting the vulnerability feed cache across cron runs |
