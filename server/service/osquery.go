@@ -442,7 +442,13 @@ func (svc *Service) getPackConfig(ctx context.Context, host *fleet.Host) (json.R
 	// involved, ListScheduledQueriesForAgents filters per host, so the
 	// result varies per host and cannot be cached at the team level.
 	useLegacyPacks := len(packs) > 0
-	canUseCache := !useLegacyPacks && svc.packConfigCache != nil
+	// >>> OPENFRAME(host-assignments): the pack-config cache is keyed by team, which assumes every
+	// host in a team receives the same scheduled queries. In openframe mode
+	// ListScheduledQueriesForAgents additionally filters by query_hosts, so the config is
+	// host-specific and sharing it across hosts in a team would hand one host another host's
+	// scheduled queries — openframe/docs/architecture-host-assignments.md
+	canUseCache := !useLegacyPacks && svc.packConfigCache != nil && !fleet.IsOpenframeMode()
+	// <<< OPENFRAME(host-assignments)
 	if canUseCache {
 		// Check (with caching) whether any scheduled queries have label targeting.
 		// This is cached separately from the pack config itself to avoid a DB
