@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fleetdm/fleet/v4/orbit/pkg/backoff"
 	"github.com/fleetdm/fleet/v4/orbit/pkg/constant"
 	"github.com/fleetdm/fleet/v4/orbit/pkg/logging"
 	"github.com/fleetdm/fleet/v4/orbit/pkg/luks"
@@ -124,12 +125,18 @@ func (oc *OrbitClient) SetOpenSSOWindowFunc(f func() error) {
 }
 
 func (oc *OrbitClient) request(verb string, path string, params any, resp any) error {
-	return oc.requestWithExternal(verb, path, params, resp, false)
+	ctx := context.Background()
+	if _, ok := resp.(BodyHandler); !ok {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		ctx = timeoutCtx
+	}
+	return oc.requestWithExternal(ctx, verb, path, params, resp, false)
 }
 
 // requestWithExternal is used to make requests to Fleet or external URLs. If external is true, the pathOrURL
 // is used as the full URL to make the request to.
-func (oc *OrbitClient) requestWithExternal(verb string, pathOrURL string, params any, resp any, external bool) error {
+func (oc *OrbitClient) requestWithExternal(ctx context.Context, verb string, pathOrURL string, params any, resp any, external bool) error {
 	var bodyBytes []byte
 	var err error
 	if params != nil {
@@ -141,7 +148,6 @@ func (oc *OrbitClient) requestWithExternal(verb string, pathOrURL string, params
 
 	oc.closeIdleConnections()
 
-	ctx := context.Background()
 	if os.Getenv("FLEETD_TEST_HTTPTRACE") == "1" {
 		ctx = httptrace.WithClientTrace(ctx, testStdoutHTTPTracer)
 	}
@@ -223,6 +229,11 @@ var (
 	netErrInterval                     = 5 * time.Minute
 	configRetryOnNetworkError          = 30 * time.Second
 	defaultOrbitConfigReceiverInterval = 30 * time.Second
+	maxConfigBackoff                   = 5 * time.Minute
+	// downloadStallTimeout bounds a software-installer download that makes no
+	// progress (e.g. a network filter dropping packets mid-transfer). It resets
+	// on any received bytes, so slow-but-healthy downloads are unaffected.
+	downloadStallTimeout = 60 * time.Second
 )
 
 // NewOrbitClient creates a new OrbitClient.
@@ -231,6 +242,8 @@ var (
 //   - addr is the address of the Fleet server.
 //   - orbitHostInfo is the host system information used for enrolling to Fleet.
 //   - onGetConfigErrFns can be used to handle errors in the GetConfig request.
+//   - bypassEndUserAuth, when true, omits the end-user auth capability so the server enrolls the
+//     host without prompting for end-user authentication (only meaningful on Linux and Windows).
 func NewOrbitClient(
 	rootDir string,
 	addr string,
@@ -242,12 +255,17 @@ func NewOrbitClient(
 	onGetConfigErrFns *OnGetConfigErrFuncs,
 	httpSignerWrapper func(*http.Client) *http.Client,
 	hostIdentityCertPath string,
+	bypassEndUserAuth bool,
 	// >>> OPENFRAME(agent-openframe-mode): extra constructor params for openframe mode + auth manager — openframe/docs/agent-openframe-mode.md
 	openFrameMode bool,
 	authManager *openframe.OpenFrameAuthorizationManager,
 	// <<< OPENFRAME(agent-openframe-mode)
 ) (*OrbitClient, error) {
 	orbitCapabilities := fleet.GetOrbitClientCapabilities()
+	if bypassEndUserAuth {
+		// Don't advertise the end-user auth capability so the Fleet server enrolls this host without prompting for EUA.
+		delete(orbitCapabilities, fleet.CapabilityEndUserAuth)
+	}
 
 	urlPrefix := ""
 	// >>> OPENFRAME(agent-openframe-mode): route through the OpenFrame tools-agent URL prefix when in openframe mode — openframe/docs/agent-openframe-mode.md
@@ -394,13 +412,29 @@ func (oc *OrbitClient) ExecuteConfigReceivers() error {
 	ticker := time.NewTicker(oc.ReceiverUpdateInterval)
 	defer ticker.Stop()
 
+	// Backoff tracker for the config polling loop. See #45553.
+	configBackoff := backoff.New(oc.ReceiverUpdateInterval, maxConfigBackoff)
+
 	for {
 		select {
 		case <-oc.receiverUpdateContext.Done():
 			return nil
 		case <-ticker.C:
 			if err := oc.RunConfigReceivers(); err != nil {
-				log.Error().Err(err).Msg("running config receivers")
+				configBackoff.RecordFailure()
+				nextRetry := configBackoff.Interval()
+				ticker.Reset(nextRetry)
+				log.Error().Err(err).
+					Str("next_retry", nextRetry.String()).
+					Msg("running config receivers, backing off")
+			} else {
+				if configBackoff.InBackoff() {
+					log.Info().
+						Str("backoff_duration", configBackoff.TimeSinceBackoffStarted().String()).
+						Msg("config receivers succeeded, exiting backoff")
+				}
+				configBackoff.RecordSuccess()
+				ticker.Reset(oc.ReceiverUpdateInterval)
 			}
 		}
 	}
@@ -413,7 +447,9 @@ func (oc *OrbitClient) InterruptConfigReceivers(err error) {
 // GetConfig returns the Orbit config fetched from Fleet server for this instance of OrbitClient.
 // Since this method is called in multiple places, we use a cache with configCacheTTL time-to-live
 // to reduce traffic to the Fleet server.
-// Upon network errors, this method will retry the get config request (every 30 seconds).
+// On network or 5XX errors the request is retried once before returning the error
+// to the caller. The caller (ExecuteConfigReceivers) handles sustained failures
+// with exponential backoff. See #45553.
 func (oc *OrbitClient) GetConfig() (*fleet.OrbitConfig, error) {
 	oc.configCache.mu.Lock()
 	defer oc.configCache.mu.Unlock()
@@ -426,7 +462,8 @@ func (oc *OrbitClient) GetConfig() (*fleet.OrbitConfig, error) {
 			resp fleet.OrbitConfig
 			err  error
 		)
-		// Retry until we don't get a network error or a 5XX error.
+		// Retry once on transient errors. Sustained failures are handled
+		// by the exponential backoff in ExecuteConfigReceivers.
 		_ = retry.Do(func() error {
 			err = oc.authenticatedRequest(verb, path, &fleet.OrbitGetConfigRequest{}, &resp)
 			var (
@@ -445,7 +482,7 @@ func (oc *OrbitClient) GetConfig() (*fleet.OrbitConfig, error) {
 				return err // retry on network or server 5XX errors
 			}
 			return nil
-		}, retry.WithInterval(configRetryOnNetworkError))
+		}, retry.WithInterval(configRetryOnNetworkError), retry.WithMaxAttempts(2))
 		oc.configCache.config = &resp
 		oc.configCache.err = err
 		oc.configCache.lastUpdated = now
@@ -530,6 +567,7 @@ func (oc *OrbitClient) DownloadSoftwareInstaller(installerID uint, downloadDirec
 	resp := FileResponse{
 		DestPath:     downloadDirectory,
 		ProgressFunc: progressFunc,
+		StallTimeout: downloadStallTimeout,
 	}
 	if err := oc.authenticatedRequest(verb, path, &fleet.OrbitDownloadSoftwareInstallerRequest{
 		InstallerID: installerID,
@@ -545,8 +583,9 @@ func (oc *OrbitClient) DownloadSoftwareInstallerFromURL(url string, filename str
 		DestFile:      filename,
 		SkipMediaType: true,
 		ProgressFunc:  progressFunc,
+		StallTimeout:  downloadStallTimeout,
 	}
-	if err := oc.requestWithExternal("GET", url, nil, &resp, true); err != nil {
+	if err := oc.requestWithExternal(context.Background(), "GET", url, nil, &resp, true); err != nil {
 		return "", err
 	}
 	return resp.GetFilePath(), nil
@@ -941,6 +980,22 @@ func (oc *OrbitClient) SendLinuxKeyEscrowResponse(lr luks.LuksResponse) error {
 		KeySlot:     lr.KeySlot,
 		Salt:        lr.Salt,
 		ClientError: lr.Err,
+		KeyType:     lr.KeyType,
+	}, &resp); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SendManagedLocalAccountPassword escrows the password of the managed local admin account that fleetd created on this
+// Windows host. A non-empty clientError reports that creating the account failed, which the server records against the
+// host and which makes it ask this host to try again.
+func (oc *OrbitClient) SendManagedLocalAccountPassword(password, clientError string) error {
+	verb, path := "POST", "/api/fleet/orbit/managed_local_account"
+	var resp fleet.OrbitPostManagedLocalAccountResponse
+	if err := oc.authenticatedRequest(verb, path, &fleet.OrbitPostManagedLocalAccountRequest{
+		Password:    password,
+		ClientError: clientError,
 	}, &resp); err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import { Tab, Tabs, TabList, TabPanel } from "react-tabs";
 
 import {
   IAppStoreApp,
+  isAndroidSoftwareSource,
   isIpadOrIphoneSoftwareSource,
   ISoftwarePackage,
   InstallerType,
@@ -11,9 +12,8 @@ import {
 import { IInputFieldParseTarget } from "interfaces/form_field";
 import { ISelfServiceCategory } from "interfaces/self_service_category";
 
-import { NotificationContext } from "context/notification";
 import { AppContext } from "context/app";
-import { INotification } from "interfaces/notification";
+import { notify, INotifyBatchItem } from "components/ToastNotification";
 import { getErrorReason } from "interfaces/errors";
 import softwareAPI from "services/entities/software";
 import selfServiceCategoriesAPI, {
@@ -40,7 +40,7 @@ import SoftwareDetailsSummary from "pages/SoftwarePage/components/cards/Software
 import { BasicSoftwareTable } from "pages/SoftwarePage/components/modals/CategoriesEndUserExperienceModal/CategoriesEndUserExperienceModal";
 import SelfServicePreview from "pages/SoftwarePage/components/cards/SelfServicePreview";
 
-import { TitleVersionsLastUpdatedInfo } from "../SoftwareSummaryCard/TitleVersionsTable/TitleVersionsTable";
+import { TitleVersionsLastUpdatedInfo } from "../TitleVersionsTable/TitleVersionsTable";
 
 const baseClass = "edit-icon-modal";
 
@@ -156,7 +156,6 @@ const EditIconModal = ({
   installerType,
   previewInfo,
 }: IEditIconModalProps) => {
-  const { renderFlash, renderMultiFlash } = useContext(NotificationContext);
   const { config } = useContext(AppContext);
   const queryClient = useQueryClient();
 
@@ -164,6 +163,7 @@ const EditIconModal = ({
   const isIosOrIpadosApp = isIpadOrIphoneSoftwareSource(
     previewInfo?.source || ""
   );
+  const isAndroidApp = isAndroidSoftwareSource(previewInfo?.source || "");
 
   // Fetch current custom icon from API if applicable
   const shouldFetchCustomIcon =
@@ -304,13 +304,13 @@ const EditIconModal = ({
 
       // Enforce filesize limit
       if (file.size > MAX_FILE_SIZE) {
-        renderFlash("error", "Couldn't edit. Icon must be 100KB or less.");
+        notify.error("Couldn't edit. Icon must be 100KB or less.");
         return;
       }
 
       // Enforce PNG MIME type, even though FileUploader also enforces by extension
       if (file.type !== "image/png") {
-        renderFlash("error", "Couldn't edit. Must be a PNG file.");
+        notify.error("Couldn't edit. Must be a PNG file.");
         return;
       }
 
@@ -324,8 +324,7 @@ const EditIconModal = ({
             width < MIN_DIMENSION ||
             width > MAX_DIMENSION
           ) {
-            renderFlash(
-              "error",
+            notify.error(
               `Couldn't edit. Icon must be square, between ${MIN_DIMENSION}x${MIN_DIMENSION}px and ${MAX_DIMENSION}x${MAX_DIMENSION}px.`
             );
             return;
@@ -336,7 +335,7 @@ const EditIconModal = ({
         if (e.target && typeof e.target.result === "string") {
           img.src = e.target.result;
         } else {
-          renderFlash("error", "FileReader result was not a string.");
+          notify.error("FileReader result was not a string.");
         }
       };
       reader.readAsDataURL(file);
@@ -610,32 +609,36 @@ const EditIconModal = ({
         message={UPLOAD_MESSAGE}
         onFileUpload={onFileSelect}
         buttonMessage="Choose file"
-        buttonType="brand-inverse-icon"
+        buttonType="secondary"
         className={`${baseClass}__file-uploader`}
         fileDetails={fileDetails}
         gitopsCompatible={false}
       />
       <h2>Preview</h2>
-      <TabNav>
-        <Tabs selectedIndex={previewTabIndex} onSelect={onTabChange}>
-          <TabList>
-            <Tab>
-              <TabText>Fleet</TabText>
-            </Tab>
-            <Tab>
-              <TabText>Self-service</TabText>
-            </Tab>
-          </TabList>
-          <TabPanel>{renderPreviewFleetCard()}</TabPanel>
-          <TabPanel>{renderPreviewSelfServiceCard()}</TabPanel>
-        </Tabs>
-      </TabNav>
+      {isAndroidApp ? (
+        renderPreviewFleetCard()
+      ) : (
+        <TabNav>
+          <Tabs selectedIndex={previewTabIndex} onSelect={onTabChange}>
+            <TabList>
+              <Tab>
+                <TabText>Fleet</TabText>
+              </Tab>
+              <Tab>
+                <TabText>Self service</TabText>
+              </Tab>
+            </TabList>
+            <TabPanel>{renderPreviewFleetCard()}</TabPanel>
+            <TabPanel>{renderPreviewSelfServiceCard()}</TabPanel>
+          </Tabs>
+        </TabNav>
+      )}
     </>
   );
 
   const onClickSave = async () => {
     setIsUpdatingSoftwareInfo(true);
-    const notifications: INotification[] = [];
+    const errorToasts: INotifyBatchItem[] = [];
     let iconSucceeded = false;
     let nameSucceeded = false;
     let iconSuccessMessage: React.ReactElement | null = null;
@@ -670,12 +673,10 @@ const EditIconModal = ({
         }
       } catch (e) {
         const errorMessage = getErrorReason(e) || DEFAULT_ERROR_MESSAGE;
-        notifications.push({
-          id: "icon-error",
-          alertType: "error",
-          isVisible: true,
+        errorToasts.push({
+          variant: "error",
           message: errorMessage,
-          persistOnPageChange: false,
+          options: { response: e },
         });
       }
 
@@ -686,6 +687,10 @@ const EditIconModal = ({
             ? softwareAPI.editSoftwarePackage({
                 data: { displayName: trimmedDisplayName },
                 softwareId,
+                // Multi-package titles require `installer_id` on any edit; display_name
+                // is title-level, so target the first-added package (`software` is
+                // `software_package`, which mirrors `packages[0]`).
+                installerId: (software as ISoftwarePackage).installer_id,
                 teamId: teamIdForApi,
               })
             : softwareAPI.editAppStoreApp(softwareId, teamIdForApi, {
@@ -705,22 +710,19 @@ const EditIconModal = ({
             );
         } catch (e) {
           const errorMessage = getErrorReason(e) || DEFAULT_ERROR_MESSAGE;
-          notifications.push({
-            id: "name-error",
-            alertType: "error",
-            isVisible: true,
+          errorToasts.push({
+            variant: "error",
             message: errorMessage,
-            persistOnPageChange: false,
+            options: { response: e },
           });
         }
       }
 
-      if (notifications.length > 0) {
-        renderMultiFlash({ notifications });
+      if (errorToasts.length > 0) {
+        notify.batch(errorToasts);
       } else if (iconSucceeded && nameSucceeded) {
         // Both changed - show generic message to avoid double toast
-        renderFlash(
-          "success",
+        notify.success(
           <>
             Successfully edited{" "}
             <b>{displayName === "" ? previewInfo.name : displayName}</b>.
@@ -738,7 +740,7 @@ const EditIconModal = ({
         setIconUploadedAt(new Date().toISOString());
         onExitEditIconModal();
       } else if (iconSucceeded && iconSuccessMessage) {
-        renderFlash("success", iconSuccessMessage);
+        notify.success(iconSuccessMessage);
         queryClient.invalidateQueries({
           queryKey: [{ scope: "software-titles" }],
         });
@@ -749,7 +751,7 @@ const EditIconModal = ({
         setIconUploadedAt(new Date().toISOString());
         onExitEditIconModal();
       } else if (nameSucceeded && nameSuccessMessage) {
-        renderFlash("success", nameSuccessMessage);
+        notify.success(nameSuccessMessage);
         queryClient.invalidateQueries({
           queryKey: [{ scope: "software-titles" }],
         });
@@ -762,7 +764,7 @@ const EditIconModal = ({
       }
     } catch (e) {
       const errorMessage = getErrorReason(e) || DEFAULT_ERROR_MESSAGE;
-      renderFlash("error", errorMessage);
+      notify.error(errorMessage, { response: e });
     } finally {
       setIsUpdatingSoftwareInfo(false);
     }
@@ -774,11 +776,7 @@ const EditIconModal = ({
       title="Edit appearance"
       onExit={onExitEditIconModal}
     >
-      {isFirstLoadWithCustomIcon ? (
-        <Spinner includeContainer={false} />
-      ) : (
-        renderForm()
-      )}
+      {isFirstLoadWithCustomIcon ? <Spinner /> : renderForm()}
       <ModalFooter
         primaryButtons={
           <Button

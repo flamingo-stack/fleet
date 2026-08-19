@@ -7,7 +7,6 @@ import isURL from "validator/lib/isURL";
 import PATHS from "router/paths";
 
 import { AppContext } from "context/app";
-import { NotificationContext } from "context/notification";
 
 import { getErrorReason } from "interfaces/errors";
 
@@ -23,6 +22,7 @@ import SectionHeader from "components/SectionHeader";
 import PremiumFeatureMessage from "components/PremiumFeatureMessage/PremiumFeatureMessage";
 import EmptyState from "components/EmptyState";
 import GitOpsModeTooltipWrapper from "components/GitOpsModeTooltipWrapper";
+import { notify } from "components/ToastNotification";
 
 import CustomLink from "components/CustomLink";
 
@@ -57,7 +57,6 @@ const validateWebhookUrl = (val: string) => {
 
 const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
   const { config, isPremiumTier, setConfig } = useContext(AppContext);
-  const { renderFlash } = useContext(NotificationContext);
 
   const [formData, setFormData] = useState<IEndUserMigrationFormData>({
     isEnabled: config?.mdm.macos_migration.enable || false,
@@ -70,6 +69,8 @@ const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
   // track validation. If we need to validate more inputs in the future we can
   // use a formErrors object.
   const [isValidWebhookUrl, setIsValidWebhookUrl] = useState(true);
+
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const toggleExamplePayloadModal = () => {
     setShowExamplePayload(!showExamplePayload);
@@ -107,6 +108,7 @@ const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
       return;
     }
 
+    setIsUpdating(true);
     try {
       const updatedConfig = await configAPI.update({
         mdm: {
@@ -117,7 +119,7 @@ const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
           },
         },
       });
-      renderFlash("success", "Successfully updated end user migration.");
+      notify.success("Successfully updated end user migration.");
       setConfig(updatedConfig);
     } catch (err) {
       if (
@@ -128,7 +130,9 @@ const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
         setIsValidWebhookUrl(false);
         return;
       }
-      renderFlash("error", "Could not update. Please try again.");
+      notify.error("Could not update. Please try again.", { response: err });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -242,7 +246,7 @@ const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
         </div>
         <Button
           className={`${baseClass}__preview-button`}
-          variant="inverse"
+          variant="secondary"
           onClick={toggleExamplePayloadModal}
         >
           Example payload
@@ -250,7 +254,11 @@ const EndUserMigrationSection = ({ router }: IEndUserMigrationSectionProps) => {
         <GitOpsModeTooltipWrapper
           tipOffset={8}
           renderChildren={(disableChildren) => (
-            <Button onClick={onSubmit} disabled={disableChildren}>
+            <Button
+              onClick={onSubmit}
+              disabled={disableChildren || isUpdating}
+              isLoading={isUpdating}
+            >
               Save
             </Button>
           )}

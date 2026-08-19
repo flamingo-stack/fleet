@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/fleetdm/fleet/v4/ee/server/service/hostidentity/httpsig"
 	"github.com/fleetdm/fleet/v4/server"
+	activity_api "github.com/fleetdm/fleet/v4/server/activity/api"
 	"github.com/fleetdm/fleet/v4/server/contexts/ctxerr"
 	hostctx "github.com/fleetdm/fleet/v4/server/contexts/host"
 	"github.com/fleetdm/fleet/v4/server/contexts/license"
@@ -404,43 +406,87 @@ func (svc *Service) getScheduledQueries(ctx context.Context, teamID *uint) (flee
 	return config, nil
 }
 
-func (svc *Service) GetClientConfig(ctx context.Context) (map[string]interface{}, error) {
-	// skipauth: Authorization is currently for user endpoints only.
-	svc.authz.SkipAuthorization(ctx)
-
-	host, ok := hostctx.FromContext(ctx)
-	if !ok {
-		return nil, newOsqueryError("internal error: missing host from request context")
+// packConfigCacheKey returns a cache key for the pack config cache
+// keyed by (teamID, queryReportsDisabled).
+func packConfigCacheKey(teamID *uint, queryReportsDisabled bool) string {
+	tid := "global"
+	if teamID != nil {
+		tid = fmt.Sprintf("%d", *teamID)
 	}
+	qrd := "0"
+	if queryReportsDisabled {
+		qrd = "1"
+	}
+	return "pack_config:" + tid + ":" + qrd
+}
 
-	baseConfig, err := svc.AgentOptionsForHost(ctx, host.TeamID, host.Platform)
+// getPackConfig returns the marshaled pack config JSON for the host.
+// It uses a cache for hosts without legacy packs and without label-scoped queries,
+// keyed by (teamID, queryReportsDisabled).
+func (svc *Service) getPackConfig(ctx context.Context, host *fleet.Host) (json.RawMessage, error) {
+	appConfig, err := svc.ds.AppConfig(ctx)
 	if err != nil {
-		return nil, newOsqueryError("internal error: fetch base config: " + err.Error())
+		return nil, ctxerr.Wrap(ctx, err, "fetch app config")
 	}
+	queryReportsDisabled := appConfig.ServerSettings.QueryReportsDisabled
 
-	config := make(map[string]interface{})
-	if baseConfig != nil {
-		err = json.Unmarshal(baseConfig, &config)
-		if err != nil {
-			return nil, newOsqueryError("internal error: parse base configuration: " + err.Error())
-		}
-	}
-
-	packConfig := fleet.Packs{}
-
+	// Check for legacy packs assigned to this specific host. Legacy packs are per-host, thus not cached.
 	packs, err := svc.ds.ListPacksForHost(ctx, host.ID)
 	if err != nil {
-		return nil, newOsqueryError("database error: " + err.Error())
+		return nil, ctxerr.Wrap(ctx, err, "list packs for host")
 	}
+
+	// Fast path: if no legacy packs and no label-scoped queries, try the cached pack config.
+	// The scheduled queries pack config is identical for all hosts in the
+	// same team ONLY when no queries have label targeting. When labels are
+	// involved, ListScheduledQueriesForAgents filters per host, so the
+	// result varies per host and cannot be cached at the team level.
+	useLegacyPacks := len(packs) > 0
+	canUseCache := !useLegacyPacks && svc.packConfigCache != nil
+	if canUseCache {
+		// Check (with caching) whether any scheduled queries have label targeting.
+		// This is cached separately from the pack config itself to avoid a DB
+		// query on every request for the common case (no label-scoped queries).
+		// Note: if labels are added to a query mid-cache, the stale "false" entry
+		// lets the pack config cache serve the old team-wide result until the TTL
+		// expires. This is the same staleness window as any other query change
+		// (1 minute default) and is an accepted trade-off to avoid explicit
+		// invalidation across the datastore/service boundary.
+		labelCacheKey := "has_label_scoped:" + packConfigCacheKey(host.TeamID, queryReportsDisabled)
+		if cached, found := svc.packConfigCache.Get(labelCacheKey); found {
+			if hasLabels, ok := cached.(bool); ok && hasLabels {
+				canUseCache = false
+			}
+		} else {
+			hasLabelScoped, err := svc.ds.HasLabelScopedScheduledQueries(ctx, host.TeamID, queryReportsDisabled)
+			if err != nil {
+				return nil, ctxerr.Wrap(ctx, err, "check label-scoped scheduled queries")
+			}
+			svc.packConfigCache.SetDefault(labelCacheKey, hasLabelScoped)
+			if hasLabelScoped {
+				canUseCache = false
+			}
+		}
+	}
+	if canUseCache {
+		cacheKey := packConfigCacheKey(host.TeamID, queryReportsDisabled)
+		if cached, found := svc.packConfigCache.Get(cacheKey); found {
+			// cached may be nil (negative cache: no queries for this team)
+			// or a json.RawMessage with the marshaled pack config.
+			raw, _ := cached.(json.RawMessage)
+			return raw, nil
+		}
+	}
+
+	// Cache miss, label-scoped queries present, or legacy packs: build pack config from DB.
+	packConfig := fleet.Packs{}
+
 	for _, pack := range packs {
-		// first, we must figure out what queries are in this pack
 		queries, err := svc.ds.ListScheduledQueriesInPack(ctx, pack.ID)
 		if err != nil {
-			return nil, newOsqueryError("database error: " + err.Error())
+			return nil, ctxerr.Wrap(ctx, err, "list scheduled queries in pack")
 		}
 
-		// the serializable osquery config struct expects content in a
-		// particular format, so we do the conversion here
 		configQueries := fleet.Queries{}
 		for _, query := range queries {
 			queryContent := fleet.QueryContent{
@@ -464,8 +510,6 @@ func (svc *Service) GetClientConfig(ctx context.Context) (map[string]interface{}
 			configQueries[query.Name] = queryContent
 		}
 
-		// finally, we add the pack to the client config struct with all of
-		// the pack's queries
 		packConfig[pack.Name] = fleet.PackContent{
 			Platform: pack.Platform,
 			Queries:  configQueries,
@@ -474,7 +518,7 @@ func (svc *Service) GetClientConfig(ctx context.Context) (map[string]interface{}
 
 	globalQueries, err := svc.getScheduledQueries(ctx, nil)
 	if err != nil {
-		return nil, newOsqueryError("database error: " + err.Error())
+		return nil, ctxerr.Wrap(ctx, err, "get global scheduled queries")
 	}
 	if len(globalQueries) > 0 {
 		packConfig["Global"] = fleet.PackContent{
@@ -485,7 +529,7 @@ func (svc *Service) GetClientConfig(ctx context.Context) (map[string]interface{}
 	if host.TeamID != nil {
 		teamQueries, err := svc.getScheduledQueries(ctx, host.TeamID)
 		if err != nil {
-			return nil, newOsqueryError("database error: " + err.Error())
+			return nil, ctxerr.Wrap(ctx, err, "get team scheduled queries")
 		}
 		if len(teamQueries) > 0 {
 			packName := fmt.Sprintf("team-%d", *host.TeamID)
@@ -495,12 +539,58 @@ func (svc *Service) GetClientConfig(ctx context.Context) (map[string]interface{}
 		}
 	}
 
+	var raw json.RawMessage
 	if len(packConfig) > 0 {
 		packJSON, err := json.Marshal(packConfig)
 		if err != nil {
-			return nil, newOsqueryError("internal error: marshal pack JSON: " + err.Error())
+			return nil, ctxerr.Wrap(ctx, err, "marshal pack config")
 		}
-		config["packs"] = json.RawMessage(packJSON)
+		raw = json.RawMessage(packJSON)
+	}
+
+	// Cache the result (including empty) for future requests (only when safe to cache).
+	if canUseCache {
+		cacheKey := packConfigCacheKey(host.TeamID, queryReportsDisabled)
+		svc.packConfigCache.SetDefault(cacheKey, raw)
+	}
+
+	return raw, nil
+}
+func (svc *Service) GetClientConfig(ctx context.Context) (map[string]any, error) {
+	// skipauth: Authorization is currently for user endpoints only.
+	svc.authz.SkipAuthorization(ctx)
+
+	host, ok := hostctx.FromContext(ctx)
+	if !ok {
+		return nil, newOsqueryError("internal error: missing host from request context")
+	}
+
+	baseConfig, err := svc.AgentOptionsForHost(ctx, host.TeamID, host.Platform)
+	if err != nil {
+		return nil, newOsqueryError("internal error: fetch base config: " + err.Error())
+	}
+
+	config := make(map[string]any)
+	if baseConfig != nil {
+		err = json.Unmarshal(baseConfig, &config)
+		if err != nil {
+			return nil, newOsqueryError("internal error: parse base configuration: " + err.Error())
+		}
+		if config == nil {
+			// Unmarshaling the JSON literal `null` (e.g. agent options with
+			// "config": null) sets the map to nil rather than leaving it empty.
+			// Re-initialize so later assignments (e.g. config["packs"]) don't
+			// panic with "assignment to entry in nil map".
+			config = make(map[string]any)
+		}
+	}
+
+	packConfigJSON, err := svc.getPackConfig(ctx, host)
+	if err != nil {
+		return nil, newOsqueryError("internal error: build pack config: " + err.Error())
+	}
+	if packConfigJSON != nil {
+		config["packs"] = packConfigJSON
 	}
 
 	// Save interval values if they have been updated.
@@ -735,7 +825,7 @@ func (svc *Service) loadHostDetailQueryConfig(ctx context.Context, host *fleet.H
 	}
 
 	var mdmTeamConfig *fleet.TeamMDM
-	if appConfig != nil && appConfig.MDM.EnabledAndConfigured && host.TeamID != nil {
+	if appConfig != nil && (appConfig.MDM.EnabledAndConfigured || appConfig.MDM.WindowsEnabledAndConfigured) && host.TeamID != nil {
 		mdmTeamConfig, err = svc.ds.TeamMDMConfig(ctx, *host.TeamID)
 		if err != nil {
 			return nil, ctxerr.Wrap(ctx, err, "reading MDM Team Config")
@@ -917,6 +1007,77 @@ func (svc *Service) hasSetupExperiencePendingOrRunningItems(ctx context.Context,
 		}
 	}
 	return false, nil
+}
+
+// discardOutOfScopePolicyResults removes, in place, the results for policies that are not in scope for the host.
+//
+// A host authenticates with its node key and fully controls the fleet_policy_query_<id> keys it submits, so a result is
+// only trustworthy for a policy the host is actually assigned (by team, platform and label). Without this, any enrolled
+// host could forge membership for policies it was never sent, including policies belonging to another fleet.
+//
+// The lookup is restricted to the reported IDs rather than loading the host's whole in-scope set, since every
+// policy-reporting check-in pays for it.
+//
+// A host in setup experience is sent a subset of its in-scope policies, but it is checked against the full set: those
+// policies are legitimately the host's, so a result for one of them is worth keeping even if setup experience had not
+// asked for it yet.
+func (svc *Service) discardOutOfScopePolicyResults(ctx context.Context, host *fleet.Host, policyResults map[uint]*bool) error {
+	candidateIDs := make([]uint, 0, len(policyResults))
+	for policyID := range policyResults {
+		candidateIDs = append(candidateIDs, policyID)
+	}
+
+	inScope, err := svc.ds.PolicyQueriesForHostFiltered(ctx, host, candidateIDs)
+	if err != nil {
+		return ctxerr.Wrap(ctx, err, "retrieve policy queries")
+	}
+	for policyID := range policyResults {
+		if _, ok := inScope[fmt.Sprint(policyID)]; !ok {
+			svc.logger.DebugContext(ctx, "discarding result for out-of-scope policy", "policyID", policyID, "hostID", host.ID)
+			delete(policyResults, policyID)
+		}
+	}
+	return nil
+}
+
+// cleanupOutOfScopePolicyMembership deletes the host's policy_membership rows
+// for the given stale policies: policies with a stored row but no result in the
+// host's incoming distributed write (as returned by RecordPolicyQueryExecutions).
+// Fleet sends all in-scope policy queries together at the policy update interval
+// and osquery reports a result (or an error) for each, so a stale policy is no
+// longer in scope for the host (e.g. it changed teams, or fell out of the
+// policy's platform or label scope). Such rows otherwise linger forever,
+// inflating the failing policies counts computed from raw policy_membership
+// (Fleet Desktop badge, host issues) even though the host's policy listing
+// filters those policies out.
+//
+// The deletion is skipped for hosts in setup experience: they are sent a
+// filtered subset of policy queries (see policyQueriesForHost), so their stale
+// set is not meaningful. Under async policy processing this is a no-op, since
+// the task layer buffers results in Redis and always reports no stale policies.
+// Errors are logged and swallowed: this cleanup is best-effort and self-heals
+// on the host's next policy reporting cycle.
+func (svc *Service) cleanupOutOfScopePolicyMembership(ctx context.Context, host *fleet.Host, stalePolicyIDs []uint) {
+	if len(stalePolicyIDs) == 0 {
+		return
+	}
+	inSetupExperience, err := svc.hostIsInSetupExperience(ctx, host)
+	if err != nil {
+		logging.WithErr(ctx, err)
+		return
+	}
+	if inSetupExperience {
+		return
+	}
+	if err := svc.ds.ClearHostPolicyMembershipForPolicies(ctx, host.ID, stalePolicyIDs); err != nil {
+		logging.WithErr(ctx, err)
+		return
+	}
+	// Refresh the failing policies count now that stale rows are gone;
+	// RecordPolicyQueryExecutions already updated it, but before the deletion.
+	if err := svc.ds.UpdateHostIssuesFailingPoliciesForSingleHost(ctx, host.ID); err != nil {
+		logging.WithErr(ctx, err)
+	}
 }
 
 // policyQueriesForHost returns policy queries if it's the time to re-run policies on the given host.
@@ -1226,6 +1387,18 @@ func (svc *Service) SubmitDistributedQueryResults(
 		}
 	}
 
+	// Keep separate from the block below: this can empty policyResults, and an empty (rather than absent) result set
+	// makes RecordPolicyQueryExecutions treat every stored policy_membership row for the host as stale.
+	if len(policyResults) > 0 {
+		if err := svc.discardOutOfScopePolicyResults(ctx, host, policyResults); err != nil {
+			// Drop this cycle's policy results instead of failing the whole write: the host reports them again on
+			// its next check-in, whereas the detail and additional results from this same payload are only written
+			// further down (SaveHostAdditional, UpdateHost) and returning here would discard them.
+			logging.WithErr(ctx, ctxerr.Wrap(ctx, err, "discard out-of-scope policy results"))
+			clear(policyResults)
+		}
+	}
+
 	if len(policyResults) > 0 {
 		// Compute flipping policies once for all consumers. This replaces up to 5 individual calls to
 		// FlippingPoliciesForHost with a single database query.
@@ -1316,14 +1489,20 @@ func (svc *Service) SubmitDistributedQueryResults(
 		// maybe we should impose restrictions between async collection interval
 		// and policy update interval?
 
-		if err := svc.task.RecordPolicyQueryExecutions(ctx, host, policyResults, svc.clock.Now(), ac.ServerSettings.DeferredSaveHost, newPassing); err != nil {
+		stalePolicyIDs, err := svc.task.RecordPolicyQueryExecutions(ctx, host, policyResults, svc.clock.Now(), ac.ServerSettings.DeferredSaveHost, newPassing)
+		if err != nil {
 			logging.WithErr(ctx, err)
 		}
+		svc.cleanupOutOfScopePolicyMembership(ctx, host, stalePolicyIDs)
 	} else if hostWithoutPolicies {
 		// RecordPolicyQueryExecutions called with results=nil will still update the host's policy_updated_at column.
-		if err := svc.task.RecordPolicyQueryExecutions(ctx, host, nil, svc.clock.Now(), ac.ServerSettings.DeferredSaveHost, []uint{}); err != nil {
+		// The host was sent the "no policies" wildcard query, so no policies are in scope
+		// for it and all of its stored policy_membership rows are stale.
+		stalePolicyIDs, err := svc.task.RecordPolicyQueryExecutions(ctx, host, nil, svc.clock.Now(), ac.ServerSettings.DeferredSaveHost, []uint{})
+		if err != nil {
 			logging.WithErr(ctx, err)
 		}
+		svc.cleanupOutOfScopePolicyMembership(ctx, host, stalePolicyIDs)
 	}
 
 	if additionalUpdated {
@@ -1358,6 +1537,12 @@ func (svc *Service) SubmitDistributedQueryResults(
 			if err := svc.ds.UpdateHost(ctx, host); err != nil {
 				logging.WithErr(ctx, err)
 			}
+		}
+	}
+
+	if detailUpdated && ac.MDM.EnabledAndConfigured && host.Platform == "darwin" && host.ComputerName != "" {
+		if err := svc.ds.UpdateHostDeviceNameStatusFromReport(ctx, host.UUID, host.ComputerName); err != nil {
+			logging.WithErr(ctx, err)
 		}
 	}
 
@@ -1528,6 +1713,9 @@ func preProcessSoftwareResults(
 
 	jetbrainsPluginsExtraQuery := hostDetailQueryPrefix + "software_jetbrains_plugins"
 	preProcessSoftwareExtraResults(ctx, jetbrainsPluginsExtraQuery, host.ID, results, statuses, messages, osquery_utils.DetailQuery{}, logger)
+
+	adobePluginsExtraQuery := hostDetailQueryPrefix + "software_adobe_plugins"
+	preProcessSoftwareExtraResults(ctx, adobePluginsExtraQuery, host.ID, results, statuses, messages, osquery_utils.DetailQuery{}, logger)
 
 	goBinariesExtraQuery := hostDetailQueryPrefix + "software_go_binaries"
 	preProcessSoftwareExtraResults(ctx, goBinariesExtraQuery, host.ID, results, statuses, messages, osquery_utils.DetailQuery{}, logger)
@@ -2260,11 +2448,26 @@ func (svc *Service) processVPPForNewlyFailingPolicies(
 	// Filter to policies with VPP apps that are newly failing, or that have
 	// continuous_automations_enabled set (in which case every failing result
 	// triggers an install, not just pass→fail transitions).
+	//
+	// An app can be added for several platforms and GetPoliciesWithAssociatedVPP filters on neither
+	// the app's platform nor the host's, so a policy bound to the iOS build can arrive here for a
+	// macOS host. Dropping those now rather than in the install loop lets the return below skip the
+	// host, the token and three lookups. processSoftwareForNewlyFailingPolicies makes the same check.
 	var failingPoliciesWithVPP []fleet.PolicyVPPData
 	for _, policyWithVPP := range policiesWithVPP {
-		if _, ok := newFailingSet[policyWithVPP.ID]; ok || policyWithVPP.ContinuousAutomationsEnabled {
-			failingPoliciesWithVPP = append(failingPoliciesWithVPP, policyWithVPP)
+		if _, ok := newFailingSet[policyWithVPP.ID]; !ok && !policyWithVPP.ContinuousAutomationsEnabled {
+			continue
 		}
+		if fleet.PlatformFromHost(hostPlatform) != string(policyWithVPP.Platform) {
+			svc.logger.DebugContext(ctx, "app platform does not match host platform",
+				"host_id", hostID,
+				"policy_id", policyWithVPP.ID,
+				"vpp_adam_id", policyWithVPP.AdamID,
+				"vpp_platform", policyWithVPP.Platform,
+			)
+			continue
+		}
+		failingPoliciesWithVPP = append(failingPoliciesWithVPP, policyWithVPP)
 	}
 	if len(failingPoliciesWithVPP) == 0 {
 		return nil
@@ -2284,12 +2487,26 @@ func (svc *Service) processVPPForNewlyFailingPolicies(
 		return ctxerr.Wrapf(ctx, err, "failed to check pending VPP installs")
 	}
 
+	// The pending lookup only matches install commands that haven't been delivered yet, so it
+	// misses an install that is awaiting verification or waiting behind one that is.
+	queuedAppInstalls, err := svc.ds.MapAdamIDsQueuedInstalls(ctx, hostID)
+	if err != nil {
+		return ctxerr.Wrap(ctx, err, "failed to check queued VPP installs")
+	}
+
 	// Apps successfully installed within the policy update interval are used to throttle
 	// continuous policy automation re-installs (see continuousAutomationOnCooldown).
 	recentAppInstalls, err := svc.ds.MapAdamIDsRecentlyVerifiedInstalls(ctx, hostID, int(svc.config.Osquery.PolicyUpdateInterval.Seconds()))
 	if err != nil {
 		return ctxerr.Wrapf(ctx, err, "failed to check recent VPP installs")
 	}
+
+	// When two policies are bound to one app only the first queues an install, so sort to make that
+	// choice stable. Sorted here rather than in GetPoliciesWithAssociatedVPP so it stays verifiable
+	// without a live database.
+	slices.SortFunc(failingPoliciesWithVPP, func(a, b fleet.PolicyVPPData) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 
 	for _, failingPolicyWithVPP := range failingPoliciesWithVPP {
 		policyID := failingPolicyWithVPP.ID
@@ -2302,11 +2519,6 @@ func (svc *Service) processVPPForNewlyFailingPolicies(
 			"vpp_platform", failingPolicyWithVPP.Platform,
 			"continuous_automations_enabled", failingPolicyWithVPP.ContinuousAutomationsEnabled,
 		)
-
-		if _, hasPendingInstall := pendingAppInstalls[failingPolicyWithVPP.AdamID]; hasPendingInstall {
-			logger.DebugContext(ctx, "install of app is already pending")
-			continue
-		}
 
 		vppMetadata, err := svc.ds.GetVPPAppMetadataByAdamIDPlatformTeamID(ctx, failingPolicyWithVPP.AdamID, failingPolicyWithVPP.Platform, host.TeamID)
 		if err != nil {
@@ -2326,6 +2538,19 @@ func (svc *Service) processVPPForNewlyFailingPolicies(
 			// host details.
 			incomingPolicyResults[failingPolicyWithVPP.ID] = nil
 			logger.DebugContext(ctx, "not marking policy as failed since vpp app is out of scope for host")
+			continue
+		}
+
+		if _, hasPendingInstall := pendingAppInstalls[failingPolicyWithVPP.AdamID]; hasPendingInstall {
+			logger.DebugContext(ctx, "install of app is already pending")
+			continue
+		}
+
+		// Also covers an install queued by an earlier policy in this run, which is why the successful
+		// install below writes back into this map. Two policies can be bound to one app, since
+		// policies.vpp_apps_teams_id is not unique, and the lookup was read once above.
+		if _, hasQueuedInstall := queuedAppInstalls[failingPolicyWithVPP.AdamID]; hasQueuedInstall {
+			logger.DebugContext(ctx, "install of app is already queued")
 			continue
 		}
 
@@ -2351,6 +2576,7 @@ func (svc *Service) processVPPForNewlyFailingPolicies(
 			continue
 		}
 
+		queuedAppInstalls[failingPolicyWithVPP.AdamID] = struct{}{}
 		logger.DebugContext(ctx, "vpp install request sent", "command_uuid", commandUUID)
 	}
 
@@ -2519,8 +2745,10 @@ func (svc *Service) processScriptsForNewlyFailingPolicies(
 }
 
 func (svc *Service) conditionalAccessConfiguredAndEnabledForTeam(ctx context.Context, hostTeamID *uint) (configured bool, enabledForTeam bool, err error) {
-	// Check if the needed server configuration for Conditional Access is set.
-	if !svc.config.MicrosoftCompliancePartner.IsSet() {
+	// Conditional access is a Fleet Premium feature. Gate on the current license
+	// tier so that an integration left over from a previous Premium license
+	// (e.g. after a downgrade or expiry) doesn't keep the feature active.
+	if !license.IsPremium(ctx) {
 		return false, false, nil
 	}
 
@@ -2625,14 +2853,15 @@ func (svc *Service) processConditionalAccessForNewlyFailingPolicies(
 	for _, policyID := range conditionalAccessPolicyIDs {
 		conditionalAccessPolicyIDsSet[policyID] = struct{}{}
 	}
+	var failingCAIDs []uint
 	for incomingPolicyID, incomingPolicyResult := range incomingPolicyResults {
 		if _, ok := conditionalAccessPolicyIDsSet[incomingPolicyID]; !ok {
 			// Ignore results for policies that are not for conditional access.
 			continue
 		}
 		if incomingPolicyResult != nil && !*incomingPolicyResult {
+			failingCAIDs = append(failingCAIDs, incomingPolicyID)
 			hostIsCompliantInFleet = false
-			break
 		}
 	}
 
@@ -2642,7 +2871,7 @@ func (svc *Service) processConditionalAccessForNewlyFailingPolicies(
 		return nil
 	}
 
-	svc.setHostConditionalAccessAsync(hostID, hostPlatform, hostConditionalAccessStatus, mdmEnrolled, hostIsCompliantInFleet)
+	svc.setHostConditionalAccessAsync(hostID, hostPlatform, hostConditionalAccessStatus, mdmEnrolled, hostIsCompliantInFleet, failingCAIDs)
 
 	return nil
 }
@@ -2653,6 +2882,7 @@ func (svc *Service) setHostConditionalAccessAsync(
 	hostConditionalAccessStatus *fleet.HostConditionalAccessStatus,
 	managed bool,
 	compliant bool,
+	failingPolicyIDs []uint,
 ) {
 	go func() {
 		logger := svc.logger.With(
@@ -2662,7 +2892,7 @@ func (svc *Service) setHostConditionalAccessAsync(
 			"compliant", compliant,
 		)
 		start := time.Now()
-		if err := svc.setHostConditionalAccess(hostID, hostPlatform, hostConditionalAccessStatus, managed, compliant); err != nil {
+		if err := svc.setHostConditionalAccess(hostID, hostPlatform, hostConditionalAccessStatus, managed, compliant, failingPolicyIDs); err != nil {
 			logger.ErrorContext(context.TODO(), "set host conditional access", "took", time.Since(start), "err", err)
 		}
 		logger.DebugContext(context.TODO(), "set host conditional access", "took", time.Since(start))
@@ -2679,6 +2909,7 @@ func (svc *Service) setHostConditionalAccess(
 	hostConditionalAccessStatus *fleet.HostConditionalAccessStatus,
 	managed bool,
 	compliant bool,
+	failingPolicyIDs []uint,
 ) error {
 	ctx := context.Background()
 
@@ -2715,6 +2946,7 @@ func (svc *Service) setHostConditionalAccess(
 		time.Now().UTC(),
 	)
 	if err != nil {
+		recordConditionalAccessFailureActivity(ctx, svc.activitySvc, hostID, failingPolicyIDs, err, logger)
 		return ctxerr.Wrap(ctx, err, "failed to set compliance status")
 	}
 
@@ -2731,6 +2963,12 @@ func (svc *Service) setHostConditionalAccess(
 		startTime := time.Now()
 		for range time.Tick(conditionalAccessSetWaitTime) {
 			if time.Since(startTime) > timeout {
+				// No failure activity is recorded here. SetComplianceStatus
+				// succeeded (we have a MessageID), so the push was accepted by
+				// the remote provider; we just could not confirm completion
+				// within the expected window. Recording a
+				// failed_automation_conditional_access here would
+				// misrepresent an in-flight async operation as a rejection.
 				return ctxerr.Errorf(ctx, "timeout waiting for message after %s", time.Since(startTime))
 			}
 			logger.DebugContext(ctx, "get compliance status message wait")
@@ -2763,7 +3001,92 @@ func (svc *Service) setHostConditionalAccess(
 		return ctxerr.Wrap(ctx, err, "set conditional access status on datastore")
 	}
 
+	if !compliant {
+		// The host was pushed non-compliant, which blocks single sign-on. The
+		// push has been accepted (and, for macOS, confirmed) at this point.
+		recordSingleSignOnBlockedActivity(ctx, svc.activitySvc, hostID, failingPolicyIDs, logger)
+	}
+
 	return nil
+}
+
+// recordConditionalAccessFailureActivity records a
+// failed_automation_conditional_access activity for the given host when
+// a compliance push to the remote provider fails. One activity is recorded per
+// failing conditional-access policy (policies the host is currently failing,
+// not all CA policies configured for the team), capturing the remote status
+// code and response body when available. Failures to record are logged and
+// swallowed so they don't mask the original error.
+func recordConditionalAccessFailureActivity(
+	ctx context.Context,
+	newActivitySvc activity_api.NewActivityService,
+	hostID uint,
+	policyIDs []uint,
+	err error,
+	logger *slog.Logger,
+) {
+	if len(policyIDs) == 0 {
+		return
+	}
+
+	var statusCode int
+	if sc, ok := errors.AsType[interface {
+		error
+		StatusCode() int
+	}](err); ok {
+		statusCode = sc.StatusCode()
+	}
+
+	errResponse := ""
+	if b, ok := errors.AsType[interface {
+		error
+		Body() string
+	}](err); ok {
+		errResponse = b.Body()
+	}
+	if errResponse == "" {
+		// network-level failures (e.g. connection refused) have no server
+		// response; fall back to the error message.
+		errResponse = err.Error()
+	}
+	for _, policyID := range policyIDs {
+		if actErr := newActivitySvc.NewActivity(ctx, nil, fleet.ActivityTypeFailedAutomationConditionalAccess{
+			PolicyID:      policyID,
+			HostIDList:    []uint{hostID},
+			StatusCode:    statusCode,
+			ErrorResponse: errResponse,
+		}); actErr != nil {
+			logger.WarnContext(ctx, "failed to record conditional access policy automation failure activity",
+				"policy_id", policyID, "host_id", hostID, "err", actErr)
+		}
+	}
+}
+
+// recordSingleSignOnBlockedActivity records a
+// ran_automation_conditional_access activity for the given host once its
+// non-compliant status has been successfully pushed to the remote provider,
+// blocking single sign-on. One activity is recorded per conditional-access
+// policy the host is failing. Failures to record are logged and swallowed so
+// they don't affect the compliance push.
+func recordSingleSignOnBlockedActivity(
+	ctx context.Context,
+	newActivitySvc activity_api.NewActivityService,
+	hostID uint,
+	policyIDs []uint,
+	logger *slog.Logger,
+) {
+	if newActivitySvc == nil || len(policyIDs) == 0 {
+		return
+	}
+	for _, policyID := range policyIDs {
+		if actErr := newActivitySvc.NewActivity(ctx, nil, fleet.ActivityTypeRanAutomationConditionalAccess{
+			PolicyID:   policyID,
+			HostIDList: []uint{hostID},
+		}); actErr != nil {
+			logger.WarnContext(ctx, "failed to record single sign-on blocked policy automation activity",
+				"policy_id", policyID, "host_id", hostID, "err", actErr)
+		}
+	}
 }
 
 func (svc *Service) maybeDebugHost(

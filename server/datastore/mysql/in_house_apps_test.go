@@ -39,6 +39,8 @@ func TestInHouseApps(t *testing.T) {
 		{"InHouseAppConfigSiblingRows", testInHouseAppConfigSiblingRows},
 		{"InHouseAppConfigHasChanged", testHasInHouseAppConfigurationChanged},
 		{"InHouseAppInstallTokens", testInHouseAppInstallTokens},
+		{"SummaryUpcomingPerHostNoDropout", testInHouseSummaryUpcomingPerHostNoDropout},
+		{"BatchSetInHouseInstallersInstallDuringSetup", testBatchSetInHouseInstallersInstallDuringSetup},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -853,7 +855,7 @@ func testBatchSetInHouseInstallers(t *testing.T, ds *Datastore) {
 
 	// change ipa2 self-service and add categories
 	ipa2.SelfService = !ipa2.SelfService
-	ipa2.Categories = []string{"👬 Communication", "💻 Productivity"}
+	ipa2.Categories = []string{"👬 Communication", "🖥️ Productivity"}
 	catIDs, err := ds.GetSoftwareCategoryIDs(ctx, team.ID, ipa2.Categories)
 	require.NoError(t, err)
 	ipa2.CategoryIDs = catIDs
@@ -2074,4 +2076,121 @@ func testInHouseAppInstallTokens(t *testing.T, ds *Datastore) {
 		_, err = ds.GetInHouseAppInstallTokenMetadata(ctx, token)
 		require.True(t, fleet.IsNotFound(err))
 	})
+}
+
+// A host with two queued in-house app installs for the same app (one lower
+// priority, the other later created_at) must still be counted once: the old
+// OR-based anti-join let each row dominate the other and dropped the host.
+func testInHouseSummaryUpcomingPerHostNoDropout(t *testing.T, ds *Datastore) {
+	ctx := context.Background()
+
+	user := test.NewUser(t, ds, "Alice", "alice@example.com", true)
+	team, err := ds.NewTeam(ctx, &fleet.Team{Name: "team drop"})
+	require.NoError(t, err)
+	host := test.NewHost(t, ds, "ihadrop-host", "1", "ihadropkey", "ihadropuuid", time.Now())
+	require.NoError(t, ds.AddHostsToTeam(ctx, fleet.NewAddHostsToTeamParams(&team.ID, []uint{host.ID})))
+
+	appID, titleID, err := ds.MatchOrCreateSoftwareInstaller(ctx, &fleet.UploadSoftwareInstallerPayload{
+		TeamID: &team.ID, UserID: user.ID,
+		Title: "ihadrop", Filename: "ihadrop.ipa", BundleIdentifier: "com.ihadrop",
+		StorageID: "ihadropstorage", Platform: "ios", Extension: "ipa", Version: "1.0",
+		ValidatedLabels: &fleet.LabelIdentsWithScope{},
+	})
+	require.NoError(t, err)
+
+	// Seed two cross-dominant upcoming in_house_app_install rows for the same
+	// host+app: row B has the lower priority, row A has the later created_at.
+	insert := func(execID string, priority, createdOffsetMicros int) {
+		res, err := ds.writer(ctx).ExecContext(ctx, `
+INSERT INTO upcoming_activities
+	(host_id, priority, fleet_initiated, activity_type, execution_id, payload, created_at)
+VALUES
+	(?, ?, 1, 'in_house_app_install', ?, JSON_OBJECT('self_service', false), NOW(6) + INTERVAL ? MICROSECOND)`,
+			host.ID, priority, execID, createdOffsetMicros)
+		require.NoError(t, err)
+		uaID, err := res.LastInsertId()
+		require.NoError(t, err)
+		_, err = ds.writer(ctx).ExecContext(ctx, `
+INSERT INTO in_house_app_upcoming_activities
+	(upcoming_activity_id, in_house_app_id, software_title_id)
+VALUES (?, ?, ?)`, uaID, appID, titleID)
+		require.NoError(t, err)
+	}
+	insert("ihadrop-B", -1, 0)  // lower priority, earlier created_at
+	insert("ihadrop-A", 0, 100) // higher priority, later created_at
+
+	summary, err := ds.GetSummaryHostInHouseAppInstalls(ctx, &team.ID, appID)
+	require.NoError(t, err)
+	require.Equal(t, fleet.VPPAppStatusSummary{Pending: 1}, *summary)
+}
+
+func testBatchSetInHouseInstallersInstallDuringSetup(t *testing.T, ds *Datastore) {
+	ctx := context.Background()
+
+	team, err := ds.NewTeam(ctx, &fleet.Team{Name: "team 1"})
+	require.NoError(t, err)
+	user1 := test.NewUser(t, ds, "Alice", "alice@example.com", true)
+
+	payloadForPlatform := func(platform string, installDuringSetup *bool) *fleet.UploadSoftwareInstallerPayload {
+		source := "ios_apps"
+		if platform == "ipados" {
+			source = "ipados_apps"
+		}
+		return &fleet.UploadSoftwareInstallerPayload{
+			StorageID:          "ipa1",
+			Filename:           "ipa1.ipa",
+			Title:              "ipa1",
+			Source:             source,
+			Version:            "1.0.0",
+			UserID:             user1.ID,
+			Platform:           platform,
+			URL:                "https://example.com/1",
+			ValidatedLabels:    &fleet.LabelIdentsWithScope{},
+			BundleIdentifier:   "com.ipa1",
+			InstallDuringSetup: installDuringSetup,
+		}
+	}
+
+	flagsByPlatform := func() map[string]bool {
+		rows := map[string]bool{}
+		ExecAdhocSQL(t, ds, func(q sqlx.ExtContext) error {
+			var apps []struct {
+				Platform           string `db:"platform"`
+				InstallDuringSetup bool   `db:"install_during_setup"`
+			}
+			if err := sqlx.SelectContext(ctx, q, &apps,
+				`SELECT platform, install_during_setup FROM in_house_apps WHERE global_or_team_id = ?`, team.ID); err != nil {
+				return err
+			}
+			for _, app := range apps {
+				rows[app.Platform] = app.InstallDuringSetup
+			}
+			return nil
+		})
+		return rows
+	}
+
+	// setup_experience_platform: [ios] → only the iOS row is flagged
+	err = ds.BatchSetInHouseAppsInstallers(ctx, &team.ID, []*fleet.UploadSoftwareInstallerPayload{
+		payloadForPlatform("ios", new(true)),
+		payloadForPlatform("ipados", new(false)),
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"ios": true, "ipados": false}, flagsByPlatform())
+
+	// omitting the field preserves stored state on re-apply
+	err = ds.BatchSetInHouseAppsInstallers(ctx, &team.ID, []*fleet.UploadSoftwareInstallerPayload{
+		payloadForPlatform("ios", nil),
+		payloadForPlatform("ipados", nil),
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"ios": true, "ipados": false}, flagsByPlatform())
+
+	// an explicit value overwrites in both directions
+	err = ds.BatchSetInHouseAppsInstallers(ctx, &team.ID, []*fleet.UploadSoftwareInstallerPayload{
+		payloadForPlatform("ios", new(false)),
+		payloadForPlatform("ipados", new(true)),
+	})
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"ios": false, "ipados": true}, flagsByPlatform())
 }

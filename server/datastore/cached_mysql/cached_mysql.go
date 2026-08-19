@@ -40,6 +40,7 @@ const (
 	appConfigKey                       = "AppConfig:%s"
 	openframeAppConfigKeyPrefix        = "AppConfig:openframe_team:" // OPENFRAME(mysql-multitenancy)
 	defaultAppConfigExpiration         = 1 * time.Second
+	windowsEnrollmentDefaultFleetKey   = "WindowsEnrollmentDefaultFleet"
 	packsHostKey                       = "Packs:host:%d"
 	defaultPacksExpiration             = 1 * time.Minute
 	scheduledQueriesKey                = "ScheduledQueries:pack:%d"
@@ -281,6 +282,31 @@ func (ds *cachedMysql) SaveAppConfig(ctx context.Context, info *fleet.AppConfig)
 
 	ds.c.Set(ctx, openframeAppConfigKey(ctx), info, ds.appConfigExp) // OPENFRAME(mysql-multitenancy)
 
+	return nil
+}
+
+func (ds *cachedMysql) GetWindowsEnrollmentDefaultFleet(ctx context.Context) (*uint, string, error) {
+	if x, found := ds.c.Get(ctx, windowsEnrollmentDefaultFleetKey); found {
+		if v, ok := x.(*fleet.WindowsEnrollmentDefaultFleet); ok {
+			return v.FleetID, v.FleetName, nil
+		}
+	}
+
+	fleetID, fleetName, err := ds.Datastore.GetWindowsEnrollmentDefaultFleet(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	ds.c.Set(ctx, windowsEnrollmentDefaultFleetKey, &fleet.WindowsEnrollmentDefaultFleet{FleetID: fleetID, FleetName: fleetName}, ds.appConfigExp)
+
+	return fleetID, fleetName, nil
+}
+
+func (ds *cachedMysql) SetWindowsEnrollmentDefaultFleet(ctx context.Context, fleetID *uint) error {
+	if err := ds.Datastore.SetWindowsEnrollmentDefaultFleet(ctx, fleetID); err != nil {
+		return err
+	}
+	ds.c.Delete(windowsEnrollmentDefaultFleetKey)
 	return nil
 }
 
