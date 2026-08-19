@@ -51,6 +51,9 @@ func TestNewOrbitClientBypassEndUserAuth(t *testing.T) {
 			nil,
 			"",
 			bypassEndUserAuth,
+			// OPENFRAME(agent-openframe-mode): fork-added trailing params — openframe/docs/agent-openframe-mode.md
+			false, // openFrameMode
+			nil,   // authManager
 		)
 		require.NoError(t, err)
 		return oc

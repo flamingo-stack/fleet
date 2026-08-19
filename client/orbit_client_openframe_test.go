@@ -85,7 +85,7 @@ func TestNewOrbitClientOpenframeURLPrefix(t *testing.T) {
 
 	t.Run("openframe mode routes through the tools-agent prefix", func(t *testing.T) {
 		oc, err := NewOrbitClient(
-			t.TempDir(), srv.URL, "", true, "secret", nil, hostInfo, nil, nil, "",
+			t.TempDir(), srv.URL, "", true, "secret", nil, hostInfo, nil, nil, "", false,
 			true, openframe.NewOpenFrameAuthorizationManagerWithToken("tok"),
 		)
 		require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestNewOrbitClientOpenframeURLPrefix(t *testing.T) {
 
 	t.Run("non-openframe mode uses the plain path", func(t *testing.T) {
 		oc, err := NewOrbitClient(
-			t.TempDir(), srv.URL, "", true, "secret", nil, hostInfo, nil, nil, "",
+			t.TempDir(), srv.URL, "", true, "secret", nil, hostInfo, nil, nil, "", false,
 			false, nil,
 		)
 		require.NoError(t, err)
