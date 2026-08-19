@@ -11035,22 +11035,33 @@ func (s *integrationTestSuite) TestHostsReportDownload() {
 	res.Body.Close()
 	require.NoError(t, err)
 	require.Len(t, rows, len(hosts)+1) // all hosts + header row
-	assert.Len(t, rows[0], 58)         // total number of cols
+	assert.Len(t, rows[0], 59)         // total number of cols — OPENFRAME(osquery-host-id): upstream counts 58; the fork adds the osquery_host_id column — openframe/docs/api-expose-osquery-host-id.md
 	// Validate that both team_id and fleet_id columns are present.
 	assert.Contains(t, rows[0], "team_id")
 	assert.Contains(t, rows[0], "fleet_id")
 	assert.Contains(t, rows[0], "team_name")
 	assert.Contains(t, rows[0], "fleet_name")
 
-	// hardware_marketing_name is emitted right after hardware_model, shifting
-	// every subsequent column index by one.
-	const (
-		idCol        = 3
-		issuesCol    = 47
-		gigsDiskCol  = 43
-		pctDiskCol   = 44
-		gigsTotalCol = 45
-	)
+	// >>> OPENFRAME(osquery-host-id): resolve these by header name rather than by a hardcoded
+	// index. The fork emits an extra osquery_host_id column, which shifts every index after it;
+	// upstream had already had to re-number these once for hardware_marketing_name. Looking the
+	// columns up by name makes the assertions immune to either side adding a column.
+	// — openframe/docs/api-expose-osquery-host-id.md
+	colIdxByName := make(map[string]int, len(rows[0]))
+	for i, name := range rows[0] {
+		colIdxByName[name] = i
+	}
+	colIdx := func(name string) int {
+		idx, ok := colIdxByName[name]
+		require.True(t, ok, "column %q missing from the report header: %v", name, rows[0])
+		return idx
+	}
+	idCol := colIdx("id")
+	issuesCol := colIdx("issues")
+	gigsDiskCol := colIdx("gigs_disk_space_available")
+	pctDiskCol := colIdx("percent_disk_space_available")
+	gigsTotalCol := colIdx("gigs_total_disk_space")
+	// <<< OPENFRAME(osquery-host-id)
 
 	// find the row for hosts[1], it should have issues=1 (1 failing policy) and the expected disk space
 	for _, row := range rows[1:] {
@@ -13710,7 +13721,7 @@ func (s *integrationTestSuite) TestHostsReportWithPolicyResults() {
 	res.Body.Close()
 	require.NoError(t, err)
 	require.Len(t, rows1, len(hosts)+1) // all hosts + header row
-	assert.Len(t, rows1[0], 58)         // total number of cols
+	assert.Len(t, rows1[0], 59)         // total number of cols — OPENFRAME(osquery-host-id): upstream counts 58; the fork adds the osquery_host_id column — openframe/docs/api-expose-osquery-host-id.md
 
 	var (
 		idIdx     int
@@ -13740,7 +13751,7 @@ func (s *integrationTestSuite) TestHostsReportWithPolicyResults() {
 	res.Body.Close()
 	require.NoError(t, err)
 	require.Len(t, rows2, len(hosts)+1) // all hosts + header row
-	assert.Len(t, rows2[0], 58)         // total number of cols
+	assert.Len(t, rows2[0], 59)         // total number of cols — OPENFRAME(osquery-host-id): upstream counts 58; the fork adds the osquery_host_id column — openframe/docs/api-expose-osquery-host-id.md
 
 	// Check that all hosts have 0 issues and that they match the previous call to `/hosts/report`.
 	for i := 1; i < len(hosts)+1; i++ {
