@@ -3,8 +3,30 @@
 **Slug:** `OPENFRAME(waf-inventory-shape)` · **File:** [`server/service/osquery_utils/queries.go`](../../server/service/osquery_utils/queries.go)
 
 The `certificates_darwin` and `certificates_windows` detail queries hex-encode their three
-distinguished-name columns (`common_name`, `subject`, `issuer`), aliased with a `_hex` suffix.
-`decodeCertificateDNColumns` decodes them at ingest, before anything else reads the row.
+distinguished-name columns, aliased with a `_hex` suffix. `decodeCertificateDNColumns` decodes them
+at ingest, before anything else reads the row.
+
+The column names differ per platform, so the helper takes the set to decode:
+
+| Query | DN columns | Column list |
+|-------|-----------|-------------|
+| `certificates_darwin` | `common_name`, `subject`, `issuer` | `certificateDNColumns` |
+| `certificates_windows` | `common_name`, `subject2`, `issuer2` | `certificateDNColumnsWindows` |
+
+Windows moved to osquery's `subject2`/`issuer2` in the v4.90 sync — they preserve the DN attribute
+keys (`CN`, `O`, `OU`, `C`) and are populated from osquery 5.23.1, which upstream gates with a
+`Discovery` query on the column's presence. The fork hex-encodes whichever columns the ingest
+actually reads, so the aliases there are `subject2_hex`/`issuer2_hex`.
+
+The decode also performs the `\xHH` unescaping upstream does inline for non-ASCII DNs (e.g.
+Cyrillic), so both concerns stay in one place.
+
+> **Sync check:** if upstream changes which columns the certificate ingest reads, the `hex()`
+> wrapping must follow, or the WAF regression returns silently.
+> `queries_openframe_sql_test.go` pins the SQL and keys off the two column lists above, so a
+> mismatch fails there rather than in production. Note the two platforms' DN formats are not
+> interchangeable — macOS keychain DNs are slash-separated, Windows `subject2`/`issuer2` are
+> comma-separated attribute pairs, and each platform's parser only understands its own.
 
 ## Why
 
