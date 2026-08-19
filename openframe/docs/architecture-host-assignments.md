@@ -180,6 +180,30 @@ When a host checks in and requests its scheduled queries or policies, Fleet's qu
 
 If `policy_hosts` rows exist for a policy, only hosts in that list receive the policy. If no rows exist, the policy is delivered to all hosts (standard Fleet behavior). This preserves backward compatibility — existing policies without host assignments continue to work as before.
 
+Since the v4.90 sync the policy filter lives in `policyQueriesForHostInScope`, the
+shared helper `PolicyQueriesForHost` delegates to. That is the right place for it:
+upstream added a second caller that restricts to a set of policy IDs, and it
+inherits the host filter automatically.
+
+### Consequence: per-host targeting defeats team-level caching
+
+Because these two functions filter **per host**, anything upstream caches at team
+granularity in front of them is unsafe in openframe mode. Upstream's own
+assumption is that a team's hosts all receive the same scheduled queries unless a
+query uses label targeting; `query_hosts` breaks that assumption without touching
+the code that states it.
+
+v4.90 added exactly such a cache — `svc.packConfigCache` in `getPackConfig`
+(`server/service/osquery.go`), keyed by `(teamID, queryReportsDisabled)`. Left
+alone it would serve the first host's pack config to every other host in the team.
+It is now gated on `!fleet.IsOpenframeMode()`, which covers both the cache read
+and the cache write, and pinned by `pack_config_cache_openframe_test.go`.
+
+Treat this as a standing sync check: a new team-keyed cache in `server/service/`
+whose value depends on host-filtered data needs the same gate. The
+upstream-sync runbook carries it as a semantic-conflict watchlist row, since it
+produces no merge conflict — the host filter still looks correct where it sits.
+
 ## Domain model
 
 The `HostIdent` struct carries the minimal host identity needed for assignment responses:
