@@ -227,6 +227,51 @@ These `tables/` tests run in the standard `mysql` CI bundle
 (`./server/datastore/mysql/...`), not in `openframe-verify`'s deep tier (which
 filters to `MigrateOpenframeIdempotent`, covering only the openframe pipeline).
 
+### The static sweep guard (no MySQL needed)
+
+Per-migration regression tests are precise but only get written after a miss has
+already hurt. `idempotency_openframe_test.go`
+(`TestOpenframeMigrationsAreIdempotent`) closes the gap ahead of time: it scans
+every timestamped file under `tables/` and `data/` for the three textual rules
+this convention rewrites — `CREATE TABLE` → `CREATE TABLE IF NOT EXISTS`,
+`DROP TABLE` → `DROP TABLE IF EXISTS`, `INSERT INTO` → `INSERT IGNORE INTO` —
+and fails if any statement is left in the raw form. It needs no MySQL or Docker,
+so it runs in the `fast` bundle and in `openframe-verify`.
+
+Two limits worth knowing:
+
+- **It cannot judge `ALTER … ADD COLUMN` / `ADD INDEX`.** Those need a
+  `columnExists` / `indexExistsTx` guard whose correctness depends on the
+  statement, so they stay a human review item on every sync.
+- **It carries an allowlist.** `knownNonIdempotentMigrations` records 21
+  pre-existing gaps from the original bulk pass. The list is asserted to be
+  exact — an entry that becomes idempotent, or names a file that no longer
+  exists, fails the test — so it cannot rot silently. Never add to it to make a
+  new migration pass; patch the migration.
+
+### The v4.90.1 sync
+
+That sync imported **45 new upstream migrations, none idempotent**: 13 needed
+the textual rewrites, 14 needed Go existence guards, and 28 were already safe
+(pure `UPDATE`/`DELETE` backfills, `MODIFY COLUMN` to an identical definition,
+count-then-act incremental steps, or DDL upstream itself already guarded).
+
+It also surfaced two things this doc had not recorded:
+
+- **Upstream re-timestamps migrations.** Five migrations the fork had already
+  made idempotent were renamed upstream (e.g. `20260611202649_…` →
+  `20260702013055_…`). goose keys on the version number, so a migration already
+  applied on every tenant is seen as new and **runs again** — idempotency is the
+  only reason that is safe. Verified by replaying all 50 new migrations over
+  their own applied schema.
+- **A full replay from version 0 does not succeed**, and never did. Clearing
+  `migration_status_tables` entirely and re-running fails at
+  `20170306075207_UseUTF8MB.go`, which does `ALTER TABLE nano_view_queue` — a
+  VIEW rather than a base table in the modern schema. The fork's invariant holds
+  for the case that actually occurs (a specific migration re-attempted against a
+  schema that already has its objects), not for replaying a decade of history.
+  Worth knowing before relying on "all migrations are idempotent" too literally.
+
 ## Rebase workflow
 
 When rebasing onto a newer upstream release:
