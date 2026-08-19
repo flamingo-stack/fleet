@@ -10,6 +10,10 @@ func init() {
 }
 
 func Up_20260814183816(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "mdm_android_commands", "raw_command") {
+		return nil
+	}
 	_, err := tx.Exec(`
 ALTER TABLE mdm_android_commands
 	ADD COLUMN raw_command MEDIUMTEXT COLLATE utf8mb4_unicode_ci DEFAULT NULL AFTER command_type,

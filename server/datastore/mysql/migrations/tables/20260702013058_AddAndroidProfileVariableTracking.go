@@ -10,6 +10,10 @@ func init() {
 }
 
 func Up_20260702013058(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "mdm_configuration_profile_variables", "android_profile_uuid") {
+		return nil
+	}
 	_, err := tx.Exec(`
 		ALTER TABLE mdm_configuration_profile_variables
 			ADD COLUMN android_profile_uuid varchar(37) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

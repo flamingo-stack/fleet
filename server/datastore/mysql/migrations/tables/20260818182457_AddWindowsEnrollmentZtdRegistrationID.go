@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260818182457(tx *sql.Tx) error {
+	// Idempotent migration.
 	// The Autopilot device ID a Windows device supplies at MDM enrollment, in the MS-MDE2 ZeroTouchProvisioning
 	// context item. It is the same GUID Microsoft Graph returns as windowsAutopilotDeviceIdentity.id, so it links an
 	// enrollment to a pending Autopilot host exactly, without depending on the hardware serial. Empty for devices that

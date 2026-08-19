@@ -25,6 +25,10 @@ func init() {
 //
 // ALGORITHM=INPLACE, LOCK=NONE so the index builds without blocking command inserts.
 func Up_20260807151355(tx *sql.Tx) error {
+	// Idempotent migration.
+	if indexExistsTx(tx, "mdm_android_commands", "idx_mdm_android_commands_status_created_at") {
+		return nil
+	}
 	stmt := `ALTER TABLE mdm_android_commands
 		ADD INDEX idx_mdm_android_commands_status_created_at (status, created_at),
 		ALGORITHM=INPLACE, LOCK=NONE`

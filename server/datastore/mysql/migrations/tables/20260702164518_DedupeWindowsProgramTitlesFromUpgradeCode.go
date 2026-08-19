@@ -13,6 +13,7 @@ func init() {
 }
 
 func Up_20260702164518(tx *sql.Tx) error {
+	// Idempotent migration.
 	txx := sqlx.Tx{Tx: tx, Mapper: reflectx.NewMapperFunc("db", sqlx.NameMapper)}
 
 	// Windows programs were duplicated into two software_titles for the same name: one backed by an

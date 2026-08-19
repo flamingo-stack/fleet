@@ -13,6 +13,7 @@ func init() {
 var fixEmbeddedTrailingNonWordChars = regexp.MustCompile(`\W+$`)
 
 func Up_20260723181405(tx *sql.Tx) error {
+	// Idempotent migration.
 	fmaNames, err := fixEmbeddedLoadFMANamesDarwin(tx)
 	if err != nil {
 		return fmt.Errorf("loading FMA names: %w", err)

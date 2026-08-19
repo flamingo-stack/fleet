@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260729110229(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Password reset tokens are base64url-encoded, so their alphabet is
 	// case-sensitive. The column defaulted to the case-insensitive
 	// utf8mb4_unicode_ci collation, which made lookups match case-mutated

@@ -18,6 +18,7 @@ func init() {
 // raw_response_gz MEDIUMBLOB that stores the envelope gzip-compressed. This shrinks the row and the redo-log/commit-quorum pressure of the
 // Windows MDM check-in hot path (issue #44188). The text column could not hold raw gzip bytes (charset-constrained).
 func Up_20260626120000(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnExists(tx, "windows_mdm_responses", "raw_response_gz") {
 		if _, err := tx.Exec(`ALTER TABLE windows_mdm_responses ADD COLUMN raw_response_gz MEDIUMBLOB NULL`); err != nil {
 			return fmt.Errorf("adding raw_response_gz column: %w", err)

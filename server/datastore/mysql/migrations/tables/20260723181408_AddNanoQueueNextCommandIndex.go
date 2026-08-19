@@ -9,6 +9,10 @@ func init() {
 }
 
 func Up_20260723181408(tx *sql.Tx) error {
+	// Idempotent migration.
+	if indexExistsTx(tx, "nano_enrollment_queue", "idx_neq_next_command") {
+		return nil
+	}
 	// Supports RetrieveNextCommand, which filters a single enrollment's queue by
 	// (id, active) and orders by (priority DESC, created_at). Without an
 	// id-leading index the optimizer picks the global (priority DESC, created_at)

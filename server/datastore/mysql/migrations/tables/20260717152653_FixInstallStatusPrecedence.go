@@ -22,6 +22,7 @@ func init() {
 // execution_status kept the old one if the second failed. A single statement also
 // rebuilds the table once rather than twice.
 func Up_20260717152653(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
 		ALTER TABLE host_software_installs
 		MODIFY COLUMN ` + "`status`" + ` ENUM('pending_install','failed_install','installed','pending_uninstall','failed_uninstall','canceled_install','canceled_uninstall')

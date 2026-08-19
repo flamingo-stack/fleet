@@ -20,6 +20,7 @@ func init() {
 // An install a person asked for is never removed, so a host holding one of those and an automated
 // duplicate keeps both.
 func Up_20260723181413(tx *sql.Tx) error {
+	// Idempotent migration.
 	step := incrementalMigrationStep(countRedundantQueuedVPPAppInstalls, deleteRedundantQueuedVPPAppInstalls)
 	if err := step(tx); err != nil {
 		return fmt.Errorf("deleting redundant queued VPP app installs: %w", err)

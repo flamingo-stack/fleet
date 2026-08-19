@@ -9,6 +9,10 @@ func init() {
 }
 
 func Up_20260817080402(tx *sql.Tx) error {
+	// Idempotent migration.
+	if indexExistsTx(tx, "nano_cert_auth_associations", "idx_sha256") {
+		return nil
+	}
 	_, err := tx.Exec(`
 		ALTER TABLE nano_cert_auth_associations ADD INDEX idx_sha256 (sha256)
 	`)

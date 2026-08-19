@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260724134801(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Remove empty or whitespace-only enroll secrets. These can never be used
 	// to enroll a host (the server now rejects blank secrets), so deleting them
 	// neutralizes any blank secret that predates the create/update validation.

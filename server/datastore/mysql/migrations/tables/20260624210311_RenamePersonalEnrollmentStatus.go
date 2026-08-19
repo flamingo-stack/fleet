@@ -16,6 +16,7 @@ func init() {
 // Because enrollment_status is a VIRTUAL column (not stored), MySQL recomputes
 // its value at read time; there is no stored data to migrate.
 func Up_20260624210311(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
 		ALTER TABLE host_mdm
 		CHANGE COLUMN enrollment_status enrollment_status

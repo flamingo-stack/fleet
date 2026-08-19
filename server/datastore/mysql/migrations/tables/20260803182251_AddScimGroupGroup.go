@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260803182251(tx *sql.Tx) error {
+	// Idempotent migration.
 	// scim_group_group stores direct parent -> child SCIM group edges. Microsoft
 	// Entra ID provisions nested groups by sending group-type members (e.g. a
 	// PATCH that adds "group-62" as a member of "group-61") rather than flattening

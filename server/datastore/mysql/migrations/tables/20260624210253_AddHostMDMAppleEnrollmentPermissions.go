@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260624210253(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Keyed by host_uuid (the device's MDM enrollment UDID) rather than
 	// host_id so this table correlates directly with the nanomdm tables
 	// (nano_enrollments.id, host_mdm_apple_profiles.host_uuid, etc.), which
@@ -20,7 +21,7 @@ func Up_20260624210253(tx *sql.Tx) error {
 	// InnoDB locking contention. Cleanup on host deletion is handled by the
 	// additionalHostRefsByUUID map in server/datastore/mysql/hosts.go.
 	if _, err := tx.Exec(`
-		CREATE TABLE host_mdm_apple_enrollment_permissions (
+		CREATE TABLE IF NOT EXISTS host_mdm_apple_enrollment_permissions (
 			host_uuid     VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 			access_rights INT          NOT NULL DEFAULT 8191,
 			delivered_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

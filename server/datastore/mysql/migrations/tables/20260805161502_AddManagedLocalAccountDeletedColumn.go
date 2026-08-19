@@ -10,6 +10,10 @@ func init() {
 }
 
 func Up_20260805161502(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "host_managed_local_account_passwords", "deleted") {
+		return nil
+	}
 	_, err := tx.Exec(`
 		ALTER TABLE host_managed_local_account_passwords
 		ADD COLUMN deleted TINYINT(1) NOT NULL DEFAULT '0'

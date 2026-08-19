@@ -15,6 +15,7 @@ func init() {
 // Up_20260723181402 soft-deletes existing osquery-origin Windows host certificate rows so they are re-ingested with
 // their distinguished name (subject/issuer) parsed from osquery's keyed subject2/issuer2 columns.
 func Up_20260723181402(tx *sql.Tx) error {
+	// Idempotent migration.
 	step := incrementalMigrationStep(countWindowsHostCertsToReparse, softDeleteWindowsHostCertsForReparse)
 	if err := step(tx); err != nil {
 		return fmt.Errorf("soft-deleting windows host certificates for re-parse: %w", err)

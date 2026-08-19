@@ -10,13 +10,14 @@ func init() {
 }
 
 func Up_20260723181409(tx *sql.Tx) error {
+	// Idempotent migration.
 	// host_mdm_apple_device_names tracks the enforcement state of the host-name
 	// template for Apple hosts (macOS, iOS, iPadOS). A NULL status means the row
 	// is queued for the cron to pick up and send a Settings/DeviceName command.
 	// expected_device_name is nullable because rows are
 	// created before the cron resolves the template into a concrete name.
 	_, err := tx.Exec(`
-CREATE TABLE host_mdm_apple_device_names (
+CREATE TABLE IF NOT EXISTS host_mdm_apple_device_names (
   host_uuid            varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   status               varchar(20)  COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   command_uuid         varchar(127) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

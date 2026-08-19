@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20260723181401(tx *sql.Tx) error {
+	// Idempotent migration.
 	// windows_mdm_command_results is written on every Windows MDM check-in (MDMWindowsSaveResponse). During an active
 	// profile installation, tens of thousands of hosts insert result rows that all reference the same small set of shared
 	// command rows in windows_mdm_commands (one command per non-variable profile, fanned out to every host). The

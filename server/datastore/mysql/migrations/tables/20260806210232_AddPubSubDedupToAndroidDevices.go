@@ -10,6 +10,10 @@ func init() {
 }
 
 func Up_20260806210232(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "android_devices", "last_pubsub_message_id") {
+		return nil
+	}
 	// Track the last-processed Google Pub/Sub message per Android device so the
 	// AMAPI notification handler can deduplicate at-least-once redeliveries
 	// (same messageId) and drop out-of-order deliveries (older event timestamp).

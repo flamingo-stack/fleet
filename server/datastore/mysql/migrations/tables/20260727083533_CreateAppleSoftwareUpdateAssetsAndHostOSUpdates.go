@@ -10,12 +10,13 @@ func init() {
 }
 
 func Up_20260727083533(tx *sql.Tx) error {
+	// Idempotent migration.
 	// apple_software_update_assets caches the set of available OS update
 	// versions Apple's GDMF service reports for macOS/iOS, refreshed by a
 	// periodic cron. first_seen_at is only set on insert; updated_at advances
 	// on every successful fetch even when the version set is unchanged.
 	_, err := tx.Exec(`
-CREATE TABLE apple_software_update_assets (
+CREATE TABLE IF NOT EXISTS apple_software_update_assets (
   id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
   class             enum('macos','ios') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   product_version   varchar(50)  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -39,7 +40,7 @@ CREATE TABLE apple_software_update_assets (
 	// resolved_at is set once the target has been recomputed for the host's
 	// current team/setting; target_deadline is nullable until resolved.
 	_, err = tx.Exec(`
-CREATE TABLE host_mdm_apple_os_updates (
+CREATE TABLE IF NOT EXISTS host_mdm_apple_os_updates (
   host_uuid                 varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   software_update_device_id varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   target_os_version         varchar(50)  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',

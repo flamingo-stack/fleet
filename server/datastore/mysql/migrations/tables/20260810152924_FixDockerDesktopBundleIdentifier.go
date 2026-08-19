@@ -23,6 +23,7 @@ func init() {
 // the next catalog sync. What does not self-heal is the software title an already-added
 // Docker Desktop installer is bound to, so re-point it here.
 func Up_20260810152924(tx *sql.Tx) error {
+	// Idempotent migration.
 	const (
 		oldBundleID = "com.electron.dockerdesktop"
 		newBundleID = "com.docker.docker"

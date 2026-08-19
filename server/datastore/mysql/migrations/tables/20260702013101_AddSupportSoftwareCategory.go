@@ -11,6 +11,7 @@ func init() {
 }
 
 func Up_20260702013101(tx *sql.Tx) error {
+	// Idempotent migration.
 	// Add the new "🛟 Support" default self-service software category so it
 	// matches fleet.DefaultSelfServiceCategoryNames, which is used when seeding
 	// categories for newly created fleets.

@@ -11,7 +11,7 @@ func init() {
 
 func Up_20260723181404(tx *sql.Tx) error {
 	_, err := tx.Exec(`
-		CREATE TABLE mdm_apple_declaration_assets (
+		CREATE TABLE IF NOT EXISTS mdm_apple_declaration_assets (
 			asset_uuid varchar(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 			team_id int unsigned NOT NULL,
 			identifier varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -32,7 +32,7 @@ func Up_20260723181404(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-		CREATE TABLE mdm_apple_declaration_asset_references (
+		CREATE TABLE IF NOT EXISTS mdm_apple_declaration_asset_references (
 			declaration_uuid varchar(37) COLLATE utf8mb4_unicode_ci NOT NULL,
 			asset_uuid varchar(37) COLLATE utf8mb4_unicode_ci NOT NULL,
 			PRIMARY KEY (declaration_uuid, asset_uuid),
@@ -46,14 +46,17 @@ func Up_20260723181404(tx *sql.Tx) error {
 		return fmt.Errorf("creating mdm_apple_declaration_asset_references table: %w", err)
 	}
 
-	_, err = tx.Exec(`
+	// Idempotent migration.
+	if !columnExists(tx, "host_mdm_apple_declarations", "assets_updated_at") {
+		_, err = tx.Exec(`
 		-- ties a referencing config's per-host token to its assets (mirrors variables_updated_at); the reconciler
 		-- sets it to max(referenced assets' uploaded_at) so an asset edit changes the config token and re-syncs the host
 		ALTER TABLE host_mdm_apple_declarations
 			ADD COLUMN assets_updated_at datetime(6) NULL DEFAULT NULL;
 	`)
-	if err != nil {
-		return fmt.Errorf("adding assets_updated_at column to host_mdm_apple_declarations table: %w", err)
+		if err != nil {
+			return fmt.Errorf("adding assets_updated_at column to host_mdm_apple_declarations table: %w", err)
+		}
 	}
 
 	return nil

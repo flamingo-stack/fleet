@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260812134345(tx *sql.Tx) error {
+	// Idempotent migration.
 	// mdm_microsoft_graph_credentials stores the Entra app-registration credential Fleet authenticates with when
 	// calling Microsoft Graph to read Windows Autopilot device identities.
 	//

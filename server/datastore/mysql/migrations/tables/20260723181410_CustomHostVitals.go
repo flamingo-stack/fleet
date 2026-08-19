@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260723181410(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-		CREATE TABLE custom_host_vitals (
+		CREATE TABLE IF NOT EXISTS custom_host_vitals (
 			id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 			name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 			-- Using DATETIME instead of TIMESTAMP to prevent future Y2K38 issues.
@@ -26,7 +27,7 @@ func Up_20260723181410(tx *sql.Tx) error {
 	}
 
 	_, err = tx.Exec(`
-		CREATE TABLE host_custom_host_vitals (
+		CREATE TABLE IF NOT EXISTS host_custom_host_vitals (
 			id INT UNSIGNED NOT NULL AUTO_INCREMENT,
 			host_id INT UNSIGNED NOT NULL,
 			custom_host_vital_id INT UNSIGNED NOT NULL,

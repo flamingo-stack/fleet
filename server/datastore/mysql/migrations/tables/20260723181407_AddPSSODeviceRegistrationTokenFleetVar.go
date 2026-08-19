@@ -13,8 +13,9 @@ func init() {
 }
 
 func Up_20260723181407(tx *sql.Tx) error {
+	// Idempotent migration.
 	insStmt := `
-	INSERT INTO fleet_variables (
+	INSERT IGNORE INTO fleet_variables (
 		name, is_prefix, created_at
 	) VALUES
 		('FLEET_VAR_PSSO_DEVICE_REGISTRATION_TOKEN', 0, :created_at)

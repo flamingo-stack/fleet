@@ -15,6 +15,7 @@ func init() {
 }
 
 func Up_20260723181412(tx *sql.Tx) error {
+	// Idempotent migration.
 	step := incrementalMigrationStep(countHostsMissingAppleBuiltinLabelMemberships, backfillHostsMissingAppleBuiltinLabelMemberships)
 	if err := step(tx); err != nil {
 		return fmt.Errorf("backfilling Apple built-in label memberships: %w", err)

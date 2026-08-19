@@ -10,6 +10,7 @@ func init() {
 }
 
 func Up_20260807140831(tx *sql.Tx) error {
+	// Idempotent migration.
 	if !columnExists(tx, "policies", "patch_when_closed") {
 		if _, err := tx.Exec(`
 			ALTER TABLE policies

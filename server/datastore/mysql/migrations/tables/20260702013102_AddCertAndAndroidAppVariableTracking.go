@@ -10,6 +10,10 @@ func init() {
 }
 
 func Up_20260702013102(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "mdm_configuration_profile_variables", "certificate_template_id") {
+		return nil
+	}
 	_, err := tx.Exec(`
 		ALTER TABLE mdm_configuration_profile_variables
 			ADD COLUMN certificate_template_id int unsigned DEFAULT NULL,

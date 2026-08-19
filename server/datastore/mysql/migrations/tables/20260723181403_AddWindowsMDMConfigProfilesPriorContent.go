@@ -24,7 +24,7 @@ func Up_20260723181403(tx *sql.Tx) error {
 	// deleted profile lingers harmlessly until GC rather than blocking the delete. Rows are dropped once no host_mdm_windows_profiles row
 	// still has that checksum for the profile (every host has moved past that version or unenrolled).
 	if _, err := tx.Exec(`
-		CREATE TABLE mdm_windows_configuration_profiles_prior_content (
+		CREATE TABLE IF NOT EXISTS mdm_windows_configuration_profiles_prior_content (
 			profile_uuid VARCHAR(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 			checksum     BINARY(16) NOT NULL,
 			syncml       MEDIUMBLOB NOT NULL,
@@ -43,16 +43,25 @@ func Up_20260723181403(tx *sql.Tx) error {
 		return fmt.Errorf("backfill mdm_windows_configuration_profiles_prior_content from pending_delete: %w", err)
 	}
 
-	if _, err := tx.Exec(`DROP TABLE mdm_windows_configuration_profiles_pending_delete`); err != nil {
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS mdm_windows_configuration_profiles_pending_delete`); err != nil {
 		return fmt.Errorf("drop mdm_windows_configuration_profiles_pending_delete: %w", err)
 	}
 
 	// The prior-content GC and the deleted-profile host-row cleanup probe host_mdm_windows_profiles by (profile_uuid, checksum). The
 	// GC's NOT EXISTS now also filters on checksum.
-	if _, err := tx.Exec(`ALTER TABLE host_mdm_windows_profiles
-		DROP INDEX idx_host_mdm_windows_profiles_profile_uuid,
+	// Idempotent migration. The swap is split in two so a partially-applied run can finish: the
+	// CREATE/DROP TABLE above are already IF (NOT) EXISTS and the backfill is INSERT IGNORE.
+	if !indexExistsTx(tx, "host_mdm_windows_profiles", "idx_host_mdm_windows_profiles_profile_uuid_checksum") {
+		if _, err := tx.Exec(`ALTER TABLE host_mdm_windows_profiles
 		ADD INDEX idx_host_mdm_windows_profiles_profile_uuid_checksum (profile_uuid, checksum)`); err != nil {
-		return fmt.Errorf("replace profile_uuid index with (profile_uuid, checksum) on host_mdm_windows_profiles: %w", err)
+			return fmt.Errorf("add (profile_uuid, checksum) index on host_mdm_windows_profiles: %w", err)
+		}
+	}
+	if indexExistsTx(tx, "host_mdm_windows_profiles", "idx_host_mdm_windows_profiles_profile_uuid") {
+		if _, err := tx.Exec(`ALTER TABLE host_mdm_windows_profiles
+		DROP INDEX idx_host_mdm_windows_profiles_profile_uuid`); err != nil {
+			return fmt.Errorf("drop superseded profile_uuid index on host_mdm_windows_profiles: %w", err)
+		}
 	}
 	return nil
 }

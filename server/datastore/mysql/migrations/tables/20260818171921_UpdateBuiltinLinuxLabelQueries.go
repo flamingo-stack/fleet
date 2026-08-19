@@ -17,6 +17,7 @@ func init() {
 // RHEL, Rocky Linux, AlmaLinux and CentOS Stream all report "rhel" for both, so
 // labels singling out one of them have to match on os_version.name.
 func Up_20260818171921(tx *sql.Tx) error {
+	// Idempotent migration.
 	updatedAt := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)
 
 	updates := []struct {

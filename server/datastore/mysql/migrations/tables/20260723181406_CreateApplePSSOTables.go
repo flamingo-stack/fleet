@@ -10,8 +10,9 @@ func init() {
 }
 
 func Up_20260723181406(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
-		CREATE TABLE mdm_apple_psso_devices (
+		CREATE TABLE IF NOT EXISTS mdm_apple_psso_devices (
 			host_uuid  VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 			created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
 			updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -22,7 +23,7 @@ func Up_20260723181406(tx *sql.Tx) error {
 	}
 
 	if _, err := tx.Exec(`
-		CREATE TABLE mdm_apple_psso_keys (
+		CREATE TABLE IF NOT EXISTS mdm_apple_psso_keys (
 			kid        VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 			host_uuid  VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 			key_type   ENUM('signing','encryption') COLLATE utf8mb4_unicode_ci NOT NULL,

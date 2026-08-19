@@ -15,8 +15,9 @@ func init() {
 // command (see #49984). Both tables are keyed by host_uuid, no FK, and are
 // registered in additionalHostRefsByUUID for host-deletion cleanup.
 func Up_20260807120050(tx *sql.Tx) error {
+	// Idempotent migration.
 	_, err := tx.Exec(`
-CREATE TABLE host_mdm_apple_device_vitals (
+CREATE TABLE IF NOT EXISTS host_mdm_apple_device_vitals (
   host_uuid                         varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   udid                              varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   model_number                      varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -56,7 +57,7 @@ CREATE TABLE host_mdm_apple_device_vitals (
 	}
 
 	_, err = tx.Exec(`
-CREATE TABLE host_mdm_apple_service_subscriptions (
+CREATE TABLE IF NOT EXISTS host_mdm_apple_service_subscriptions (
   host_uuid                  varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   slot                       varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   carrier_settings_version   varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

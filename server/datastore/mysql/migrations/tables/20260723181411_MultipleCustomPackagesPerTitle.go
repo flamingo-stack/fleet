@@ -15,12 +15,16 @@ func Up_20260723181411(tx *sql.Tx) error {
 	// one version coexist. FMA rows resolve it to version, leaving the per-version rows that
 	// back version pinning unchanged. VIRTUAL keeps the add in-place. The collation is pinned
 	// to match storage_id and version so the migration matches what fresh installs get.
-	if _, err := tx.Exec(`
+	// Idempotent migration. The dedup UPDATE/DELETE steps below are naturally re-runnable; the
+	// column add and the unique-key swap are gated on their own presence.
+	if !columnExists(tx, "software_installers", "dedup_token") {
+		if _, err := tx.Exec(`
 		ALTER TABLE software_installers
 			ADD COLUMN dedup_token VARCHAR(255) COLLATE utf8mb4_unicode_ci
 				GENERATED ALWAYS AS (IF(fleet_maintained_app_id IS NULL, storage_id, version)) VIRTUAL
 	`); err != nil {
-		return fmt.Errorf("adding dedup_token column: %w", err)
+			return fmt.Errorf("adding dedup_token column: %w", err)
+		}
 	}
 
 	// Collapse rows that would violate the new key: keep the first-added active row per group
@@ -87,12 +91,21 @@ func Up_20260723181411(tx *sql.Tx) error {
 		return fmt.Errorf("deleting duplicate installers: %w", err)
 	}
 
-	if _, err := tx.Exec(`
+	if !indexExistsTx(tx, "software_installers", "idx_software_installers_dedup") {
+		if _, err := tx.Exec(`
 		ALTER TABLE software_installers
-			DROP INDEX idx_software_installers_team_title_version,
 			ADD UNIQUE KEY idx_software_installers_dedup (global_or_team_id, title_id, dedup_token)
 	`); err != nil {
-		return fmt.Errorf("swapping software_installers unique key: %w", err)
+			return fmt.Errorf("adding software_installers dedup unique key: %w", err)
+		}
+	}
+	if indexExistsTx(tx, "software_installers", "idx_software_installers_team_title_version") {
+		if _, err := tx.Exec(`
+		ALTER TABLE software_installers
+			DROP INDEX idx_software_installers_team_title_version
+	`); err != nil {
+			return fmt.Errorf("dropping superseded software_installers unique key: %w", err)
+		}
 	}
 
 	return nil

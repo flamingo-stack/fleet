@@ -31,7 +31,7 @@ func Up_20260729115013(tx *sql.Tx) error {
 	// alongside it, since the activation JSON references its configuration by
 	// Identifier rather than by UUID.
 	_, err := tx.Exec(`
-CREATE TABLE mdm_apple_ddm_activations (
+CREATE TABLE IF NOT EXISTS mdm_apple_ddm_activations (
 	activation_uuid          varchar(37)  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 	team_id                  int unsigned NOT NULL DEFAULT '0',
 	identifier               varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -61,26 +61,29 @@ CREATE TABLE mdm_apple_ddm_activations (
 	// ON DUPLICATE KEY UPDATE write path work, and the check constraint has to
 	// be replaced to count the new column, otherwise every row setting it is
 	// rejected.
-	_, err = tx.Exec(`
-		ALTER TABLE mdm_configuration_profile_variables
-			ADD COLUMN apple_ddm_activation_uuid varchar(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-			ADD UNIQUE KEY idx_mdm_config_profile_vars_ddm_activation_variable (apple_ddm_activation_uuid, fleet_variable_id),
-			ADD CONSTRAINT mdm_config_profile_variables_ddm_activation_fk
-				FOREIGN KEY (apple_ddm_activation_uuid) REFERENCES mdm_apple_ddm_activations (activation_uuid) ON DELETE CASCADE,
-			DROP CHECK ck_mdm_configuration_profile_variables_exactly_one,
-			ADD CONSTRAINT ck_mdm_configuration_profile_variables_exactly_one
-				CHECK ((
-					(IF(apple_profile_uuid IS NULL, 0, 1) +
-					 IF(windows_profile_uuid IS NULL, 0, 1) +
-					 IF(apple_declaration_uuid IS NULL, 0, 1) +
-					 IF(android_profile_uuid IS NULL, 0, 1) +
-					 IF(certificate_template_id IS NULL, 0, 1) +
-					 IF(android_app_configuration_id IS NULL, 0, 1) +
-					 IF(apple_ddm_activation_uuid IS NULL, 0, 1)) = 1
-				))
-	`)
-	if err != nil {
-		return fmt.Errorf("extending mdm_configuration_profile_variables for DDM activations: %w", err)
+	// Idempotent migration.
+	if !columnExists(tx, "mdm_configuration_profile_variables", "apple_ddm_activation_uuid") {
+		_, err = tx.Exec(`
+			ALTER TABLE mdm_configuration_profile_variables
+				ADD COLUMN apple_ddm_activation_uuid varchar(37) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+				ADD UNIQUE KEY idx_mdm_config_profile_vars_ddm_activation_variable (apple_ddm_activation_uuid, fleet_variable_id),
+				ADD CONSTRAINT mdm_config_profile_variables_ddm_activation_fk
+					FOREIGN KEY (apple_ddm_activation_uuid) REFERENCES mdm_apple_ddm_activations (activation_uuid) ON DELETE CASCADE,
+				DROP CHECK ck_mdm_configuration_profile_variables_exactly_one,
+				ADD CONSTRAINT ck_mdm_configuration_profile_variables_exactly_one
+					CHECK ((
+						(IF(apple_profile_uuid IS NULL, 0, 1) +
+						 IF(windows_profile_uuid IS NULL, 0, 1) +
+						 IF(apple_declaration_uuid IS NULL, 0, 1) +
+						 IF(android_profile_uuid IS NULL, 0, 1) +
+						 IF(certificate_template_id IS NULL, 0, 1) +
+						 IF(android_app_configuration_id IS NULL, 0, 1) +
+						 IF(apple_ddm_activation_uuid IS NULL, 0, 1)) = 1
+					))
+		`)
+		if err != nil {
+			return fmt.Errorf("extending mdm_configuration_profile_variables for DDM activations: %w", err)
+		}
 	}
 
 	// Tracks when a host's activation last changed so the declaration's
@@ -88,9 +91,11 @@ CREATE TABLE mdm_apple_ddm_activations (
 	// assets_updated_at. DATETIME(6) rather than TIMESTAMP because
 	// EffectiveDDMToken formats these values into the token string and
 	// TIMESTAMP would apply session timezone conversion on read.
-	_, err = tx.Exec(`ALTER TABLE host_mdm_apple_declarations ADD COLUMN activation_updated_at DATETIME(6) DEFAULT NULL`)
-	if err != nil {
-		return fmt.Errorf("adding activation_updated_at to host_mdm_apple_declarations: %w", err)
+	if !columnExists(tx, "host_mdm_apple_declarations", "activation_updated_at") {
+		_, err = tx.Exec(`ALTER TABLE host_mdm_apple_declarations ADD COLUMN activation_updated_at DATETIME(6) DEFAULT NULL`)
+		if err != nil {
+			return fmt.Errorf("adding activation_updated_at to host_mdm_apple_declarations: %w", err)
+		}
 	}
 
 	return nil

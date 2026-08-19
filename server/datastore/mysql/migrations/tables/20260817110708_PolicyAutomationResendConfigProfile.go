@@ -9,6 +9,10 @@ func init() {
 }
 
 func Up_20260817110708(tx *sql.Tx) error {
+	// Idempotent migration.
+	if columnExists(tx, "policies", "resend_apple_profile_uuid") {
+		return nil
+	}
 	_, err := tx.Exec(`ALTER TABLE policies
 ADD COLUMN resend_apple_profile_uuid varchar(37) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
 ADD COLUMN resend_windows_profile_uuid varchar(37) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

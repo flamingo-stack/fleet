@@ -12,8 +12,9 @@ func init() {
 // Up_20260806154150 creates host_mdm_windows_profiles_status, a per-host rollup of the aggregate Windows configuration-profile
 // delivery status. It materializes exactly one bucket per host ('failed'|'pending'|'verifying'|'verified'|empty)
 func Up_20260806154150(tx *sql.Tx) error {
+	// Idempotent migration.
 	if _, err := tx.Exec(`
-CREATE TABLE host_mdm_windows_profiles_status (
+CREATE TABLE IF NOT EXISTS host_mdm_windows_profiles_status (
 	host_uuid  VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
 	status     VARCHAR(20)  COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
 	updated_at DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -26,7 +27,7 @@ CREATE TABLE host_mdm_windows_profiles_status (
 	// Backfill one row per host. GROUP BY host_uuid is a leftmost prefix of the clustered PRIMARY KEY (host_uuid, profile_uuid), so
 	// MySQL streams the aggregation in index order without a temp table.
 	if _, err := tx.Exec(`
-INSERT INTO host_mdm_windows_profiles_status (host_uuid, status)
+INSERT IGNORE INTO host_mdm_windows_profiles_status (host_uuid, status)
 SELECT
 	hmwp.host_uuid,
 	CASE
