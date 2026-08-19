@@ -58,7 +58,7 @@ done
 step "OPENFRAME marker coverage (every fork-token line is marked)"
 if python3 - <<'PYEOF'
 import re, subprocess, sys
-SKIP=('/migrations/openframe/','/service/openframe/','/migrations/tables/','/migrations/data/','/server/mock/','/node_modules/','/vendor/','/tools/fleet-mcp/')
+SKIP=('/migrations/openframe/','/service/openframe/','/migrations/tables/','/migrations/data/','/server/mock/','/node_modules/','/vendor/','/cmd/fleet-mcp/')
 SKIP_EXACT={'server/fleet/openframe.go','server/datastore/redis/keyprefix.go',
  'server/datastore/mysql/openframe.go','server/service/openframe_middleware.go'}
 TOKENS=re.compile('|'.join([
