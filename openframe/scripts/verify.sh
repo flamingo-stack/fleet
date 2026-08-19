@@ -26,7 +26,17 @@ bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
 # 1. Compile the fork-touched code. Catches the #1 silent break: upstream changed
 #    a signature/type the fork calls.
 step "build fork packages (catches signature/type/import drift)"
-if go build -tags "$GO_TAGS" ./cmd/fleet/... ./orbit/cmd/orbit/... \
+# server/bindata/generated.go is produced by the webpack build (make generate); without it the
+# `full` tag excludes every file in that package (placeholder.go is //go:build !full), so a
+# full-tagged build fails on a source checkout for reasons unrelated to the merge. Use the full
+# tag only when the generated file is actually present.
+if [ -f server/bindata/generated.go ]; then
+  build_tags="$GO_TAGS"
+else
+  build_tags="fts5,netgo"
+  printf '  (server/bindata/generated.go absent — building without the `full` tag; run `make generate` for a full-tag build)\n'
+fi
+if go build -tags "$build_tags" ./cmd/fleet/... ./orbit/cmd/orbit/... \
       ./server/datastore/... ./server/service/... ./server/fleet/... ./server/config/... 2>build.err; then
   ok "go build"
 else
@@ -36,7 +46,7 @@ rm -f build.err
 
 # 2. Vet the fork-touched packages.
 step "go vet fork packages"
-if go vet ./server/datastore/redis/ ./server/datastore/mysql/ ./server/config/ ./server/fleet/ 2>vet.err; then
+if go vet ./server/datastore/redis/ ./server/datastore/mysql/ ./server/config/ ./server/fleet/ ./server/service/ ./client/ 2>vet.err; then
   ok "go vet"
 else
   bad "go vet — see output"; sed 's/^/    /' vet.err | head -30
@@ -46,7 +56,11 @@ rm -f vet.err
 # 3. Marker presence: if a merge silently dropped fork code, its OPENFRAME markers
 #    vanish too. A slug dropping to zero is a red flag worth a human look.
 step "OPENFRAME marker presence (dropped-fork-code detector)"
-for slug in host-assignments redis-key-prefix redis-seed-nodes query-results-ttl osquery-host-id agent-openframe-mode agent-json-content-type migration-race; do
+# Every slug that exists in the tree must be listed here, or a merge could drop the whole
+# feature without the detector noticing. mysql-multitenancy is by far the largest.
+for slug in mysql-multitenancy host-assignments helm agent-openframe-mode redis-key-prefix \
+            hardening vuln-persistence query-results-ttl waf-inventory-shape \
+            agent-json-content-type cloudsql-v2 redis-seed-nodes migration-race osquery-host-id; do
   n=$(grep -rIl "OPENFRAME($slug" --include='*.go' --include='*.yaml' --include='*.tpl' . 2>/dev/null | wc -l | tr -d ' ')
   if [ "$n" -gt 0 ]; then ok "$slug — present in $n file(s)"; else bad "$slug — NO markers found (fork code may have been dropped in the merge)"; fi
 done
@@ -58,7 +72,7 @@ done
 step "OPENFRAME marker coverage (every fork-token line is marked)"
 if python3 - <<'PYEOF'
 import re, subprocess, sys
-SKIP=('/migrations/openframe/','/service/openframe/','/migrations/tables/','/migrations/data/','/server/mock/','/node_modules/','/vendor/','/tools/fleet-mcp/')
+SKIP=('/migrations/openframe/','/service/openframe/','/migrations/tables/','/migrations/data/','/server/mock/','/node_modules/','/vendor/','/cmd/fleet-mcp/')
 SKIP_EXACT={'server/fleet/openframe.go','server/datastore/redis/keyprefix.go',
  'server/datastore/mysql/openframe.go','server/service/openframe_middleware.go'}
 TOKENS=re.compile('|'.join([
@@ -81,7 +95,15 @@ for f in subprocess.run(['git','ls-files','*.go'],capture_output=True,text=True)
         if '<<< OPENFRAME(' in ln and st:
             s=st.pop()
             for j in range(s,i+1): cov.add(j)
-        if 'OPENFRAME(' in ln: cov.add(i)
+        if 'OPENFRAME(' in ln:
+            cov.add(i)
+            # A single-marker rationale note often runs over several comment lines; the
+            # continuation lines belong to the note, so cover the contiguous comment block.
+            if ln.lstrip().startswith('//'):
+                for j in range(i+1, len(L)):
+                    if not L[j].lstrip().startswith('//'): break
+                    if 'OPENFRAME(' in L[j]: break
+                    cov.add(j)
     for i,ln in enumerate(L):
         if 'OPENFRAME(' in ln or i in cov: continue
         if TOKENS.search(ln): bad.append(f"{f}:{i+1}: {ln.strip()[:90]}")

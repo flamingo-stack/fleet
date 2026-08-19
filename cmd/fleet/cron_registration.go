@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fleetdm/fleet/v4/ee/server/googleworkspace"
 	activity_api "github.com/fleetdm/fleet/v4/server/activity/api"
 	chart_api "github.com/fleetdm/fleet/v4/server/chart/api"
 	"github.com/fleetdm/fleet/v4/server/config"
@@ -19,6 +20,7 @@ import (
 	apple_mdm "github.com/fleetdm/fleet/v4/server/mdm/apple"
 	"github.com/fleetdm/fleet/v4/server/mdm/apple/apple_apps"
 	"github.com/fleetdm/fleet/v4/server/mdm/apple/vpp"
+	"github.com/fleetdm/fleet/v4/server/microsoft/msgraph"
 	"github.com/fleetdm/fleet/v4/server/service/redis_key_value"
 	"github.com/fleetdm/fleet/v4/server/service/schedule"
 )
@@ -127,6 +129,10 @@ func registerCleanupAndMaintenanceCrons(ctx context.Context, deps cronSchedulesD
 		})
 	}
 
+	deps.register(fmt.Sprintf("failed to register %s", fleet.CronSoftwareChecksumMigration), func() (fleet.CronSchedule, error) {
+		return cronSoftwareChecksumMigration(ctx, deps.instanceID, deps.ds, deps.logger)
+	})
+
 	if deps.config.Server.FrequentCleanupsEnabled {
 		deps.register("failed to register frequent_cleanups schedule", func() (fleet.CronSchedule, error) {
 			return newFrequentCleanupsSchedule(ctx, deps.instanceID, deps.ds, deps.liveQueryStore, deps.logger)
@@ -152,7 +158,8 @@ func registerCleanupAndMaintenanceCrons(ctx context.Context, deps cronSchedulesD
 	})
 
 	deps.register("failed to register upcoming_activities_maintenance schedule", func() (fleet.CronSchedule, error) {
-		return newUpcomingActivitiesSchedule(ctx, deps.instanceID, deps.ds, deps.logger)
+		return newUpcomingActivitiesSchedule(ctx, deps.instanceID, deps.ds, deps.logger,
+			deps.config.Server.VPPInstallReapTimeout, deps.config.Server.VPPVerifyTimeout, deps.svc.NewActivity)
 	})
 
 	deps.register("failed to register stats schedule", func() (fleet.CronSchedule, error) {
@@ -202,11 +209,11 @@ func registerVulnerabilityCrons(ctx context.Context, deps cronSchedulesDeps) {
 // integrations schedule.
 func registerWorkerCrons(ctx context.Context, deps cronSchedulesDeps) {
 	deps.register("failed to register automations schedule", func() (fleet.CronSchedule, error) {
-		return newAutomationsSchedule(ctx, deps.instanceID, deps.ds, deps.logger, 5*time.Minute, deps.failingPolicySet)
+		return newAutomationsSchedule(ctx, deps.instanceID, deps.ds, deps.logger, 5*time.Minute, deps.failingPolicySet, deps.activitySvc)
 	})
 
 	deps.register("failed to register worker integrations schedule", func() (fleet.CronSchedule, error) {
-		return newWorkerIntegrationsSchedule(ctx, deps.instanceID, deps.ds, deps.logger, deps.depStorage, deps.commander, deps.androidSvc, deps.chartSvc, deps.config.MDM.AndroidBatchSize)
+		return newWorkerIntegrationsSchedule(ctx, deps.instanceID, deps.ds, deps.logger, deps.depStorage, deps.commander, deps.androidSvc, deps.chartSvc, deps.config.MDM.AndroidBatchSize, deps.activitySvc)
 	})
 }
 
@@ -217,7 +224,7 @@ func registerWorkerCrons(ctx context.Context, deps cronSchedulesDeps) {
 func registerMDMCrons(ctx context.Context, deps cronSchedulesDeps) {
 	deps.register("failed to register apple_mdm_worker schedule", func() (fleet.CronSchedule, error) {
 		vppInstaller := deps.svc.(fleet.AppleMDMVPPInstaller)
-		return newAppleMDMWorkerSchedule(ctx, deps.instanceID, deps.ds, deps.logger, deps.commander, deps.bootstrapPackageStore, vppInstaller, deps.svc.NewActivity)
+		return newAppleMDMWorkerSchedule(ctx, deps.instanceID, deps.ds, deps.logger, deps.commander, deps.bootstrapPackageStore, vppInstaller, deps.svc, deps.svc.NewActivity)
 	})
 
 	deps.register("failed to register apple_mdm_dep_profile_assigner schedule", func() (fleet.CronSchedule, error) {
@@ -273,6 +280,18 @@ func registerMDMCrons(ctx context.Context, deps cronSchedulesDeps) {
 		)
 	})
 
+	// Register Android MDM Command Reconciler schedule (recovers commands whose Pub/Sub notification was lost)
+	deps.register("failed to register mdm_android_command_reconciler schedule", func() (fleet.CronSchedule, error) {
+		return newAndroidMDMCommandReconcilerSchedule(
+			ctx,
+			deps.instanceID,
+			deps.ds,
+			deps.logger,
+			deps.config.License.Key,
+			deps.svc.NewActivity,
+		)
+	})
+
 	deps.register("failed to register enable_android_app_reports_on_default_policy cron", func() (fleet.CronSchedule, error) {
 		return cronEnableAndroidAppReportsOnDefaultPolicy(ctx, deps.instanceID, deps.ds, deps.logger, deps.androidSvc)
 	})
@@ -290,6 +309,10 @@ func registerMDMCrons(ctx context.Context, deps cronSchedulesDeps) {
 			deps.logger,
 		)
 	})
+
+	deps.register("failed to register Apple MDM OS updates schedule", func() (fleet.CronSchedule, error) {
+		return newAppleMDMOSUpdatesSchedule(ctx, deps.instanceID, deps.ds, deps.logger)
+	})
 }
 
 // registerPremiumCrons covers the Fleet Premium schedules: iPhone/iPad
@@ -301,6 +324,10 @@ func registerPremiumCrons(ctx context.Context, deps cronSchedulesDeps) {
 		return
 	}
 
+	deps.register("failed to register microsoft_autopilot_sync schedule", func() (fleet.CronSchedule, error) {
+		return cron.NewMicrosoftAutopilotSchedule(ctx, deps.instanceID, deps.ds, msgraph.NewClient, deps.logger)
+	})
+
 	deps.register("failed to register apple_mdm_iphone_ipad_refetcher schedule", func() (fleet.CronSchedule, error) {
 		return newIPhoneIPadRefetcher(ctx, deps.instanceID, 10*time.Minute, deps.ds, deps.commander, deps.logger, deps.svc.NewActivity)
 	})
@@ -311,6 +338,14 @@ func registerPremiumCrons(ctx context.Context, deps cronSchedulesDeps) {
 
 	deps.register("failed to register maintained apps schedule", func() (fleet.CronSchedule, error) {
 		return newMaintainedAppSchedule(ctx, deps.instanceID, deps.ds, deps.logger)
+	})
+
+	deps.register("failed to register windows maintained app titles schedule", func() (fleet.CronSchedule, error) {
+		return newWindowsMaintainedAppTitlesSchedule(ctx, deps.instanceID, deps.ds, deps.logger)
+	})
+
+	deps.register("failed to register maintained apps auto-update schedule", func() (fleet.CronSchedule, error) {
+		return newMaintainedAppsAutoUpdateSchedule(ctx, deps.instanceID, deps.ds, deps.softwareInstallStore, deps.logger)
 	})
 
 	deps.register("failed to register refresh vpp app versions schedule", func() (fleet.CronSchedule, error) {
@@ -346,7 +381,17 @@ func registerPremiumCrons(ctx context.Context, deps cronSchedulesDeps) {
 		} else {
 			deps.config.Calendar.Periodicity = 5 * time.Minute
 		}
-		return cron.NewCalendarSchedule(ctx, deps.instanceID, deps.ds, deps.distributedLock, deps.config.Calendar, deps.logger)
+		return cron.NewCalendarSchedule(ctx, deps.instanceID, deps.ds, deps.distributedLock, deps.config.Calendar, deps.logger, deps.activitySvc)
+	})
+
+	deps.register("failed to register google workspace sync schedule", func() (fleet.CronSchedule, error) {
+		factory := googleworkspace.NewDirectoryFactory(googleworkspace.Limits{
+			MaxUsers:            deps.config.GoogleWorkspace.MaxUsers,
+			MaxGroups:           deps.config.GoogleWorkspace.MaxGroups,
+			MaxGroupMembers:     deps.config.GoogleWorkspace.MaxGroupMembers,
+			MaxGroupMemberships: deps.config.GoogleWorkspace.MaxGroupMemberships,
+		})
+		return cron.NewGoogleWorkspaceSchedule(ctx, deps.instanceID, deps.ds, factory, deps.logger)
 	})
 }
 

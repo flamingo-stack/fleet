@@ -23,7 +23,9 @@ This manifest is therefore built by:
    `v4.80.0`).
 
 **Baseline:** the fork tracks Fleet **~v4.81.2** (`charts/fleet/Chart.yaml`
-`appVersion`). **As of** fork commit `cb06c5d367`.
+`appVersion`). **As of** the `upstream/main` v4.90.1 sync (upstream `b139336f8f`).
+
+> Counts below are approximate and drift between syncs. Recompute rather than trust them.
 
 > Caveat: a handful of files dated between upstream releases (e.g. two
 > `migrations/tables/2025122*_*.go`) were added by upstream, inherited by the
@@ -36,11 +38,25 @@ This manifest is therefore built by:
 |-------|------:|-------|
 | **Created** | ~30 | `openframe/`, `server/service/openframe/`, `migrations/openframe/`, `redis/keyprefix.go`, fork CI, 4 chart templates |
 | **Modified** | ~516 | 473 upstream migrations made idempotent + ~43 server/orbit/chart/CI files |
-| **Deleted** | ~84 | entirely under `.github/` (upstream CI/CD, issue templates, scripts) |
+| **Deleted** | ~690 | ~85 under `.github/` (upstream CI/CD, issue templates, scripts) + ~600 under `docs/` (upstream's docs tree, replaced by the fork's own) |
 
-**No top-level directory was deleted.** The fork keeps all of upstream's
-`website/`, `ee/`, `frontend/`, `articles/`, `android/`, etc. Deletions are
-confined to `.github/`. New directories are purely additive.
+**No top-level directory was deleted outright.** The fork keeps upstream's
+`website/`, `ee/`, `frontend/`, `articles/`, `android/`, etc. New directories are
+purely additive.
+
+Deletions are concentrated in two places:
+
+- **`.github/`** — upstream CI/community automation stripped (16 files kept of
+  upstream's 183), replaced by the fork's lean pipeline.
+- **`docs/`** — fork commit `1b972ff9bd` ("chore(docs): Clean slate — remove all
+  documentation (628 files)") removed upstream's docs tree. The fork now carries
+  its own small `docs/` (39 files vs upstream's 639) alongside `openframe/docs/`.
+
+> Earlier revisions of this manifest stated deletions were "confined to
+> `.github/`", which understated the total by roughly an order of magnitude. The
+> `docs/` deletions matter at sync time: they are ~a third of the merge's
+> modify/delete conflicts (33 of 92 in the v4.90.1 sync), and every one resolves
+> as "stay deleted".
 
 ## Directory-level view
 
@@ -141,7 +157,7 @@ and the heaviest standing rebase cost.
 `_helpers.tpl`, `rbac.yaml`, `sa.yaml` (+ `charts/example-tuf-skaffold.yaml`).
 See [helm-chart.md](helm-chart.md).
 
-## Deleted (~84 files, all under `.github/`)
+## Deleted (~85 files under `.github/`; see also the ~600 removed `docs/` files above)
 
 The fork removed upstream Fleet's heavy CI/CD and community automation, which it
 does not run, and replaced it with the lean pipeline in

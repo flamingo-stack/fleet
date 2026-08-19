@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"crypto/md5" //nolint:gosec // This hash is used as a DB optimization for software row lookup, not security
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -227,8 +228,14 @@ func (s Software) ToUniqueStr() string {
 	return strings.Join(ss, SoftwareFieldSeparator)
 }
 
-// computeRawChecksum computes the checksum for a software entry
-// The calculation must match the one in softwareChecksumComputedColumn
+// ComputeRawChecksum computes the checksum for a software entry.
+//
+// This is the SOLE source of truth for the software checksum. The checksum is
+// stored on insert from this value and is never recomputed in SQL during normal
+// operation. Do not add a parallel SQL implementation of this calculation: a
+// SQL formula that drifts from this one (e.g. a different field order) silently
+// produces a different checksum for identical software, which orphans existing
+// rows and creates duplicate software entries.
 func (s Software) ComputeRawChecksum() ([]byte, error) {
 	h := md5.New() //nolint:gosec // This hash is used as a DB optimization for software row lookup, not security
 	cols := []string{s.Version, s.Source, s.BundleIdentifier, s.Release, s.Arch, s.Vendor, s.ExtensionFor, s.ExtensionID, s.Name}
@@ -279,9 +286,16 @@ type SliceString []string
 
 func (c *SliceString) Scan(v interface{}) error {
 	if tv, ok := v.([]byte); ok {
-		return json.Unmarshal(tv, &c)
+		return json.Unmarshal(tv, c)
 	}
 	return errors.New("unsupported type")
+}
+
+func (c SliceString) Value() (driver.Value, error) {
+	if c == nil {
+		return nil, nil
+	}
+	return json.Marshal(c)
 }
 
 // SoftwareVersion is an abstraction over the `software` table to support the
@@ -380,6 +394,30 @@ type FleetMaintainedVersion struct {
 	ID uint `json:"id" db:"id"`
 	// Version is the version string.
 	Version string `json:"version" db:"version"`
+	// Filename is the installer filename for this version.
+	Filename string `json:"filename" db:"filename"`
+	// UploadedAt is when this version was added to the database.
+	UploadedAt time.Time `json:"uploaded_at" db:"uploaded_at"`
+}
+
+// FMAAutoUpdateCandidate is the active installer for one (team, title) backed
+// by a Fleet-maintained app. The auto-update cron uses it to decide whether to
+// advance the active version among the team's cached versions.
+type FMAAutoUpdateCandidate struct {
+	// TeamID is nil for the no-team scope (the team_id column is NULL there).
+	TeamID *uint `db:"team_id"`
+	// TitleID is the software_titles.id.
+	TitleID uint `db:"title_id"`
+	// FleetMaintainedAppID is the fleet_maintained_apps.id backing this title,
+	// used to hydrate the latest manifest and check the cache without a second
+	// lookup.
+	FleetMaintainedAppID uint `db:"fleet_maintained_app_id"`
+	// InstallerID is the currently active software_installers.id.
+	InstallerID uint `db:"installer_id"`
+	// Version is the currently active version (for logging).
+	Version string `db:"version"`
+	// Slug is the Fleet-maintained app slug (for logging).
+	Slug string `db:"slug"`
 }
 
 // SoftwareTitle represents a title backed by the `software_titles` table.
@@ -415,8 +453,10 @@ type SoftwareTitle struct {
 	// InHouseAppsCount is 0 or 1, indicating if the software title has
 	// an in house app (.ipa) installer
 	InHouseAppCount int `json:"-" db:"in_house_apps_count"`
-	// SoftwarePackage is the software installer information for this title.
+	// SoftwarePackage is kept for backwards compatibility; it holds the first-added package (nil when none).
 	SoftwarePackage *SoftwareInstaller `json:"software_package" db:"-"`
+	// Packages holds every package, first-added first; nil (marshals to null) when none.
+	Packages []SoftwareInstaller `json:"packages" db:"-"`
 	// AppStoreApp is the VPP app information for this title.
 	AppStoreApp *VPPAppStoreApp `json:"app_store_app" db:"-"`
 	// BundleIdentifier is used by Apple installers to uniquely identify
@@ -500,9 +540,11 @@ type SoftwareTitleListResult struct {
 	// was last updated for that software title
 	CountsUpdatedAt *time.Time `json:"-" db:"counts_updated_at"`
 
-	// SoftwarePackage provides software installer package information, it is
-	// only present if a software installer is available for the software title.
+	// SoftwarePackage is kept for backwards compatibility; it holds the first-added package (nil when none).
 	SoftwarePackage *SoftwarePackageOrApp `json:"software_package"`
+
+	// Packages holds the trimmed per-package info, first-added first; nil (marshals to null) when none.
+	Packages []SoftwarePackageListItem `json:"packages"`
 
 	// AppStoreApp provides VPP app information, it is only present if a VPP app
 	// is available for the software title.
@@ -897,9 +939,10 @@ var DefaultSelfServiceCategoryNames = []string{
 	"🌎 Browsers",
 	"👬 Communication",
 	"🧰 Developer tools",
-	"💻 Productivity",
+	"🖥️ Productivity",
 	"🔐 Security",
 	"🛟 Support",
+	"🛠️ Utilities",
 }
 
 // Map the old default category names that don't include emojis to the new ones
@@ -909,9 +952,10 @@ var LegacySoftwareCategoryNames = map[string]string{
 	"Browsers":        "🌎 Browsers",
 	"Communication":   "👬 Communication",
 	"Developer tools": "🧰 Developer tools",
-	"Productivity":    "💻 Productivity",
+	"Productivity":    "🖥️ Productivity",
 	"Security":        "🔐 Security",
-	"Utilities":       "🛟 Support",
+	"Support":         "🛟 Support",
+	"Utilities":       "🛠️ Utilities",
 }
 
 func TranslateLegacySoftwareCategoryNames(names []string) []string {
@@ -928,11 +972,38 @@ func TranslateLegacySoftwareCategoryNames(names []string) []string {
 	return out
 }
 
+// normalizeSoftwareCategoryName strips Unicode variation selectors (U+FE00–U+FE0F)
+// from a category name. These code points carry zero weight (they are ignorable)
+// under the utf8mb4_unicode_ci collation that backs the software_categories
+// (team_id, name) unique index, so names differing only by a variation selector —
+// e.g. "🖥️ Productivity" (U+1F5A5 U+FE0F) vs "🖥 Productivity" (U+1F5A5) — are the
+// SAME row to MySQL even though Go's byte/rune comparisons treat them as distinct.
+// Normalizing before comparing in Go keeps our notion of category identity aligned
+// with the database's, so we don't try to insert a name the DB already considers a
+// duplicate (which would fail with a 1062 error) and we correctly resolve such a
+// name back to its existing category.
+func normalizeSoftwareCategoryName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 0xFE00 && r <= 0xFE0F { // variation selectors VS1-VS16 (ignorable in utf8mb4_unicode_ci)
+			return -1
+		}
+		return r
+	}, name)
+}
+
+// SoftwareCategoryNamesEqual reports whether two category names refer to the same
+// category as far as the software_categories unique index is concerned:
+// case-insensitive and ignoring variation selectors, matching the column's
+// utf8mb4_unicode_ci collation.
+func SoftwareCategoryNamesEqual(a, b string) bool {
+	return strings.EqualFold(normalizeSoftwareCategoryName(a), normalizeSoftwareCategoryName(b))
+}
+
 func SoftwareCategoryReferenceMatches(reference string, name string) bool {
-	if strings.EqualFold(reference, name) {
+	if SoftwareCategoryNamesEqual(reference, name) {
 		return true
 	}
-	if t, ok := LegacySoftwareCategoryNames[reference]; ok && strings.EqualFold(t, name) {
+	if t, ok := LegacySoftwareCategoryNames[reference]; ok && SoftwareCategoryNamesEqual(t, name) {
 		return true
 	}
 	return false

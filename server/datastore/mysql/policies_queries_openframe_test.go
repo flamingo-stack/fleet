@@ -119,7 +119,7 @@ func TestOpenframePolicyQueryCRUDTeamFence(t *testing.T) {
 		require.NoError(t, err)
 
 		// List via "global" while pinned → only team A's.
-		list, err := ds.ListGlobalPolicies(ctxA, fleet.ListOptions{})
+		list, err := ds.ListGlobalPolicies(ctxA, fleet.ListOptions{}, "")
 		require.NoError(t, err)
 		ids := map[uint]bool{}
 		for _, p := range list {
@@ -202,19 +202,19 @@ func TestOpenframeExplicitTeamAndGitOpsFence(t *testing.T) {
 
 		// List a foreign team's policies → empty (no leak) on both the plain and merge_inherited
 		// paths (they serve the same endpoint via the merge_inherited query param).
-		tp, _, err := ds.ListTeamPolicies(ctxA, teamB.ID, fleet.ListOptions{}, fleet.ListOptions{}, "")
+		tp, _, err := ds.ListTeamPolicies(ctxA, teamB.ID, fleet.ListOptions{}, fleet.ListOptions{}, "", "")
 		require.NoError(t, err)
 		require.Empty(t, tp)
 
-		merged, err := ds.ListMergedTeamPolicies(ctxA, teamB.ID, fleet.ListOptions{}, "")
+		merged, err := ds.ListMergedTeamPolicies(ctxA, teamB.ID, fleet.ListOptions{}, "", "")
 		require.NoError(t, err)
 		require.Empty(t, merged, "merge_inherited must not leak a foreign tenant's policies")
 
 		// Counts of a foreign team → 0 on both count paths.
-		cnt, err := ds.CountMergedTeamPolicies(ctxA, teamB.ID, "", "")
+		cnt, err := ds.CountMergedTeamPolicies(ctxA, teamB.ID, "", "", "")
 		require.NoError(t, err)
 		require.Zero(t, cnt)
-		cnt, err = ds.CountPolicies(ctxA, &teamB.ID, "", "")
+		cnt, err = ds.CountPolicies(ctxA, &teamB.ID, "", "", "")
 		require.NoError(t, err)
 		require.Zero(t, cnt, "explicit foreign-team count must be 0")
 

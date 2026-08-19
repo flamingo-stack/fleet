@@ -175,6 +175,10 @@ func (ds *Datastore) SetAndroidEnabledAndConfigured(ctx context.Context, configu
 }
 
 func (ds *Datastore) VerifyEnrollSecret(ctx context.Context, secret string) (*fleet.EnrollSecret, error) {
+	if strings.TrimSpace(secret) == "" {
+		return nil, ctxerr.Wrap(ctx, notFound("EnrollSecret"), "no matching secret found")
+	}
+
 	var s fleet.EnrollSecret
 	// >>> OPENFRAME(mysql-multitenancy): an agent may only enroll using THIS process's tenant secret.
 	// On a shared DB, reject a secret belonging to another team (or a pre-backfill global secret) so

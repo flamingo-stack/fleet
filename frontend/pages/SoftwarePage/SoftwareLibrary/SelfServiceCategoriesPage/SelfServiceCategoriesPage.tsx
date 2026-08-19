@@ -4,7 +4,6 @@ import { InjectedRouter } from "react-router";
 
 import PATHS from "router/paths";
 import { AppContext } from "context/app";
-import { NotificationContext } from "context/notification";
 import useTeamIdParam from "hooks/useTeamIdParam";
 import { getPathWithQueryParams } from "utilities/url";
 import selfServiceCategoriesAPI, {
@@ -12,17 +11,17 @@ import selfServiceCategoriesAPI, {
 } from "services/entities/self_service_categories";
 import { ISelfServiceCategory } from "interfaces/self_service_category";
 
+import { notify } from "components/ToastNotification";
 import BackButton from "components/BackButton";
 import Button from "components/buttons/Button";
 import CustomLink from "components/CustomLink";
 import DataError from "components/DataError";
 import EmptyState from "components/EmptyState";
-import Icon from "components/Icon";
 import MainContent from "components/MainContent";
 import PageDescription from "components/PageDescription";
 import PremiumFeatureMessage from "components/PremiumFeatureMessage";
 import Spinner from "components/Spinner";
-import TeamsDropdown from "components/TeamsDropdown";
+import FleetsDropdown from "components/FleetsDropdown";
 import TooltipTruncatedText from "components/TooltipTruncatedText";
 import UploadList from "components/UploadList";
 
@@ -53,7 +52,6 @@ const SelfServiceCategoriesPage = ({
     isGlobalMaintainer,
   } = useContext(AppContext);
   const isPrimoMode = config?.partnerships?.enable_primo || false;
-  const { renderFlash } = useContext(NotificationContext);
   const queryClient = useQueryClient();
 
   const {
@@ -124,19 +122,19 @@ const SelfServiceCategoriesPage = ({
   const onAddSuccess = () => {
     invalidateList();
     setShowAddModal(false);
-    renderFlash("success", "Successfully added self-service category.");
+    notify.success("Successfully added self-service category.");
   };
 
   const onEditSuccess = () => {
     invalidateList();
     setCategoryToEdit(null);
-    renderFlash("success", "Successfully updated self-service category.");
+    notify.success("Successfully updated self-service category.");
   };
 
   const onDeleteSuccess = () => {
     invalidateList();
     setCategoryToDelete(null);
-    renderFlash("success", "Successfully deleted self-service category.");
+    notify.success("Successfully deleted self-service category.");
   };
 
   const renderHeader = () => (
@@ -144,12 +142,12 @@ const SelfServiceCategoriesPage = ({
       <BackButton text="Back to software library" path={backToLibraryPath} />
       {isPremiumTier && !isPrimoMode ? (
         <div className={`${baseClass}__fleet-row`}>
-          <TeamsDropdown
-            currentUserTeams={userTeams ?? []}
-            selectedTeamId={currentTeamId}
+          <FleetsDropdown
+            currentUserFleets={userTeams ?? []}
+            selectedFleetId={currentTeamId}
             onChange={handleTeamChange}
-            includeAllTeams={false}
-            includeNoTeams
+            includeAllFleets={false}
+            includeUnassigned
           />
         </div>
       ) : (
@@ -197,7 +195,7 @@ const SelfServiceCategoriesPage = ({
           header="No self-service categories"
           info={
             canManage
-              ? "Add category to group your software and scripts in self-service."
+              ? "Add category to group your software and scripts in self service."
               : "No self-service categories are available."
           }
           primaryButton={
@@ -222,8 +220,11 @@ const SelfServiceCategoriesPage = ({
               Self-service categories
             </span>
             {canManage && (
-              <Button variant="inverse" onClick={() => setShowAddModal(true)}>
-                <Icon name="plus" />
+              <Button
+                variant="secondary"
+                onClick={() => setShowAddModal(true)}
+                icon="plus"
+              >
                 Add category
               </Button>
             )}
@@ -237,21 +238,19 @@ const SelfServiceCategoriesPage = ({
             {canManage && (
               <div className={`${baseClass}__row-actions`}>
                 <Button
-                  variant="icon"
+                  variant="secondary"
                   onClick={() => setCategoryToEdit(listItem)}
                   ariaLabel={`Edit ${listItem.name}`}
                   title="Edit"
-                >
-                  <Icon name="pencil" />
-                </Button>
+                  icon="pencil"
+                />
                 <Button
-                  variant="icon"
+                  variant="secondary"
                   onClick={() => setCategoryToDelete(listItem)}
                   ariaLabel={`Delete ${listItem.name}`}
                   title="Delete"
-                >
-                  <Icon name="trash" />
-                </Button>
+                  icon="trash"
+                />
               </div>
             )}
           </div>

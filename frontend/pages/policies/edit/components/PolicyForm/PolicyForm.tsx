@@ -9,7 +9,7 @@ import { size } from "lodash";
 import { InjectedRouter } from "react-router";
 
 import { AppContext } from "context/app";
-import { NotificationContext } from "context/notification";
+import { notify } from "components/ToastNotification";
 import { PolicyContext } from "context/policy";
 import usePlatformCompatibility from "hooks/usePlatformCompatibility";
 import usePlatformSelector from "hooks/usePlatformSelector";
@@ -29,7 +29,10 @@ import {
   POLICY_TARGET_EMPTY_STATE_DESCRIPTION,
 } from "pages/policies/constants";
 
-import { LEARN_MORE_ABOUT_BASE_LINK } from "utilities/constants";
+import {
+  LEARN_MORE_ABOUT_BASE_LINK,
+  MAX_ENTITY_CHAR_LENGTH,
+} from "utilities/constants";
 
 import SQLEditor from "components/SQLEditor";
 import {
@@ -55,6 +58,11 @@ import PolicyAutomationsFields, {
   IPolicyAutomationsPayload,
 } from "pages/policies/components/PolicyAutomationsFields";
 import { PatchAutomationCta } from "pages/policies/components";
+import {
+  getPatchPolicyFlags,
+  PatchOption,
+  PatchOptionSelector,
+} from "pages/SoftwarePage/components/forms/SoftwareDeploySelector";
 import {
   useUpdatePolicyAutomations,
   usePolicyLabelTargets,
@@ -133,6 +141,27 @@ const PolicyForm = ({
 
   const isPatchPolicy = storedPolicy?.type === "patch";
   const [isAddingAutomation, setIsAddingAutomation] = useState(false);
+  const [patchOption, setPatchOption] = useState<PatchOption>("manual");
+  const storedPatchPolicyId = storedPolicy?.id;
+  const storedPatchWhenClosed = storedPolicy?.patch_when_closed;
+  const storedInstallSoftwareId =
+    storedPolicy?.install_software?.software_title_id;
+
+  useEffect(() => {
+    if (!isPatchPolicy || !storedPatchPolicyId) return;
+    let nextPatchOption: PatchOption = "manual";
+    if (storedPatchWhenClosed) {
+      nextPatchOption = "closed";
+    } else if (storedInstallSoftwareId) {
+      nextPatchOption = "force";
+    }
+    setPatchOption(nextPatchOption);
+  }, [
+    isPatchPolicy,
+    storedPatchPolicyId,
+    storedPatchWhenClosed,
+    storedInstallSoftwareId,
+  ]);
 
   // Note: The PolicyContext values should always be used for any mutable policy data such as query name
   // The storedPolicy prop should only be used to access immutable metadata such as author id
@@ -169,7 +198,6 @@ const PolicyForm = ({
     excludeAll: lastEditedQueryLabelsExcludeAll,
   });
 
-  const { renderFlash } = useContext(NotificationContext);
   const queryClient = useQueryClient();
 
   const {
@@ -278,7 +306,7 @@ const PolicyForm = ({
     onSuccess: () => {
       queryClient.invalidateQueries(["policy", policyIdForEdit]);
     },
-    onError: () => renderFlash("error", "Could not update policy automations."),
+    onError: () => notify.error("Could not update policy automations."),
   });
 
   /* - Observer/Observer+ and Technicians cannot edit existing policies
@@ -375,9 +403,11 @@ const PolicyForm = ({
         software_title_id: storedPolicy.patch_software.software_title_id,
       });
       queryClient.invalidateQueries(["policy", policyIdForEdit]);
-      renderFlash("success", "Automation added.");
-    } catch {
-      renderFlash("error", "Couldn't set automation. Please try again.");
+      notify.success("Automation added.");
+    } catch (e) {
+      notify.error("Couldn't set automation. Please try again.", {
+        response: e,
+      });
     } finally {
       setIsAddingAutomation(false);
     }
@@ -406,6 +436,19 @@ const PolicyForm = ({
     let automations: IPolicyAutomationsPayload | undefined;
     if (isEditMode) {
       automations = automationsRef.current?.getAutomationsPayload();
+      if (!automations && isPremiumTier && isPatchPolicy) {
+        automations = {
+          isValid: true,
+          isDirty: true,
+          policyUpdate: {
+            software_title_id:
+              patchOption === "manual"
+                ? null
+                : storedPolicy?.patch_software?.software_title_id ?? null,
+            ...getPatchPolicyFlags(patchOption),
+          },
+        };
+      }
       if (automations && !automations.isValid) {
         return;
       }
@@ -487,11 +530,13 @@ const PolicyForm = ({
     return (
       <div className={`${baseClass}__sql-editor-label-actions`}>
         {showOpenSchemaActionText && (
-          <Button variant="inverse" onClick={onOpenSchemaSidebar}>
-            <>
-              Schema
-              <Icon name="info" />
-            </>
+          <Button
+            variant="subdued"
+            onClick={onOpenSchemaSidebar}
+            icon="info"
+            iconPosition="right"
+          >
+            Schema
           </Button>
         )}
         {!policyIdForEdit && (
@@ -517,6 +562,7 @@ const PolicyForm = ({
           error={errors && errors.name}
           onChange={(value: string) => setLastEditedQueryName(value)}
           disabled={gitOpsModeEnabled}
+          inputOptions={{ maxLength: MAX_ENTITY_CHAR_LENGTH }}
         />
       );
     }
@@ -649,6 +695,29 @@ const PolicyForm = ({
       (selectedTargetType === "Custom" && !hasCustomLabels) ||
       errors.query === EMPTY_QUERY_ERR;
 
+    // Single source of truth: patchOptions renders inside this block (patchSlot)
+    // when shown, and standalone otherwise — the two must stay exact complements.
+    const showAutomationsBlock =
+      isEditMode && !!storedPolicy && !!automationsConfig;
+
+    // Patch radios for patch policies (Premium). Rendered inside the Automations
+    // block via patchSlot when it's shown, or standalone before the automations
+    // config loads so the option stays settable.
+    const patchOptions = isEditMode && isPremiumTier && isPatchPolicy && (
+      <div className="form-field">
+        <div className="form-field__label">Patch</div>
+        <GitOpsModeTooltipWrapper
+          renderChildren={(disableChildren) => (
+            <PatchOptionSelector
+              patchOption={patchOption}
+              onSelectPatchOption={setPatchOption}
+              disabled={disableChildren}
+            />
+          )}
+        />
+      </div>
+    );
+
     return (
       <>
         <form className={`${baseClass}__wrapper`} autoComplete="off">
@@ -678,15 +747,17 @@ const PolicyForm = ({
               disableOptions={gitOpsModeEnabled}
             />
           )}
-          {isEditMode && !!storedPolicy && !!automationsConfig && (
+          {showAutomationsBlock && (
             <div className="form-field">
               <div className="form-field__label">Automations</div>
-              <PatchAutomationCta
-                storedPolicy={storedPolicy}
-                canEditPolicy={isEditMode}
-                onAddAutomation={onAddPatchAutomation}
-                isAddingAutomation={isAddingAutomation}
-              />
+              {!(isPremiumTier && isPatchPolicy) && (
+                <PatchAutomationCta
+                  storedPolicy={storedPolicy}
+                  canEditPolicy={isEditMode}
+                  onAddAutomation={onAddPatchAutomation}
+                  isAddingAutomation={isAddingAutomation}
+                />
+              )}
               <PolicyAutomationsFields
                 key={storedPolicy.updated_at}
                 ref={automationsRef}
@@ -696,9 +767,14 @@ const PolicyForm = ({
                 automationsConfig={automationsConfig}
                 globalConfig={config ?? undefined}
                 fleetName={automationsFleetName}
+                patchOption={
+                  isPremiumTier && isPatchPolicy ? patchOption : undefined
+                }
+                patchSlot={patchOptions}
               />
             </div>
           )}
+          {!showAutomationsBlock && patchOptions}
           {isEditMode &&
             isPremiumTier &&
             !isPatchPolicy &&
@@ -737,15 +813,7 @@ const PolicyForm = ({
             <GitOpsModeTooltipWrapper
               renderChildren={(disableChildren) => (
                 <TooltipWrapper
-                  tipContent={
-                    <>
-                      Select the platforms this
-                      <br />
-                      policy will be checked on
-                      <br />
-                      to save or run the policy.
-                    </>
-                  }
+                  tipContent="Select the platforms this policy will be checked on to save or run the policy."
                   tooltipClass={`${baseClass}__button-wrap--tooltip`}
                   position="top"
                   disableTooltip={!isEditMode || isAnyPlatformSelected}
@@ -767,15 +835,11 @@ const PolicyForm = ({
             <TooltipWrapper
               tipContent={
                 disabledLiveQuery ? (
-                  <>
-                    Live reports are disabled <br />
-                    in organization settings.
-                  </>
+                  <>Live reports are disabled in organization settings.</>
                 ) : (
                   <>
-                    Select the platforms this <br />
-                    policy will be checked on <br />
-                    to save or run the policy.
+                    Select the platforms this policy will be checked on to save
+                    or run the policy.
                   </>
                 )
               }
@@ -794,9 +858,11 @@ const PolicyForm = ({
                     (isEditMode && !isAnyPlatformSelected) ||
                     disabledLiveQuery
                   }
-                  variant="inverse"
+                  variant="secondary"
+                  icon="run"
+                  iconPosition="right"
                 >
-                  Run policy <Icon name="run" />
+                  Run policy
                 </Button>
               </span>
             </TooltipWrapper>

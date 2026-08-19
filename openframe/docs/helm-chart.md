@@ -9,7 +9,7 @@ The chart is adapted for OpenFrame's multi-tenant, GitOps-driven deployment mode
 configuration is externalized into ConfigMaps/Secrets, the migration job is
 restructured, OpenFrame mode and the per-tenant Redis prefix are wired in.
 
-- Chart name: `fleet`, version `v6.8.4`, appVersion `v4.81.2`
+- Chart name: `fleet`, version `v7.0.16`, appVersion `v4.90.1`
   ([Chart.yaml](../../charts/fleet/Chart.yaml)).
 - Subcharts: Bitnami MySQL `9.12.5` (`mysql.enabled`), Bitnami Redis `18.1.6`
   (`redis.enabled`).
