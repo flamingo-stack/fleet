@@ -75,7 +75,8 @@ server/service/openframe/                           # agent token-auth pipeline
 server/datastore/mysql/migrations/openframe/        # separate goose client
 ├── migration.go
 ├── 20260301000001_AddPolicyHostsJoinTable.go
-└── 20260301000002_AddQueryHostsJoinTable.go
+├── 20260301000002_AddQueryHostsJoinTable.go
+└── 20260818000001_AddPoliciesOpenframeManagedColumn.go   # policies.openframe_managed
 
 server/datastore/redis/keyprefix.go                 # per-tenant Redis prefix
 server/fleet/openframe.go                           # IsOpenframeMode() gate

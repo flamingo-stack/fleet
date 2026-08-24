@@ -18,6 +18,28 @@ func IsOpenframeMode() bool {
 	return os.Getenv("FLEET_OPENFRAME_MODE") == "1"
 }
 
+type openframeModeCtxKey struct{}
+
+// NewOpenframeModeContext returns a context that forces OpenFrame mode on or off for the calls made
+// with it, overriding FLEET_OPENFRAME_MODE. Same rationale as NewOpenframeTeamContext: the MySQL
+// test harness runs its tests in parallel (ProcessOptions calls t.Parallel), so t.Setenv is illegal
+// there and mutating process env would leak OpenFrame mode into every concurrently running test.
+func NewOpenframeModeContext(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, openframeModeCtxKey{}, enabled)
+}
+
+// IsOpenframeModeCtx reports OpenFrame mode for this call: the context override when one is set,
+// otherwise the FLEET_OPENFRAME_MODE process env var. Production paths never set the override, so
+// they behave exactly like IsOpenframeMode.
+func IsOpenframeModeCtx(ctx context.Context) bool {
+	if ctx != nil {
+		if enabled, ok := ctx.Value(openframeModeCtxKey{}).(bool); ok {
+			return enabled
+		}
+	}
+	return IsOpenframeMode()
+}
+
 // IsOpenframeMultitenancy reports whether OpenFrame shared-database multitenancy
 // is enabled via FLEET_OPENFRAME_MULTI_TENANCY_ENABLED — the Fleet-side mapping of the platform
 // property `openframe.fleet.multi-tenancy.enabled`. It is the master switch for every
