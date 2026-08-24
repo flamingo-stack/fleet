@@ -12,7 +12,7 @@ func init() {
 // Up_20260818000002 adds `queries.openframe_managed` — the queries twin of
 // `policies.openframe_managed` (20260818000001). A managed query is omitted from the query list and
 // its counts while it keeps running on hosts and keeps reporting results.
-// See openframe/docs/managed-objects.md.
+// See openframe/docs/managed-queries.md.
 //
 // Idempotent.
 //

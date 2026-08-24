@@ -1,5 +1,5 @@
-// OPENFRAME(managed-objects): verifies that `policies.openframe_managed` keeps a policy out of the list and
-// count paths while leaving by-id reads intact — openframe/docs/managed-objects.md
+// OPENFRAME(managed-policies): verifies that `policies.openframe_managed` keeps a policy out of the list and
+// count paths while leaving by-id reads intact — openframe/docs/managed-policies.md
 package mysql
 
 import (

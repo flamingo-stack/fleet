@@ -679,7 +679,7 @@ func (ds *Datastore) deleteQueryStats(ctx context.Context, queryIDs []uint) {
 	}
 }
 
-// >>> OPENFRAME(managed-objects): platform-owned queries kept out of the query list endpoints — openframe/docs/managed-objects.md
+// >>> OPENFRAME(managed-queries): platform-owned queries kept out of the query list endpoints — openframe/docs/managed-queries.md
 
 // openframeManagedQueryExclusion is the WHERE fragment that keeps OpenFrame-managed queries out of
 // a listing; the listing below aliases the table as `q`. Unconditional: `prepare db` always runs
@@ -687,7 +687,7 @@ func (ds *Datastore) deleteQueryStats(ctx context.Context, queryIDs []uint) {
 // behavior, not schema.
 const openframeManagedQueryExclusion = ` AND q.openframe_managed = 0`
 
-// <<< OPENFRAME(managed-objects)
+// <<< OPENFRAME(managed-queries)
 
 // >>> OPENFRAME(host-assignments): per-host query assignment CRUD backed by the query_hosts table — openframe/docs/architecture-host-assignments.md
 func (ds *Datastore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
@@ -927,10 +927,10 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 
 	args := []interface{}{false, fleet.AggregatedStatsTypeScheduledQuery}
 	whereClauses := "WHERE saved = true"
-	// >>> OPENFRAME(managed-objects): drop platform-owned queries from this listing and from the
-	// count derived from it — openframe/docs/managed-objects.md
+	// >>> OPENFRAME(managed-queries): drop platform-owned queries from this listing and from the
+	// count derived from it — openframe/docs/managed-queries.md
 	whereClauses += openframeManagedQueryExclusion
-	// <<< OPENFRAME(managed-objects)
+	// <<< OPENFRAME(managed-queries)
 
 	switch {
 	case opt.TeamID != nil && opt.MergeInherited:

@@ -1,6 +1,6 @@
-// OPENFRAME(managed-objects): queries twin of policies_openframe_managed_test.go — verifies that
+// OPENFRAME(managed-queries): queries twin of policies_openframe_managed_test.go — verifies that
 // `queries.openframe_managed` keeps a query out of the listing and its counts while leaving by-id
-// reads intact — openframe/docs/managed-objects.md
+// reads intact — openframe/docs/managed-queries.md
 package mysql
 
 import (

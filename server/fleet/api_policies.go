@@ -16,9 +16,9 @@ type GlobalPolicyRequest struct {
 	LabelsIncludeAll []string `json:"labels_include_all" premium:"true"`
 	LabelsExcludeAny []string `json:"labels_exclude_any" premium:"true"`
 	LabelsExcludeAll []string `json:"labels_exclude_all" premium:"true"`
-	// >>> OPENFRAME(managed-objects): keep this policy out of the list endpoints — openframe/docs/managed-objects.md
+	// >>> OPENFRAME(managed-policies): keep this policy out of the list endpoints — openframe/docs/managed-policies.md
 	OpenframeManaged bool `json:"openframe_managed"`
-	// <<< OPENFRAME(managed-objects)
+	// <<< OPENFRAME(managed-policies)
 }
 
 type GlobalPolicyResponse struct {
