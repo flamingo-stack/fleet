@@ -307,9 +307,9 @@ func (svc *Service) newTeamPolicyPayloadToPolicyPayload(ctx context.Context, tea
 		ContinuousAutomationsEnabled: p.ContinuousAutomationsEnabled,
 		Type:                         policyType,
 		PatchSoftwareTitleID:         p.PatchSoftwareTitleID,
-		// >>> OPENFRAME(managed-policies): let the platform mark the policy it owns — openframe/docs/managed-policies.md
+		// >>> OPENFRAME(managed-objects): let the platform mark the policy it owns — openframe/docs/managed-objects.md
 		OpenframeManaged: p.OpenframeManaged,
-		// <<< OPENFRAME(managed-policies)
+		// <<< OPENFRAME(managed-objects)
 	}, nil
 }
 
@@ -687,11 +687,11 @@ func (svc *Service) modifyPolicy(ctx context.Context, teamID *uint, id uint, p f
 	if p.ContinuousAutomationsEnabled != nil {
 		policy.ContinuousAutomationsEnabled = *p.ContinuousAutomationsEnabled
 	}
-	// >>> OPENFRAME(managed-policies): let the platform mark the policy it owns — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-objects): let the platform mark the policy it owns — openframe/docs/managed-objects.md
 	if p.OpenframeManaged != nil {
 		policy.OpenframeManaged = *p.OpenframeManaged
 	}
-	// <<< OPENFRAME(managed-policies)
+	// <<< OPENFRAME(managed-objects)
 	if removeStats {
 		policy.FailingHostCount = 0
 		policy.PassingHostCount = 0

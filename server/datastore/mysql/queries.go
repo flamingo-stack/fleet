@@ -299,9 +299,10 @@ func (ds *Datastore) NewQuery(
 			automations_enabled,
 			logging_type,
 			discard_data,
+			openframe_managed,
 			created_at,
 			updated_at
-		) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+		) VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
 	`
 
 	result, err := ds.writer(ctx).ExecContext(
@@ -321,6 +322,7 @@ func (ds *Datastore) NewQuery(
 		query.AutomationsEnabled,
 		query.Logging,
 		query.DiscardData,
+		query.OpenframeManaged,
 		query.CreatedAt,
 		query.UpdatedAt,
 	)
@@ -498,7 +500,8 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 			schedule_interval   = ?,
 			automations_enabled = ?,
 			logging_type        = ?,
-			discard_data		= ?
+			discard_data		= ?,
+			openframe_managed   = ?
 		WHERE id = ?
 	`
 	result, err := ds.writer(ctx).ExecContext(
@@ -518,6 +521,7 @@ func (ds *Datastore) SaveQuery(ctx context.Context, q *fleet.Query, shouldDiscar
 		q.AutomationsEnabled,
 		q.Logging,
 		q.DiscardData,
+		q.OpenframeManaged,
 		q.ID)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "updating query")
@@ -675,6 +679,16 @@ func (ds *Datastore) deleteQueryStats(ctx context.Context, queryIDs []uint) {
 	}
 }
 
+// >>> OPENFRAME(managed-objects): platform-owned queries kept out of the query list endpoints — openframe/docs/managed-objects.md
+
+// openframeManagedQueryExclusion is the WHERE fragment that keeps OpenFrame-managed queries out of
+// a listing; the listing below aliases the table as `q`. Unconditional: `prepare db` always runs
+// MigrateOpenframe, so the column exists in every deployment — FLEET_OPENFRAME_MODE gates
+// behavior, not schema.
+const openframeManagedQueryExclusion = ` AND q.openframe_managed = 0`
+
+// <<< OPENFRAME(managed-objects)
+
 // >>> OPENFRAME(host-assignments): per-host query assignment CRUD backed by the query_hosts table — openframe/docs/architecture-host-assignments.md
 func (ds *Datastore) AddQueryHosts(ctx context.Context, queryID uint, hostIDs []uint) (uint, error) {
 	// OPENFRAME(mysql-multitenancy): verify the query is in this process's team and drop foreign
@@ -815,6 +829,7 @@ func query(ctx context.Context, db sqlx.QueryerContext, id uint) (*fleet.Query, 
 			q.automations_enabled,
 			q.logging_type,
 			q.discard_data,
+			q.openframe_managed,
 			q.created_at,
 			q.updated_at,
 			q.discard_data,
@@ -895,6 +910,7 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 			q.automations_enabled,
 			q.logging_type,
 			q.discard_data,
+			q.openframe_managed,
 			q.created_at,
 			q.updated_at,
 			COALESCE(u.name, '<deleted>') AS author_name,
@@ -911,6 +927,10 @@ func (ds *Datastore) ListQueries(ctx context.Context, opt fleet.ListQueryOptions
 
 	args := []interface{}{false, fleet.AggregatedStatsTypeScheduledQuery}
 	whereClauses := "WHERE saved = true"
+	// >>> OPENFRAME(managed-objects): drop platform-owned queries from this listing and from the
+	// count derived from it — openframe/docs/managed-objects.md
+	whereClauses += openframeManagedQueryExclusion
+	// <<< OPENFRAME(managed-objects)
 
 	switch {
 	case opt.TeamID != nil && opt.MergeInherited:

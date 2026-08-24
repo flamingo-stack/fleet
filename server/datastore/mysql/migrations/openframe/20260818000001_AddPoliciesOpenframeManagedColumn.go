@@ -11,7 +11,7 @@ func init() {
 
 // Up_20260818000001 adds `policies.openframe_managed` — the flag that keeps a policy out of the policy list
 // endpoints (the set the main UI renders) while it keeps running on hosts and keeps reporting
-// results. See openframe/docs/managed-policies.md.
+// results. See openframe/docs/managed-objects.md.
 //
 // It is also the escape hatch for host-assignment scoping: an OpenFrame-managed policy runs on every in-scope
 // host without any policy_hosts rows, so a platform-owned check needs no per-host assignment

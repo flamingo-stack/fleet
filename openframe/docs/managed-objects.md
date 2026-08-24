@@ -1,14 +1,17 @@
-# OpenFrame-Managed Policies
+# OpenFrame-Managed Policies and Queries
 
 ## Overview
 
-An **OpenFrame-managed policy** is a normal Fleet policy carrying `policies.openframe_managed = 1`.
-It is omitted from the policy **list** and **count** endpoints — the set the main UI renders and the
-set GitOps reconciles — while it keeps running on hosts and keeps recording results exactly like any
-other policy.
+An **OpenFrame-managed** policy or query carries `openframe_managed = 1` on its row. It is omitted
+from the **list** and **count** endpoints — the set the main UI renders and the set GitOps
+reconciles — while it keeps running on hosts and keeps recording results exactly like any other
+policy or query.
 
-The use case is platform-owned checks: OpenFrame needs its own compliance/telemetry policies on
-every tenant without them cluttering the tenant operator's Policies page.
+Both objects work the same way and share the `OPENFRAME(managed-objects)` slug; where this doc says
+"policy" the queries side is identical unless noted.
+
+The use case is platform-owned checks and telemetry: OpenFrame needs its own policies and queries
+on every tenant without them cluttering the operator's Policies and Reports pages.
 
 The column is named `openframe_managed` rather than something generic like `hidden` or `internal` so
 that it can never collide semantically with a field upstream Fleet may add later — the same
@@ -24,6 +27,7 @@ something actually sets the flag.
 | Surface | Managed policy |
 |---|---|
 | `GET /policies`, `GET /teams/{id}/policies` (incl. inherited + `merge_inherited`) | **omitted** |
+| `GET /queries` (incl. `merge_inherited`) and the `count` it returns | **omitted** |
 | `GET /policies/count`, `GET /teams/{id}/policies/count` | **not counted** |
 | GitOps deletion pass (`fleetctl gitops`) | **invisible → never deleted** |
 | `GET /policies/{id}` (single policy) | returned in full |
@@ -82,9 +86,13 @@ by id, or through a dedicated OpenFrame endpoint.
 
 ### Schema
 
-`server/datastore/mysql/migrations/openframe/20260818000001_AddPoliciesOpenframeManagedColumn.go`
-adds `policies.openframe_managed TINYINT(1) NOT NULL DEFAULT 0`. It ALTERs an upstream table from
-the OpenFrame pipeline — the same pattern as `teams.openframe_tenant_uuid`, and it is on the
+Two migrations in the OpenFrame pipeline, both `TINYINT(1) NOT NULL DEFAULT 0`:
+
+- `20260818000001_AddPoliciesOpenframeManagedColumn.go` → `policies.openframe_managed`
+- `20260818000002_AddQueriesOpenframeManagedColumn.go` → `queries.openframe_managed`
+
+Both ALTER an upstream table from the OpenFrame pipeline — the same pattern as
+`teams.openframe_tenant_uuid` — and both are on the
 [semantic-conflict watchlist](upstream-sync-conflict-resolution.md).
 
 ### Where it lives
@@ -101,9 +109,13 @@ The flag is written by the same `INSERT`/`UPDATE` statements as every other poli
 (`newGlobalPolicy`, `newTeamPolicy`, `savePolicy`) — no separate write. `ApplyPolicySpecs` does not
 name the column, so a spec apply leaves it untouched.
 
-The only helper is `openframeManagedExclusion(alias)` in `server/datastore/mysql/policies.go`, under
-`OPENFRAME(managed-policies)` markers: it returns `AND <alias>.openframe_managed = 0` and is appended
-to the five listing/count queries.
+Two constants, each under `OPENFRAME(managed-objects)` markers:
+
+- `openframeManagedExclusion` in `policies.go` — ` AND p.openframe_managed = 0`, appended to the five
+  policy listing/count queries.
+- `openframeManagedQueryExclusion` in `queries.go` — ` AND q.openframe_managed = 0`, appended once to
+  the `whereClauses` of `ListQueries`. That covers the count for free: the count statement is built
+  by wrapping the very same statement.
 
 SEMANTIC-CONFLICT WATCHLIST: `make dump-test-schema` regenerates `schema.sql` from the upstream
 `tables/` migrations only and would drop the `openframe_managed` line. Re-add it after any such
@@ -120,7 +132,12 @@ regeneration — see [upstream-sync-conflict-resolution.md](upstream-sync-confli
 | `server/service/team_policies.go` | maps the flag on team create and on modify |
 | `server/datastore/mysql/schema.sql` | the column, so test databases match production |
 | `server/datastore/mysql/policies.go` | `policyCols`, the two INSERTs + the UPDATE, and the exclusion in `listPoliciesDB`, `getInheritedPoliciesForTeam`, `ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies` |
-| `server/datastore/mysql/policies_openframe_managed_test.go` | MySQL coverage for all of the above |
+| `server/datastore/mysql/policies_openframe_managed_test.go` | MySQL coverage, policies |
+| `migrations/openframe/20260818000002_AddQueriesOpenframeManagedColumn.go` | the queries column |
+| `server/fleet/queries.go` | `OpenframeManaged` on `Query` and on `QueryPayload` |
+| `server/service/queries.go` | maps the flag on query create and modify |
+| `server/datastore/mysql/queries.go` | the `INSERT`, the `UPDATE`, both SELECT lists, and the listing exclusion |
+| `server/datastore/mysql/queries_openframe_managed_test.go` | MySQL coverage, queries |
 
 ## Host assignment interaction (open item)
 

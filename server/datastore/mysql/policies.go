@@ -407,7 +407,7 @@ func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies 
 
 // <<< OPENFRAME(host-assignments)
 
-// >>> OPENFRAME(managed-policies): platform-owned policies kept out of the policy list endpoints — openframe/docs/managed-policies.md
+// >>> OPENFRAME(managed-objects): platform-owned policies kept out of the policy list endpoints — openframe/docs/managed-objects.md
 
 // openframeManagedExclusion is the WHERE fragment that keeps OpenFrame-managed policies out of a
 // listing; every listing/count query below aliases the table as `p`. Unconditional: `prepare db`
@@ -415,7 +415,7 @@ func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies 
 // gates behavior, not schema.
 const openframeManagedExclusion = ` AND p.openframe_managed = 0`
 
-// <<< OPENFRAME(managed-policies)
+// <<< OPENFRAME(managed-objects)
 
 func loadLabelsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
 	const sql = `
@@ -1196,9 +1196,9 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 		args = append(args, filterArgs...)
 	}
 
-	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-objects): drop platform-owned policies from this listing — openframe/docs/managed-objects.md
 	query += openframeManagedExclusion
-	// <<< OPENFRAME(managed-policies)
+	// <<< OPENFRAME(managed-objects)
 
 	// We must normalize the name for full Unicode support (Unicode equivalence).
 	match := norm.NFC.String(opts.MatchQuery)
@@ -1248,9 +1248,9 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
         WHERE p.team_id IS NULL
     `
 
-	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-objects): drop platform-owned policies from this listing — openframe/docs/managed-objects.md
 	query += openframeManagedExclusion
-	// <<< OPENFRAME(managed-policies)
+	// <<< OPENFRAME(managed-objects)
 
 	args = append(args, teamID)
 
@@ -1312,10 +1312,10 @@ func (ds *Datastore) CountPolicies(ctx context.Context, teamID *uint, matchQuery
 		args = append(args, *teamID)
 	}
 
-	// >>> OPENFRAME(managed-policies): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-policies.md
-	// either — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-objects): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-objects.md
+	// either — openframe/docs/managed-objects.md
 	query += openframeManagedExclusion
-	// <<< OPENFRAME(managed-policies)
+	// <<< OPENFRAME(managed-objects)
 
 	if teamID != nil {
 		automationFilter, filterArgs, err := ds.createAutomationClause(ctx, automationType, *teamID)
@@ -1350,10 +1350,10 @@ func (ds *Datastore) CountMergedTeamPolicies(ctx context.Context, teamID uint, m
 	var args []interface{}
 
 	query := `SELECT count(*) FROM policies p WHERE (p.team_id = ? OR p.team_id IS NULL)`
-	// >>> OPENFRAME(managed-policies): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-policies.md
-	// either — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-objects): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-objects.md
+	// either — openframe/docs/managed-objects.md
 	query += openframeManagedExclusion
-	// <<< OPENFRAME(managed-policies)
+	// <<< OPENFRAME(managed-objects)
 	args = append(args, teamID)
 
 	automationFilter, filterArgs, err := ds.createAutomationClause(ctx, automationType, teamID)
@@ -1806,9 +1806,9 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
 		%s
     `, automationFilter)
 
-	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-objects): drop platform-owned policies from this listing — openframe/docs/managed-objects.md
 	query += openframeManagedExclusion
-	// <<< OPENFRAME(managed-policies)
+	// <<< OPENFRAME(managed-objects)
 
 	args = append(args, teamID, teamID)
 	if len(filterArgs) > 0 {

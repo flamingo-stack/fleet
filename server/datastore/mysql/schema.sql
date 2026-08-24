@@ -2561,6 +2561,7 @@ CREATE TABLE `queries` (
   `logging_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'snapshot',
   `discard_data` tinyint(1) NOT NULL DEFAULT '1',
   `is_scheduled` tinyint(1) GENERATED ALWAYS AS ((`schedule_interval` > 0)) STORED NOT NULL,
+  `openframe_managed` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_team_id_name_unq` (`team_id_char`,`name`),
   UNIQUE KEY `idx_name_team_id_unq` (`name`,`team_id_char`),

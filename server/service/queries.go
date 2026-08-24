@@ -280,6 +280,11 @@ func (svc *Service) NewQuery(ctx context.Context, p fleet.QueryPayload) (*fleet.
 	if p.ObserverCanRun != nil {
 		query.ObserverCanRun = *p.ObserverCanRun
 	}
+	// >>> OPENFRAME(managed-objects): let the platform mark the query it owns — openframe/docs/managed-objects.md
+	if p.OpenframeManaged != nil {
+		query.OpenframeManaged = *p.OpenframeManaged
+	}
+	// <<< OPENFRAME(managed-objects)
 	if p.DiscardData != nil {
 		query.DiscardData = *p.DiscardData
 	}
@@ -415,6 +420,11 @@ func (svc *Service) ModifyQuery(ctx context.Context, id uint, p fleet.QueryPaylo
 	if p.ObserverCanRun != nil {
 		query.ObserverCanRun = *p.ObserverCanRun
 	}
+	// >>> OPENFRAME(managed-objects): let the platform mark the query it owns — openframe/docs/managed-objects.md
+	if p.OpenframeManaged != nil {
+		query.OpenframeManaged = *p.OpenframeManaged
+	}
+	// <<< OPENFRAME(managed-objects)
 	if p.DiscardData != nil {
 		if *p.DiscardData && *p.DiscardData != query.DiscardData {
 			shouldDiscardQueryResults = true
