@@ -1196,7 +1196,7 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 		args = append(args, filterArgs...)
 	}
 
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
 	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 
@@ -1248,7 +1248,7 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
         WHERE p.team_id IS NULL
     `
 
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
 	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 
@@ -1312,7 +1312,7 @@ func (ds *Datastore) CountPolicies(ctx context.Context, teamID *uint, matchQuery
 		args = append(args, *teamID)
 	}
 
-	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy must not show up in the paging/badge counts
+	// >>> OPENFRAME(managed-policies): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-policies.md
 	// either — openframe/docs/managed-policies.md
 	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
@@ -1350,7 +1350,7 @@ func (ds *Datastore) CountMergedTeamPolicies(ctx context.Context, teamID uint, m
 	var args []interface{}
 
 	query := `SELECT count(*) FROM policies p WHERE (p.team_id = ? OR p.team_id IS NULL)`
-	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy must not show up in the paging/badge counts
+	// >>> OPENFRAME(managed-policies): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-policies.md
 	// either — openframe/docs/managed-policies.md
 	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
@@ -1806,7 +1806,7 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
 		%s
     `, automationFilter)
 
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
 	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 

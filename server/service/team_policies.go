@@ -307,7 +307,7 @@ func (svc *Service) newTeamPolicyPayloadToPolicyPayload(ctx context.Context, tea
 		ContinuousAutomationsEnabled: p.ContinuousAutomationsEnabled,
 		Type:                         policyType,
 		PatchSoftwareTitleID:         p.PatchSoftwareTitleID,
-		// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
+		// >>> OPENFRAME(managed-policies): let the platform mark the policy it owns — openframe/docs/managed-policies.md
 		OpenframeManaged: p.OpenframeManaged,
 		// <<< OPENFRAME(managed-policies)
 	}, nil
@@ -687,7 +687,7 @@ func (svc *Service) modifyPolicy(ctx context.Context, teamID *uint, id uint, p f
 	if p.ContinuousAutomationsEnabled != nil {
 		policy.ContinuousAutomationsEnabled = *p.ContinuousAutomationsEnabled
 	}
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-policies): let the platform mark the policy it owns — openframe/docs/managed-policies.md
 	if p.OpenframeManaged != nil {
 		policy.OpenframeManaged = *p.OpenframeManaged
 	}

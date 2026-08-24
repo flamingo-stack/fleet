@@ -442,8 +442,8 @@ type PolicyData struct {
 	// Only applies to team policies.
 	ContinuousAutomationsEnabled bool `json:"continuous_automations_enabled" db:"continuous_automations_enabled"`
 
-	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy is omitted from the policy list and count
-	// endpoints; it still runs on hosts and still reports results — openframe/docs/managed-policies.md
+	// >>> OPENFRAME(managed-policies): omitted from the policy list and count endpoints; still runs on
+	// hosts and still reports results — openframe/docs/managed-policies.md
 	//
 	// Loaded separately (loadOpenframeManagedForPolicies), not through policyCols, because the column only
 	// exists in OpenFrame databases.
