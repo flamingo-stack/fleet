@@ -123,10 +123,10 @@ func newGlobalPolicy(ctx context.Context, db sqlx.ExtContext, authorID *uint, ar
 	nameUnicode := norm.NFC.String(args.Name)
 	res, err := db.ExecContext(ctx,
 		fmt.Sprintf(
-			`INSERT INTO policies (name, query, description, resolution, author_id, platforms, critical, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, %s)`,
+			`INSERT INTO policies (name, query, description, resolution, author_id, platforms, critical, openframe_managed, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, %s)`,
 			policiesChecksumComputedColumn(),
 		),
-		nameUnicode, args.Query, args.Description, args.Resolution, authorID, args.Platform, args.Critical,
+		nameUnicode, args.Query, args.Description, args.Resolution, authorID, args.Platform, args.Critical, args.OpenframeManaged,
 	)
 	switch {
 	case err == nil:
@@ -154,9 +154,6 @@ func newGlobalPolicy(ctx context.Context, db sqlx.ExtContext, authorID *uint, ar
 
 	if err := updatePolicyLabelsTx(ctx, db, dummyPolicy); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "setting policy labels")
-	}
-	if err := setPolicyOpenframeManaged(ctx, db, policyID, args.OpenframeManaged); err != nil {
-		return nil, err
 	}
 
 	return policyDB(ctx, db, policyID, nil)
@@ -419,16 +416,6 @@ func openframeManagedExclusion(alias string) string {
 	return fmt.Sprintf(" AND %s.openframe_managed = 0", alias)
 }
 
-// setPolicyOpenframeManaged writes the flag as its own statement so the upstream INSERT/UPDATE
-// statements stay byte-identical (they are a standing rebase cost — see
-// openframe/docs/upstream-sync-conflict-resolution.md).
-func setPolicyOpenframeManaged(ctx context.Context, db sqlx.ExtContext, policyID uint, managed bool) error {
-	if _, err := db.ExecContext(ctx, `UPDATE policies SET openframe_managed = ? WHERE id = ?`, managed, policyID); err != nil {
-		return ctxerr.Wrap(ctx, err, "setting policy openframe_managed flag")
-	}
-	return nil
-}
-
 // <<< OPENFRAME(managed-policies)
 
 func loadLabelsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
@@ -635,11 +622,12 @@ func savePolicy(ctx context.Context, db sqlx.ExtContext, logger *slog.Logger, p 
 			platforms = ?, critical = ?, calendar_events_enabled = ?,
 			software_installer_id = ?, script_id = ?, vpp_apps_teams_id = ?,
 			conditional_access_enabled = ?, continuous_automations_enabled = ?,
+			openframe_managed = ?,
 			checksum = ` + policiesChecksumComputedColumn() + `
 			WHERE id = ?
 	`
 	result, err := db.ExecContext(
-		ctx, updateStmt, p.Name, p.Query, p.Description, p.Resolution, p.Platform, p.Critical, p.CalendarEventsEnabled, p.SoftwareInstallerID, p.ScriptID, p.VPPAppsTeamsID, p.ConditionalAccessEnabled, p.ContinuousAutomationsEnabled, p.ID,
+		ctx, updateStmt, p.Name, p.Query, p.Description, p.Resolution, p.Platform, p.Critical, p.CalendarEventsEnabled, p.SoftwareInstallerID, p.ScriptID, p.VPPAppsTeamsID, p.ConditionalAccessEnabled, p.ContinuousAutomationsEnabled, p.OpenframeManaged, p.ID,
 	)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "updating policy")
@@ -655,12 +643,6 @@ func savePolicy(ctx context.Context, db sqlx.ExtContext, logger *slog.Logger, p 
 	if err := updatePolicyLabelsTx(ctx, db, p); err != nil {
 		return ctxerr.Wrap(ctx, err, "updating policy labels")
 	}
-
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	if err := setPolicyOpenframeManaged(ctx, db, p.ID, p.OpenframeManaged); err != nil {
-		return err
-	}
-	// <<< OPENFRAME(managed-policies)
 
 	// Reset attempt numbers for script/software policy automations
 	if err := resetPolicyAutomationAttempts(ctx, db, p.ID); err != nil {
@@ -1725,14 +1707,14 @@ func newTeamPolicy(ctx context.Context, db sqlx.ExtContext, teamID uint, authorI
 			`INSERT INTO policies (
 				name, query, description, team_id, resolution, author_id,
 				platforms, critical, calendar_events_enabled, software_installer_id,
-				script_id, vpp_apps_teams_id, conditional_access_enabled, checksum,
+				script_id, vpp_apps_teams_id, conditional_access_enabled, openframe_managed, checksum,
 				type, patch_software_title_id, continuous_automations_enabled
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, %s, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, %s, ?, ?, ?)`,
 			policiesChecksumComputedColumn(),
 		),
 		nameUnicode, args.Query, args.Description, teamID, args.Resolution, authorID, args.Platform, args.Critical,
 		args.CalendarEventsEnabled, args.SoftwareInstallerID, args.ScriptID, args.VPPAppsTeamsID,
-		args.ConditionalAccessEnabled, args.Type, args.PatchSoftwareTitleID, args.ContinuousAutomationsEnabled,
+		args.ConditionalAccessEnabled, args.OpenframeManaged, args.Type, args.PatchSoftwareTitleID, args.ContinuousAutomationsEnabled,
 	)
 	switch {
 	case err == nil:
@@ -1766,12 +1748,6 @@ func newTeamPolicy(ctx context.Context, db sqlx.ExtContext, teamID uint, authorI
 	if err := updatePolicyLabelsTx(ctx, db, dummyPolicy); err != nil {
 		return nil, ctxerr.Wrap(ctx, err, "setting policy labels")
 	}
-
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	if err := setPolicyOpenframeManaged(ctx, db, policyID, args.OpenframeManaged); err != nil {
-		return nil, err
-	}
-	// <<< OPENFRAME(managed-policies)
 
 	return policyDB(ctx, db, policyID, &teamID)
 }

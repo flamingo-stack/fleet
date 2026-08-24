@@ -97,14 +97,13 @@ build test databases, so it must reflect that same reality; without the column t
 harness would diverge from production and every policy test touching `policyCols` would fail on
 `Unknown column`.
 
-Two small helpers, both under `OPENFRAME(managed-policies)` markers in
-`server/datastore/mysql/policies.go`:
+The flag is written by the same `INSERT`/`UPDATE` statements as every other policy field
+(`newGlobalPolicy`, `newTeamPolicy`, `savePolicy`) — no separate write. `ApplyPolicySpecs` does not
+name the column, so a spec apply leaves it untouched.
 
-- `openframeManagedExclusion(alias)` — returns `AND <alias>.openframe_managed = 0`, appended to the
-  five listing/count queries. Unconditional.
-- `setPolicyOpenframeManaged` — writes the flag as its own `UPDATE` inside the existing create/save
-  transaction, so the upstream `INSERT`/`UPDATE` statements stay byte-identical (they are a standing
-  rebase cost). One extra statement, and only on policy create/modify.
+The only helper is `openframeManagedExclusion(alias)` in `server/datastore/mysql/policies.go`, under
+`OPENFRAME(managed-policies)` markers: it returns `AND <alias>.openframe_managed = 0` and is appended
+to the five listing/count queries.
 
 SEMANTIC-CONFLICT WATCHLIST: `make dump-test-schema` regenerates `schema.sql` from the upstream
 `tables/` migrations only and would drop the `openframe_managed` line. Re-add it after any such
@@ -120,7 +119,7 @@ regeneration — see [upstream-sync-conflict-resolution.md](upstream-sync-confli
 | `server/service/global_policies.go` | maps the flag into the create payload |
 | `server/service/team_policies.go` | maps the flag on team create and on modify |
 | `server/datastore/mysql/schema.sql` | the column, so test databases match production |
-| `server/datastore/mysql/policies.go` | `policyCols` + two helpers + exclusion in `listPoliciesDB`, `getInheritedPoliciesForTeam`, `ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies` |
+| `server/datastore/mysql/policies.go` | `policyCols`, the two INSERTs + the UPDATE, and the exclusion in `listPoliciesDB`, `getInheritedPoliciesForTeam`, `ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies` |
 | `server/datastore/mysql/policies_openframe_managed_test.go` | MySQL coverage for all of the above |
 
 ## Host assignment interaction (open item)
