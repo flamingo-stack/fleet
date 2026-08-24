@@ -14,9 +14,10 @@ The column is named `openframe_managed` rather than something generic like `hidd
 that it can never collide semantically with a field upstream Fleet may add later — the same
 reasoning as `teams.openframe_tenant_uuid`.
 
-This is fork-only behavior, gated on `FLEET_OPENFRAME_MODE` (see
-[architecture-host-assignments.md](architecture-host-assignments.md)) because the column is created
-by the OpenFrame migration pipeline, which non-OpenFrame databases never run.
+This is fork-only behavior, but it is **not** gated on `FLEET_OPENFRAME_MODE`: that flag gates
+behavior such as host assignments, while the column is created by the OpenFrame migration pipeline,
+which `prepare db` runs unconditionally. The filter is therefore always on — and inert until
+something actually sets the flag.
 
 ## What the flag does — and what it deliberately does not
 
@@ -86,28 +87,28 @@ adds `policies.openframe_managed TINYINT(1) NOT NULL DEFAULT 0`. It ALTERs an up
 the OpenFrame pipeline — the same pattern as `teams.openframe_tenant_uuid`, and it is on the
 [semantic-conflict watchlist](upstream-sync-conflict-resolution.md).
 
-### Why the column is not in `policyCols`
+### Where it lives
 
-The datastore test harness loads `server/datastore/mysql/schema.sql`, which is dumped from the
-**upstream** `tables/` migrations only and therefore has no `openframe_managed` column (see
-[migrations.md](migrations.md)). Referencing it unconditionally in the shared `policyCols` SELECT
-would break every upstream policy test. So, mirroring `loadHostsForPolicies`:
+`policies.openframe_managed` is in `policyCols` like any other column, and `schema.sql` carries it
+too. That last part is the point worth remembering: `cmd/fleet/prepare.go` runs `MigrateOpenframe`
+**unconditionally**, so every real deployment has the column no matter what `FLEET_OPENFRAME_MODE`
+says — the mode flag gates behavior (host assignments), never schema. `schema.sql` is only used to
+build test databases, so it must reflect that same reality; without the column there, the test
+harness would diverge from production and every policy test touching `policyCols` would fail on
+`Unknown column`.
 
-- **read** — `loadOpenframeManagedForPolicies` fills `Policy.OpenframeManaged` in a separate
-  `SELECT id, openframe_managed` after each listing;
-- **write** — `setPolicyOpenframeManaged` issues its own `UPDATE policies SET openframe_managed = ?`
-  inside the existing create/save transaction, leaving the upstream `INSERT`/`UPDATE` statements
-  byte-identical (they are a standing rebase cost);
-- **filter** — `openframeManagedExclusion(ctx, "p")` returns `AND p.openframe_managed = 0` in
-  OpenFrame mode and the empty string otherwise.
+Two small helpers, both under `OPENFRAME(managed-policies)` markers in
+`server/datastore/mysql/policies.go`:
 
-All three consult `IsOpenframeModeCtx(ctx)` rather than `IsOpenframeMode()`: it honors a context
-override when one is set and falls back to `FLEET_OPENFRAME_MODE` otherwise. Production never sets
-the override; the MySQL tests need it because `CreateMySQLDS` marks every test parallel, which makes
-`t.Setenv` panic and a process-wide `os.Setenv` unsafe for the tests running alongside — the same
-reasoning that produced `NewOpenframeTeamContext`.
+- `openframeManagedExclusion(alias)` — returns `AND <alias>.openframe_managed = 0`, appended to the
+  five listing/count queries. Unconditional.
+- `setPolicyOpenframeManaged` — writes the flag as its own `UPDATE` inside the existing create/save
+  transaction, so the upstream `INSERT`/`UPDATE` statements stay byte-identical (they are a standing
+  rebase cost). One extra statement, and only on policy create/modify.
 
-All three live in `server/datastore/mysql/policies.go` under `OPENFRAME(managed-policies)` markers.
+SEMANTIC-CONFLICT WATCHLIST: `make dump-test-schema` regenerates `schema.sql` from the upstream
+`tables/` migrations only and would drop the `openframe_managed` line. Re-add it after any such
+regeneration — see [upstream-sync-conflict-resolution.md](upstream-sync-conflict-resolution.md).
 
 ### Touched files
 
@@ -115,11 +116,11 @@ All three live in `server/datastore/mysql/policies.go` under `OPENFRAME(managed-
 |------|--------|
 | `migrations/openframe/20260818000001_AddPoliciesOpenframeManagedColumn.go` | new column |
 | `server/fleet/policies.go` | `OpenframeManaged` on `PolicyData`, `PolicyPayload`, `NewTeamPolicyPayload`, `ModifyPolicyPayload` |
-| `server/fleet/openframe.go` | `NewOpenframeModeContext` / `IsOpenframeModeCtx` — context override for the mode gate, so the parallel MySQL test harness can exercise it without `t.Setenv` |
 | `server/fleet/api_policies.go` | `OpenframeManaged` on `GlobalPolicyRequest` |
 | `server/service/global_policies.go` | maps the flag into the create payload |
 | `server/service/team_policies.go` | maps the flag on team create and on modify |
-| `server/datastore/mysql/policies.go` | helpers + exclusion in `listPoliciesDB`, `getInheritedPoliciesForTeam`, `ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies` |
+| `server/datastore/mysql/schema.sql` | the column, so test databases match production |
+| `server/datastore/mysql/policies.go` | `policyCols` + two helpers + exclusion in `listPoliciesDB`, `getInheritedPoliciesForTeam`, `ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies` |
 | `server/datastore/mysql/policies_openframe_managed_test.go` | MySQL coverage for all of the above |
 
 ## Host assignment interaction (open item)

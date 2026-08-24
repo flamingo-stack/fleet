@@ -40,7 +40,8 @@ const policyCols = `
 	p.author_id, p.platforms, p.created_at, p.updated_at, p.critical,
 	p.calendar_events_enabled, p.software_installer_id, p.script_id,
 	p.vpp_apps_teams_id, p.conditional_access_enabled, p.type,
-	p.patch_software_title_id, p.continuous_automations_enabled
+	p.patch_software_title_id, p.continuous_automations_enabled,
+	p.openframe_managed
 `
 
 const (
@@ -410,65 +411,21 @@ func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies 
 // <<< OPENFRAME(host-assignments)
 
 // >>> OPENFRAME(managed-policies): platform-owned policies kept out of the policy list endpoints — openframe/docs/managed-policies.md
-//
-// Everything here is gated on IsOpenframeMode() because `policies.openframe_managed` is created by the
-// OpenFrame migration pipeline, which the datastore test harness (schema.sql, dumped from upstream
-// migrations only) does not run — see openframe/docs/migrations.md.
 
-// openframeManagedExclusion returns the WHERE fragment that keeps OpenFrame-managed policies out of a listing.
-// Empty outside OpenFrame mode, where the column does not necessarily exist.
-func openframeManagedExclusion(ctx context.Context, alias string) string {
-	if !fleet.IsOpenframeModeCtx(ctx) {
-		return ""
-	}
+// openframeManagedExclusion returns the WHERE fragment that keeps OpenFrame-managed policies out of
+// a listing. Unconditional: `prepare db` always runs MigrateOpenframe, so the column exists in every
+// deployment — FLEET_OPENFRAME_MODE gates behavior, not schema.
+func openframeManagedExclusion(alias string) string {
 	return fmt.Sprintf(" AND %s.openframe_managed = 0", alias)
 }
 
-// setPolicyOpenframeManaged writes the openframe_managed flag as its own statement so the upstream INSERT/UPDATE
+// setPolicyOpenframeManaged writes the flag as its own statement so the upstream INSERT/UPDATE
 // statements stay byte-identical (they are a standing rebase cost — see
 // openframe/docs/upstream-sync-conflict-resolution.md).
-func setPolicyOpenframeManaged(ctx context.Context, db sqlx.ExtContext, policyID uint, internal bool) error {
-	if !fleet.IsOpenframeModeCtx(ctx) {
-		return nil
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE policies SET openframe_managed = ? WHERE id = ?`, internal, policyID); err != nil {
+func setPolicyOpenframeManaged(ctx context.Context, db sqlx.ExtContext, policyID uint, managed bool) error {
+	if _, err := db.ExecContext(ctx, `UPDATE policies SET openframe_managed = ? WHERE id = ?`, managed, policyID); err != nil {
 		return ctxerr.Wrap(ctx, err, "setting policy openframe_managed flag")
 	}
-	return nil
-}
-
-// loadOpenframeManagedForPolicies fills Policy.OpenframeManaged after a listing, mirroring loadHostsForPolicies. Kept
-// out of policyCols for the same reason: the column is absent in non-OpenFrame databases.
-func loadOpenframeManagedForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
-	if !fleet.IsOpenframeModeCtx(ctx) || len(policies) == 0 {
-		return nil
-	}
-
-	policyIDs := make([]uint, 0, len(policies))
-	policyMap := make(map[uint]*fleet.Policy, len(policies))
-	for _, policy := range policies {
-		policyIDs = append(policyIDs, policy.ID)
-		policyMap[policy.ID] = policy
-	}
-
-	stmt, args, err := sqlx.In(`SELECT id, openframe_managed FROM policies WHERE id IN (?)`, policyIDs)
-	if err != nil {
-		return ctxerr.Wrap(ctx, err, "building query to load policy openframe_managed flags")
-	}
-
-	rows := []struct {
-		ID               uint `db:"id"`
-		OpenframeManaged bool `db:"openframe_managed"`
-	}{}
-
-	if err := sqlx.SelectContext(ctx, db, &rows, stmt, args...); err != nil {
-		return ctxerr.Wrap(ctx, err, "selecting policy openframe_managed flags")
-	}
-
-	for _, row := range rows {
-		policyMap[row.ID].OpenframeManaged = row.OpenframeManaged
-	}
-
 	return nil
 }
 
@@ -608,12 +565,6 @@ func policyDB(ctx context.Context, q sqlx.QueryerContext, id uint, teamID *uint)
 		}
 	}
 	// <<< OPENFRAME(host-assignments)
-
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	if err := loadOpenframeManagedForPolicies(ctx, q, []*fleet.Policy{&policy}); err != nil {
-		return nil, err
-	}
-	// <<< OPENFRAME(managed-policies)
 
 	return &policy, nil
 }
@@ -1265,7 +1216,7 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 	}
 
 	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	query += openframeManagedExclusion(ctx, "p")
+	query += openframeManagedExclusion("p")
 	// <<< OPENFRAME(managed-policies)
 
 	// We must normalize the name for full Unicode support (Unicode equivalence).
@@ -1294,12 +1245,6 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 	}
 	// <<< OPENFRAME(host-assignments)
 
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	if err := loadOpenframeManagedForPolicies(ctx, q, policies); err != nil {
-		return nil, err
-	}
-	// <<< OPENFRAME(managed-policies)
-
 	return policies, nil
 }
 
@@ -1323,7 +1268,7 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
     `
 
 	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	query += openframeManagedExclusion(ctx, "p")
+	query += openframeManagedExclusion("p")
 	// <<< OPENFRAME(managed-policies)
 
 	args = append(args, teamID)
@@ -1353,12 +1298,6 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
 		}
 	}
 	// <<< OPENFRAME(host-assignments)
-
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	if err := loadOpenframeManagedForPolicies(ctx, q, policies); err != nil {
-		return nil, err
-	}
-	// <<< OPENFRAME(managed-policies)
 
 	return policies, nil
 }
@@ -1394,7 +1333,7 @@ func (ds *Datastore) CountPolicies(ctx context.Context, teamID *uint, matchQuery
 
 	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy must not show up in the paging/badge counts
 	// either — openframe/docs/managed-policies.md
-	query += openframeManagedExclusion(ctx, "p")
+	query += openframeManagedExclusion("p")
 	// <<< OPENFRAME(managed-policies)
 
 	if teamID != nil {
@@ -1432,7 +1371,7 @@ func (ds *Datastore) CountMergedTeamPolicies(ctx context.Context, teamID uint, m
 	query := `SELECT count(*) FROM policies p WHERE (p.team_id = ? OR p.team_id IS NULL)`
 	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy must not show up in the paging/badge counts
 	// either — openframe/docs/managed-policies.md
-	query += openframeManagedExclusion(ctx, "p")
+	query += openframeManagedExclusion("p")
 	// <<< OPENFRAME(managed-policies)
 	args = append(args, teamID)
 
@@ -1893,7 +1832,7 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
     `, automationFilter)
 
 	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	query += openframeManagedExclusion(ctx, "p")
+	query += openframeManagedExclusion("p")
 	// <<< OPENFRAME(managed-policies)
 
 	args = append(args, teamID, teamID)
@@ -1926,12 +1865,6 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
 		}
 	}
 	// <<< OPENFRAME(host-assignments)
-
-	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	if err := loadOpenframeManagedForPolicies(ctx, ds.reader(ctx), policies); err != nil {
-		return nil, err
-	}
-	// <<< OPENFRAME(managed-policies)
 
 	return policies, nil
 }

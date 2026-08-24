@@ -1,13 +1,5 @@
 // OPENFRAME(managed-policies): verifies that `policies.openframe_managed` keeps a policy out of the list and
 // count paths while leaving by-id reads intact — openframe/docs/managed-policies.md
-//
-// IMPORTANT: the datastore test harness loads server/datastore/mysql/schema.sql, dumped from the
-// UPSTREAM tables/ migrations only, so it has no `openframe_managed` column. Every test here calls
-// ds.MigrateOpenframe(ctx) first (see migrations_openframe_test.go).
-//
-// OpenFrame mode is switched on through the context, never through FLEET_OPENFRAME_MODE:
-// CreateMySQLDS marks the test parallel, which makes t.Setenv panic, and a process-wide
-// os.Setenv would leak the mode into every test running alongside.
 package mysql
 
 import (
@@ -21,9 +13,6 @@ import (
 func TestOpenframeManagedPolicies(t *testing.T) {
 	ds := CreateMySQLDS(t)
 	ctx := context.Background()
-
-	require.NoError(t, ds.MigrateOpenframe(ctx))
-	ctx = fleet.NewOpenframeModeContext(ctx, true)
 
 	team, err := ds.NewTeam(ctx, &fleet.Team{Name: "openframe-managed"})
 	require.NoError(t, err)
@@ -94,26 +83,11 @@ func TestOpenframeManagedPolicies(t *testing.T) {
 		require.Equal(t, []uint{visible.ID}, policyIDs(teamPolicies))
 	})
 
-	t.Run("inert when openframe mode is off", func(t *testing.T) {
-		offCtx := fleet.NewOpenframeModeContext(ctx, false)
-
-		teamPolicies, _, err := ds.ListTeamPolicies(offCtx, team.ID, fleet.ListOptions{}, fleet.ListOptions{}, "")
-		require.NoError(t, err)
-		require.ElementsMatch(t, []uint{visible.ID, managed.ID}, policyIDs(teamPolicies),
-			"the exclusion must not apply outside OpenFrame mode, where the column may not exist")
-
-		count, err := ds.CountPolicies(offCtx, &team.ID, "", "")
-		require.NoError(t, err)
-		require.Equal(t, 2, count)
-	})
 }
 
 func TestOpenframeManagedPoliciesGlobal(t *testing.T) {
 	ds := CreateMySQLDS(t)
 	ctx := context.Background()
-
-	require.NoError(t, ds.MigrateOpenframe(ctx))
-	ctx = fleet.NewOpenframeModeContext(ctx, true)
 
 	visible, err := ds.NewGlobalPolicy(ctx, nil, fleet.PolicyPayload{
 		Name:  "openframe-managed-global-visible",
