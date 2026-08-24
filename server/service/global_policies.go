@@ -40,6 +40,9 @@ func globalPolicyEndpoint(ctx context.Context, request interface{}, svc fleet.Se
 		LabelsExcludeAny: req.LabelsExcludeAny,
 		LabelsExcludeAll: req.LabelsExcludeAll,
 		Type:             fleet.PolicyTypeDynamic,
+		// >>> OPENFRAME(managed-policies): let the platform mark the policy it owns — openframe/docs/managed-policies.md
+		OpenframeManaged: req.OpenframeManaged,
+		// <<< OPENFRAME(managed-policies)
 	})
 	if err != nil {
 		return fleet.GlobalPolicyResponse{Err: err}, nil

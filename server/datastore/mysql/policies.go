@@ -40,7 +40,8 @@ const policyCols = `
 	p.author_id, p.platforms, p.created_at, p.updated_at, p.critical,
 	p.calendar_events_enabled, p.software_installer_id, p.script_id,
 	p.vpp_apps_teams_id, p.conditional_access_enabled, p.type,
-	p.patch_software_title_id, p.continuous_automations_enabled
+	p.patch_software_title_id, p.continuous_automations_enabled,
+	p.openframe_managed
 `
 
 const (
@@ -122,10 +123,10 @@ func newGlobalPolicy(ctx context.Context, db sqlx.ExtContext, authorID *uint, ar
 	nameUnicode := norm.NFC.String(args.Name)
 	res, err := db.ExecContext(ctx,
 		fmt.Sprintf(
-			`INSERT INTO policies (name, query, description, resolution, author_id, platforms, critical, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, %s)`,
+			`INSERT INTO policies (name, query, description, resolution, author_id, platforms, critical, openframe_managed, checksum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, %s)`,
 			policiesChecksumComputedColumn(),
 		),
-		nameUnicode, args.Query, args.Description, args.Resolution, authorID, args.Platform, args.Critical,
+		nameUnicode, args.Query, args.Description, args.Resolution, authorID, args.Platform, args.Critical, args.OpenframeManaged,
 	)
 	switch {
 	case err == nil:
@@ -406,6 +407,16 @@ func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies 
 
 // <<< OPENFRAME(host-assignments)
 
+// >>> OPENFRAME(managed-policies): platform-owned policies kept out of the policy list endpoints — openframe/docs/managed-policies.md
+
+// openframeManagedExclusion is the WHERE fragment that keeps OpenFrame-managed policies out of a
+// listing; every listing/count query below aliases the table as `p`. Unconditional: `prepare db`
+// always runs MigrateOpenframe, so the column exists in every deployment — FLEET_OPENFRAME_MODE
+// gates behavior, not schema.
+const openframeManagedExclusion = ` AND p.openframe_managed = 0`
+
+// <<< OPENFRAME(managed-policies)
+
 func loadLabelsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies []*fleet.Policy) error {
 	const sql = `
 		SELECT
@@ -610,11 +621,12 @@ func savePolicy(ctx context.Context, db sqlx.ExtContext, logger *slog.Logger, p 
 			platforms = ?, critical = ?, calendar_events_enabled = ?,
 			software_installer_id = ?, script_id = ?, vpp_apps_teams_id = ?,
 			conditional_access_enabled = ?, continuous_automations_enabled = ?,
+			openframe_managed = ?,
 			checksum = ` + policiesChecksumComputedColumn() + `
 			WHERE id = ?
 	`
 	result, err := db.ExecContext(
-		ctx, updateStmt, p.Name, p.Query, p.Description, p.Resolution, p.Platform, p.Critical, p.CalendarEventsEnabled, p.SoftwareInstallerID, p.ScriptID, p.VPPAppsTeamsID, p.ConditionalAccessEnabled, p.ContinuousAutomationsEnabled, p.ID,
+		ctx, updateStmt, p.Name, p.Query, p.Description, p.Resolution, p.Platform, p.Critical, p.CalendarEventsEnabled, p.SoftwareInstallerID, p.ScriptID, p.VPPAppsTeamsID, p.ConditionalAccessEnabled, p.ContinuousAutomationsEnabled, p.OpenframeManaged, p.ID,
 	)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "updating policy")
@@ -1184,6 +1196,10 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 		args = append(args, filterArgs...)
 	}
 
+	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
+	query += openframeManagedExclusion
+	// <<< OPENFRAME(managed-policies)
+
 	// We must normalize the name for full Unicode support (Unicode equivalence).
 	match := norm.NFC.String(opts.MatchQuery)
 	query, args = searchLike(query, args, match, policySearchColumns...)
@@ -1231,6 +1247,10 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
         LEFT JOIN policy_stats ps ON p.id = ps.policy_id AND ps.inherited_team_id = ?
         WHERE p.team_id IS NULL
     `
+
+	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
+	query += openframeManagedExclusion
+	// <<< OPENFRAME(managed-policies)
 
 	args = append(args, teamID)
 
@@ -1292,6 +1312,11 @@ func (ds *Datastore) CountPolicies(ctx context.Context, teamID *uint, matchQuery
 		args = append(args, *teamID)
 	}
 
+	// >>> OPENFRAME(managed-policies): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-policies.md
+	// either — openframe/docs/managed-policies.md
+	query += openframeManagedExclusion
+	// <<< OPENFRAME(managed-policies)
+
 	if teamID != nil {
 		automationFilter, filterArgs, err := ds.createAutomationClause(ctx, automationType, *teamID)
 		if err != nil {
@@ -1325,6 +1350,10 @@ func (ds *Datastore) CountMergedTeamPolicies(ctx context.Context, teamID uint, m
 	var args []interface{}
 
 	query := `SELECT count(*) FROM policies p WHERE (p.team_id = ? OR p.team_id IS NULL)`
+	// >>> OPENFRAME(managed-policies): keep platform-owned policies out of the paging/badge counts too — openframe/docs/managed-policies.md
+	// either — openframe/docs/managed-policies.md
+	query += openframeManagedExclusion
+	// <<< OPENFRAME(managed-policies)
 	args = append(args, teamID)
 
 	automationFilter, filterArgs, err := ds.createAutomationClause(ctx, automationType, teamID)
@@ -1677,14 +1706,14 @@ func newTeamPolicy(ctx context.Context, db sqlx.ExtContext, teamID uint, authorI
 			`INSERT INTO policies (
 				name, query, description, team_id, resolution, author_id,
 				platforms, critical, calendar_events_enabled, software_installer_id,
-				script_id, vpp_apps_teams_id, conditional_access_enabled, checksum,
+				script_id, vpp_apps_teams_id, conditional_access_enabled, openframe_managed, checksum,
 				type, patch_software_title_id, continuous_automations_enabled
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, %s, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, %s, ?, ?, ?)`,
 			policiesChecksumComputedColumn(),
 		),
 		nameUnicode, args.Query, args.Description, teamID, args.Resolution, authorID, args.Platform, args.Critical,
 		args.CalendarEventsEnabled, args.SoftwareInstallerID, args.ScriptID, args.VPPAppsTeamsID,
-		args.ConditionalAccessEnabled, args.Type, args.PatchSoftwareTitleID, args.ContinuousAutomationsEnabled,
+		args.ConditionalAccessEnabled, args.OpenframeManaged, args.Type, args.PatchSoftwareTitleID, args.ContinuousAutomationsEnabled,
 	)
 	switch {
 	case err == nil:
@@ -1776,6 +1805,10 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
 		WHERE (p.team_id = ? OR p.team_id IS NULL)
 		%s
     `, automationFilter)
+
+	// >>> OPENFRAME(managed-policies): drop platform-owned policies from this listing — openframe/docs/managed-policies.md
+	query += openframeManagedExclusion
+	// <<< OPENFRAME(managed-policies)
 
 	args = append(args, teamID, teamID)
 	if len(filterArgs) > 0 {

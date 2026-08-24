@@ -2466,6 +2466,7 @@ CREATE TABLE `policies` (
   `patch_software_title_id` int unsigned DEFAULT NULL,
   `needs_full_membership_cleanup` tinyint(1) NOT NULL DEFAULT '0',
   `continuous_automations_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `openframe_managed` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_policies_checksum` (`checksum`),
   UNIQUE KEY `idx_team_id_patch_software_title_id` (`team_id`,`patch_software_title_id`),
