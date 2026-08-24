@@ -409,12 +409,11 @@ func loadHostsForPolicies(ctx context.Context, db sqlx.QueryerContext, policies 
 
 // >>> OPENFRAME(managed-policies): platform-owned policies kept out of the policy list endpoints — openframe/docs/managed-policies.md
 
-// openframeManagedExclusion returns the WHERE fragment that keeps OpenFrame-managed policies out of
-// a listing. Unconditional: `prepare db` always runs MigrateOpenframe, so the column exists in every
-// deployment — FLEET_OPENFRAME_MODE gates behavior, not schema.
-func openframeManagedExclusion(alias string) string {
-	return fmt.Sprintf(" AND %s.openframe_managed = 0", alias)
-}
+// openframeManagedExclusion is the WHERE fragment that keeps OpenFrame-managed policies out of a
+// listing; every listing/count query below aliases the table as `p`. Unconditional: `prepare db`
+// always runs MigrateOpenframe, so the column exists in every deployment — FLEET_OPENFRAME_MODE
+// gates behavior, not schema.
+const openframeManagedExclusion = ` AND p.openframe_managed = 0`
 
 // <<< OPENFRAME(managed-policies)
 
@@ -1198,7 +1197,7 @@ func listPoliciesDB(ctx context.Context, q sqlx.QueryerContext, teamID *uint, op
 	}
 
 	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	query += openframeManagedExclusion("p")
+	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 
 	// We must normalize the name for full Unicode support (Unicode equivalence).
@@ -1250,7 +1249,7 @@ func getInheritedPoliciesForTeam(ctx context.Context, q sqlx.QueryerContext, tea
     `
 
 	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	query += openframeManagedExclusion("p")
+	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 
 	args = append(args, teamID)
@@ -1315,7 +1314,7 @@ func (ds *Datastore) CountPolicies(ctx context.Context, teamID *uint, matchQuery
 
 	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy must not show up in the paging/badge counts
 	// either — openframe/docs/managed-policies.md
-	query += openframeManagedExclusion("p")
+	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 
 	if teamID != nil {
@@ -1353,7 +1352,7 @@ func (ds *Datastore) CountMergedTeamPolicies(ctx context.Context, teamID uint, m
 	query := `SELECT count(*) FROM policies p WHERE (p.team_id = ? OR p.team_id IS NULL)`
 	// >>> OPENFRAME(managed-policies): an OpenFrame-managed policy must not show up in the paging/badge counts
 	// either — openframe/docs/managed-policies.md
-	query += openframeManagedExclusion("p")
+	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 	args = append(args, teamID)
 
@@ -1808,7 +1807,7 @@ func (ds *Datastore) ListMergedTeamPolicies(ctx context.Context, teamID uint, op
     `, automationFilter)
 
 	// >>> OPENFRAME(managed-policies): openframe/docs/managed-policies.md
-	query += openframeManagedExclusion("p")
+	query += openframeManagedExclusion
 	// <<< OPENFRAME(managed-policies)
 
 	args = append(args, teamID, teamID)
