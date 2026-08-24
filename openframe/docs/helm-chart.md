@@ -162,6 +162,32 @@ This walk-back depends on the [migration idempotency](migrations.md) work: becau
 re-running `prepare db` is a no-op, the job no longer needs hook-managed
 exactly-once semantics.
 
+### Making it an Argo CD PreSync hook
+
+Argo CD hooks are not Helm hooks — an operator opts in with
+`fleet.migrationJobAnnotations: {argocd.argoproj.io/hook: PreSync}`. The trap is that
+PreSync runs *before* the Sync phase, so every Sync-phase resource is unreachable
+from the hook. The Job hardcodes `serviceAccountName: fleet` and resolves the
+database ConfigMap and Secret at pod-create time, so all three must be pulled into
+the same phase or the sync deadlocks: the Job cannot start, so the Sync phase never
+runs, so the resources it waits on are never created.
+
+| Dependency | Knob | Rendered by |
+|------------|------|-------------|
+| ServiceAccount `fleet` | `serviceAccountAnnotations` | [sa.yaml](../../charts/fleet/templates/sa.yaml) |
+| ConfigMap `fleet-database` (host/port/db/user) | `database.configMapAnnotations` | [configmap.yaml](../../charts/fleet/templates/configmap.yaml) |
+| Secret `fleet-database` (password) | `database.secretAnnotations` | [secret.yaml](../../charts/fleet/templates/secret.yaml) |
+
+When `database.existingConfigMap` / `database.existingSecret` point at externally
+managed objects, the operator annotates those instead — the knobs above only reach
+the chart-managed ones.
+
+Give the three dependencies `argocd.argoproj.io/hook-delete-policy: HookFailed`, not
+the `BeforeHookCreation` default: the Deployment reads the same ConfigMap and Secret,
+and BeforeHookCreation deletes and recreates them on every sync. Put the Job a wave
+behind them (`argocd.argoproj.io/sync-wave: "1"`) so ordering does not rely on Argo's
+intra-wave kind ordering.
+
 ## Other fork additions
 
 | Feature | values.yaml | Notes |

@@ -310,12 +310,16 @@ database:
   # >>> OPENFRAME(helm): fork-externalized DB connection config (ConfigMap/Secret refs) — openframe/docs/helm-chart.md
   # To read connection details from a ConfigMap instead of using static values below:
   existingConfigMap: ""  # Name of a K8s ConfigMap. If set, host/port/database/username values are ignored.
+  configMapAnnotations: {}  # Annotations for the chart-managed fleet-database ConfigMap. Argo CD users making
+                            # the migration Job a PreSync hook must put the ConfigMap in the same phase:
+                            # argocd.argoproj.io/hook: PreSync + hook-delete-policy: HookFailed
   hostKey: "FLEET_MYSQL_HOST"
   portKey: "FLEET_MYSQL_PORT"
   databaseKey: "MYSQL_DATABASE"
   usernameKey: "MYSQL_USER"
   # To read password from a Secret instead of the chart-created one:
   existingSecret: ""  # Name of a K8s Secret. If set, secretName is ignored for password.
+  secretAnnotations: {}  # Annotations for the chart-managed fleet-database Secret. Same PreSync note as above.
   secretKey: "MYSQL_PASSWORD"
   host: 127.0.0.1
   port: "3306"
