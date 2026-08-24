@@ -7,12 +7,14 @@ It is omitted from the policy **list** and **count** endpoints — the set the m
 set GitOps reconciles — while it keeps running on hosts and keeps recording results exactly like any
 other policy.
 
-The use case is platform-owned checks: OpenFrame needs its own compliance/telemetry policies on
-every tenant without them cluttering the tenant operator's Policies page.
+The use case is platform-owned checks: OpenFrame needs its own compliance policies on every tenant
+without them cluttering the tenant operator's Policies page.
 
 The column is named `openframe_managed` rather than something generic like `hidden` or `internal` so
 that it can never collide semantically with a field upstream Fleet may add later — the same
 reasoning as `teams.openframe_tenant_uuid`.
+
+The queries twin of this feature is [managed-queries.md](managed-queries.md).
 
 This is fork-only behavior, but it is **not** gated on `FLEET_OPENFRAME_MODE`: that flag gates
 behavior such as host assignments, while the column is created by the OpenFrame migration pipeline,
@@ -43,7 +45,7 @@ reads never consult it. Verified against a running server: a user holding admin 
 1. confirm a managed policy's name — `POST /policies` with that name returns
    `Policy "<name>" already exists`;
 2. read it in full by id (ids are sequential and trivially enumerated);
-3. unhide and rewrite it — `PATCH /policies/{id} {"openframe_managed": false, "query": "..."}`;
+3. unmanage and rewrite it — `PATCH /policies/{id} {"openframe_managed": false, "query": "..."}`;
 4. delete it — `POST /policies/delete {"ids":[N]}`;
 5. **overwrite it silently** — `POST /spec/policies` matches on `(team, name)` via
    `INSERT ... ON DUPLICATE KEY UPDATE`, so the query/description/platform are replaced while
@@ -84,26 +86,32 @@ by id, or through a dedicated OpenFrame endpoint.
 
 `server/datastore/mysql/migrations/openframe/20260818000001_AddPoliciesOpenframeManagedColumn.go`
 adds `policies.openframe_managed TINYINT(1) NOT NULL DEFAULT 0`. It ALTERs an upstream table from
-the OpenFrame pipeline — the same pattern as `teams.openframe_tenant_uuid`, and it is on the
+the OpenFrame pipeline — the same pattern as `teams.openframe_tenant_uuid` — and it is on the
 [semantic-conflict watchlist](upstream-sync-conflict-resolution.md).
 
 ### Where it lives
 
-`policies.openframe_managed` is in `policyCols` like any other column, and `schema.sql` carries it
-too. That last part is the point worth remembering: `cmd/fleet/prepare.go` runs `MigrateOpenframe`
-**unconditionally**, so every real deployment has the column no matter what `FLEET_OPENFRAME_MODE`
-says — the mode flag gates behavior (host assignments), never schema. `schema.sql` is only used to
-build test databases, so it must reflect that same reality; without the column there, the test
-harness would diverge from production and every policy test touching `policyCols` would fail on
-`Unknown column`.
+The column is in `policyCols` like any other column, and `schema.sql` carries it too. That last part
+is the point worth remembering: `cmd/fleet/prepare.go` runs `MigrateOpenframe` **unconditionally**,
+so every real deployment has the column no matter what `FLEET_OPENFRAME_MODE` says. `schema.sql` is
+only used to build test databases, so it must reflect that same reality; without the column there,
+the test harness would diverge from production and every policy test touching `policyCols` would
+fail on `Unknown column`.
 
 The flag is written by the same `INSERT`/`UPDATE` statements as every other policy field
 (`newGlobalPolicy`, `newTeamPolicy`, `savePolicy`) — no separate write. `ApplyPolicySpecs` does not
 name the column, so a spec apply leaves it untouched.
 
-The only helper is `openframeManagedExclusion(alias)` in `server/datastore/mysql/policies.go`, under
-`OPENFRAME(managed-policies)` markers: it returns `AND <alias>.openframe_managed = 0` and is appended
-to the five listing/count queries.
+The only helper is a constant in `server/datastore/mysql/policies.go`, under
+`OPENFRAME(managed-policies)` markers:
+
+```go
+const openframeManagedExclusion = ` AND p.openframe_managed = 0`
+```
+
+appended to the five listing/count queries (`listPoliciesDB`, `getInheritedPoliciesForTeam`,
+`ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies`). Every one of them aliases the
+table as `p`, which is why the alias is baked into the constant rather than passed in.
 
 SEMANTIC-CONFLICT WATCHLIST: `make dump-test-schema` regenerates `schema.sql` from the upstream
 `tables/` migrations only and would drop the `openframe_managed` line. Re-add it after any such
@@ -113,14 +121,14 @@ regeneration — see [upstream-sync-conflict-resolution.md](upstream-sync-confli
 
 | File | Change |
 |------|--------|
-| `migrations/openframe/20260818000001_AddPoliciesOpenframeManagedColumn.go` | new column |
+| `migrations/openframe/20260818000001_AddPoliciesOpenframeManagedColumn.go` | the column |
+| `server/datastore/mysql/schema.sql` | the column, so test databases match production |
 | `server/fleet/policies.go` | `OpenframeManaged` on `PolicyData`, `PolicyPayload`, `NewTeamPolicyPayload`, `ModifyPolicyPayload` |
 | `server/fleet/api_policies.go` | `OpenframeManaged` on `GlobalPolicyRequest` |
 | `server/service/global_policies.go` | maps the flag into the create payload |
 | `server/service/team_policies.go` | maps the flag on team create and on modify |
-| `server/datastore/mysql/schema.sql` | the column, so test databases match production |
-| `server/datastore/mysql/policies.go` | `policyCols`, the two INSERTs + the UPDATE, and the exclusion in `listPoliciesDB`, `getInheritedPoliciesForTeam`, `ListMergedTeamPolicies`, `CountPolicies`, `CountMergedTeamPolicies` |
-| `server/datastore/mysql/policies_openframe_managed_test.go` | MySQL coverage for all of the above |
+| `server/datastore/mysql/policies.go` | `policyCols`, the two `INSERT`s, the `UPDATE`, and the exclusion |
+| `server/datastore/mysql/policies_openframe_managed_test.go` | MySQL coverage |
 
 ## Host assignment interaction (open item)
 
