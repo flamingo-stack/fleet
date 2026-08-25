@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -128,8 +129,13 @@ func (ds *Datastore) openframeScopeQueryHosts(ctx context.Context, queryID uint,
 // A newly created team is seeded with one random team-scoped enroll secret (same default as the EE
 // team-creation service), because agent enrollment is the tenant's entry point: without a secret a
 // fresh tenant could never enroll a host (the pinned GET /spec/enroll_secret would return an empty
-// set). The seed happens only on the create path, in the same transaction as the team INSERT — an
-// existing team's secrets (operator-applied or backfilled) are never touched.
+// set). It is also seeded with its per-tenant app config row (app_config_json, id = team id) built
+// via ApplyDefaultsForNewInstalls — a tenant minted here is a new install from its own perspective,
+// and this row is the shared-mode equivalent of the config that POST /setup persists on a dedicated
+// Fleet. Without it, pinned config reads fall back to ApplyDefaults (upgrade semantics), which
+// leaves software inventory — and therefore vulnerabilities — permanently off for the tenant.
+// All seeds happen only on the create path, in the same transaction as the team INSERT — an
+// existing team's secrets and config (operator-applied or backfilled) are never touched.
 func (ds *Datastore) EnsureOpenframeTeamID(ctx context.Context, tenantUUID string) (uint, error) {
 	// Read on the primary: this runs at startup and must see a row another replica just created.
 	selectID := func() (uint, bool, error) {
@@ -174,6 +180,17 @@ func (ds *Datastore) EnsureOpenframeTeamID(ctx context.Context, tenantUUID strin
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO enroll_secrets (secret, team_id) VALUES (?, ?)`, secret, id); err != nil {
 			return ctxerr.Wrap(ctx, err, "seeding openframe team enroll secret")
+		}
+		appConfig := &fleet.AppConfig{}
+		appConfig.ApplyDefaultsForNewInstalls()
+		configBytes, err := json.Marshal(appConfig)
+		if err != nil {
+			return ctxerr.Wrap(ctx, err, "marshaling openframe team app config")
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO app_config_json (id, json_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE json_value = json_value`,
+			id, configBytes); err != nil {
+			return ctxerr.Wrap(ctx, err, "seeding openframe team app config")
 		}
 		return nil
 	})
