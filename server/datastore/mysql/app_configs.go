@@ -63,7 +63,7 @@ func appConfigDB(ctx context.Context, q sqlx.QueryerContext) (*fleet.AppConfig, 
 		// (team created, config never saved) — return defaults so software inventory / host users
 		// aren't silently off. Unpinned keeps the upstream bare-config behavior.
 		if _, ok := fleet.OpenframeTeamID(ctx); ok {
-			info.ApplyDefaults()
+			info.ApplyDefaultsForNewInstalls()
 			return info, nil
 		}
 		// <<< OPENFRAME(mysql-multitenancy)

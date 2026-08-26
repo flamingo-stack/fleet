@@ -89,6 +89,59 @@ func TestOpenframeEnsureTeamID(t *testing.T) {
 	require.Len(t, secretsAAgain, 1)
 	require.Equal(t, secretsA[0].Secret, secretsAAgain[0].Secret)
 
+	// A newly created team is seeded with a persisted per-tenant app config row carrying
+	// new-install defaults, so the pinned config read serves software inventory enabled instead
+	// of falling back to ApplyDefaults (which leaves it — and vulnerabilities — off).
+	var configRows int
+	require.NoError(t, ds.writer(ctx).GetContext(ctx, &configRows,
+		"SELECT COUNT(*) FROM app_config_json WHERE id = ?", idA))
+	require.Equal(t, 1, configRows)
+
+	appConfigA, err := ds.AppConfig(ctxA)
+	require.NoError(t, err)
+	require.True(t, appConfigA.Features.EnableSoftwareInventory)
+	require.True(t, appConfigA.Features.EnableHostUsers)
+
+	// Re-resolving must not replace the tenant's config either: a manual change survives.
+	appConfigA.Features.EnableSoftwareInventory = false
+	require.NoError(t, ds.SaveAppConfig(ctxA, appConfigA))
+	_, err = ds.EnsureOpenframeTeamID(ctx, uuidA)
+	require.NoError(t, err)
+	appConfigAAgain, err := ds.AppConfig(ctxA)
+	require.NoError(t, err)
+	require.False(t, appConfigAAgain.Features.EnableSoftwareInventory)
+
+	// A newly created team is seeded with a persisted per-tenant app config row carrying
+	// new-install defaults, so the pinned config read serves software inventory enabled instead
+	// of falling back to ApplyDefaults (which leaves it — and vulnerabilities — off).
+	var configRows int
+	require.NoError(t, ds.writer(ctx).GetContext(ctx, &configRows,
+		"SELECT COUNT(*) FROM app_config_json WHERE id = ?", idA))
+	require.Equal(t, 1, configRows)
+
+	appConfigA, err := ds.AppConfig(ctxA)
+	require.NoError(t, err)
+	require.True(t, appConfigA.Features.EnableSoftwareInventory)
+	require.True(t, appConfigA.Features.EnableHostUsers)
+
+	// Re-resolving must not replace the tenant's config either: a manual change survives.
+	appConfigA.Features.EnableSoftwareInventory = false
+	require.NoError(t, ds.SaveAppConfig(ctxA, appConfigA))
+	_, err = ds.EnsureOpenframeTeamID(ctx, uuidA)
+	require.NoError(t, err)
+	appConfigAAgain, err := ds.AppConfig(ctxA)
+	require.NoError(t, err)
+	require.False(t, appConfigAAgain.Features.EnableSoftwareInventory)
+
+	// A pinned tenant whose config row is missing (pre-seeding team, manual deletion) still gets
+	// new-install defaults from the read fallback — never the upgrade-semantics defaults that
+	// would leave software inventory off.
+	_, err = ds.writer(ctx).ExecContext(ctx, "DELETE FROM app_config_json WHERE id = ?", idB)
+	require.NoError(t, err)
+	appConfigB, err := ds.AppConfig(ctxB)
+	require.NoError(t, err)
+	require.True(t, appConfigB.Features.EnableSoftwareInventory)
+
 	// A team with operator-applied (or backfilled) secrets keeps them: replace A's secret set,
 	// re-resolve, and confirm the applied set is untouched.
 	applied := []*fleet.EnrollSecret{{Secret: "openframe-test-applied-secret-A", TeamID: &idA}}
