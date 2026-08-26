@@ -102,27 +102,10 @@ func TestOpenframeEnsureTeamID(t *testing.T) {
 	require.True(t, appConfigA.Features.EnableSoftwareInventory)
 	require.True(t, appConfigA.Features.EnableHostUsers)
 
-	// Re-resolving must not replace the tenant's config either: a manual change survives.
-	appConfigA.Features.EnableSoftwareInventory = false
-	require.NoError(t, ds.SaveAppConfig(ctxA, appConfigA))
-	_, err = ds.EnsureOpenframeTeamID(ctx, uuidA)
-	require.NoError(t, err)
-	appConfigAAgain, err := ds.AppConfig(ctxA)
-	require.NoError(t, err)
-	require.False(t, appConfigAAgain.Features.EnableSoftwareInventory)
-
-	// A newly created team is seeded with a persisted per-tenant app config row carrying
-	// new-install defaults, so the pinned config read serves software inventory enabled instead
-	// of falling back to ApplyDefaults (which leaves it — and vulnerabilities — off).
-	var configRows int
-	require.NoError(t, ds.writer(ctx).GetContext(ctx, &configRows,
-		"SELECT COUNT(*) FROM app_config_json WHERE id = ?", idA))
-	require.Equal(t, 1, configRows)
-
-	appConfigA, err := ds.AppConfig(ctxA)
-	require.NoError(t, err)
-	require.True(t, appConfigA.Features.EnableSoftwareInventory)
-	require.True(t, appConfigA.Features.EnableHostUsers)
+	// No agent options are served: in openframe mode orbit passes every osquery endpoint on the
+	// command line (gateway-prefixed), and a served logger_tls_endpoint would override those
+	// flags with an unprefixed path, silently dropping every result and status log.
+	require.Nil(t, appConfigA.AgentOptions)
 
 	// Re-resolving must not replace the tenant's config either: a manual change survives.
 	appConfigA.Features.EnableSoftwareInventory = false
@@ -141,6 +124,7 @@ func TestOpenframeEnsureTeamID(t *testing.T) {
 	appConfigB, err := ds.AppConfig(ctxB)
 	require.NoError(t, err)
 	require.True(t, appConfigB.Features.EnableSoftwareInventory)
+	require.Nil(t, appConfigB.AgentOptions)
 
 	// A team with operator-applied (or backfilled) secrets keeps them: replace A's secret set,
 	// re-resolve, and confirm the applied set is untouched.

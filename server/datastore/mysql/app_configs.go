@@ -60,11 +60,12 @@ func appConfigDB(ctx context.Context, q sqlx.QueryerContext) (*fleet.AppConfig, 
 	}
 	if err == sql.ErrNoRows {
 		// >>> OPENFRAME(mysql-multitenancy): a pinned tenant may have no app_config_json row yet
-		// (team created, config never saved) — return defaults so software inventory / host users
-		// aren't silently off. Unpinned keeps the upstream bare-config behavior.
+		// (team created before config seeding shipped, row manually deleted) — serve the same
+		// config EnsureOpenframeTeamID seeds, so software inventory / host users aren't silently
+		// off and no agent options override orbit's endpoints. Unpinned keeps the upstream
+		// bare-config behavior.
 		if _, ok := fleet.OpenframeTeamID(ctx); ok {
-			info.ApplyDefaultsForNewInstalls()
-			return info, nil
+			return OpenframeDefaultAppConfig(), nil
 		}
 		// <<< OPENFRAME(mysql-multitenancy)
 		return &fleet.AppConfig{}, nil
