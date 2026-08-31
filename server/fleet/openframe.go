@@ -195,3 +195,14 @@ func openframeMultitenancyConfigError(multitenancyEnabled bool, teamIDRaw, tenan
 	}
 	return nil
 }
+
+// OpenframeDefaultAppConfig is the config a tenant is born with in shared mode — the equivalent
+// of what POST /setup persists on a dedicated Fleet. Upstream new-install defaults, minus agent
+// options: in openframe mode orbit passes the gateway-prefixed osquery endpoints on the command
+// line, and served config options would override those flags.
+func OpenframeDefaultAppConfig() *AppConfig {
+	appConfig := &AppConfig{}
+	appConfig.ApplyDefaultsForNewInstalls()
+	appConfig.AgentOptions = nil
+	return appConfig
+}

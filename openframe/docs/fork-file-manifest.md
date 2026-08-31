@@ -77,7 +77,8 @@ server/datastore/mysql/migrations/openframe/        # separate goose client
 ├── 20260301000001_AddPolicyHostsJoinTable.go
 ├── 20260301000002_AddQueryHostsJoinTable.go
 ├── 20260818000001_AddPoliciesOpenframeManagedColumn.go   # policies.openframe_managed
-└── 20260818000002_AddQueriesOpenframeManagedColumn.go    # queries.openframe_managed
+├── 20260818000002_AddQueriesOpenframeManagedColumn.go    # queries.openframe_managed
+└── 20260831000001_SeedGlobalAppConfigRow.go              # instance app_config row (id=1)
 
 server/datastore/redis/keyprefix.go                 # per-tenant Redis prefix
 server/fleet/openframe.go                           # IsOpenframeMode() gate
