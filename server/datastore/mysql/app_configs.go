@@ -35,6 +35,40 @@ func (ds *Datastore) GetCurrentTime(ctx context.Context) (time.Time, error) {
 	return now, nil
 }
 
+// >>> OPENFRAME(mysql-multitenancy): pick the app_config_json row a reader must use.
+// Tenant rows live at id = team id; id = 1 is the instance row. Pinned readers get their
+// tenant row; unpinned multitenant readers (crons, workers, boot) get the instance row —
+// upstream's bare `LIMIT 1` would hand them an arbitrary row. Non-multitenant keeps the
+// upstream statement byte-identical.
+const openframeGlobalAppConfigID uint = 1
+
+const (
+	openframeAppConfigSelectAny  = `SELECT json_value FROM app_config_json LIMIT 1`
+	openframeAppConfigSelectByID = `SELECT json_value FROM app_config_json WHERE id = ? LIMIT 1`
+)
+
+func openframeAppConfigSelectDecision(teamID uint, pinned, multitenancy bool) (string, []any) {
+	if pinned {
+		return openframeAppConfigSelectByID, []any{teamID}
+	}
+	if multitenancy {
+		return openframeAppConfigSelectByID, []any{openframeGlobalAppConfigID}
+	}
+	return openframeAppConfigSelectAny, nil
+}
+
+func openframeAppConfigSelect(ctx context.Context) (string, []any) {
+	teamID, pinned := fleet.OpenframeTeamID(ctx)
+	return openframeAppConfigSelectDecision(teamID, pinned, fleet.IsOpenframeMultitenancy())
+}
+
+func openframeAppConfigDefaultsOnMissing(ctx context.Context) bool {
+	_, pinned := fleet.OpenframeTeamID(ctx)
+	return pinned || fleet.IsOpenframeMultitenancy()
+}
+
+// <<< OPENFRAME(mysql-multitenancy)
+
 func (ds *Datastore) AppConfig(ctx context.Context) (*fleet.AppConfig, error) {
 	return appConfigDB(ctx, ds.reader(ctx))
 }
@@ -43,15 +77,9 @@ func appConfigDB(ctx context.Context, q sqlx.QueryerContext) (*fleet.AppConfig, 
 	info := &fleet.AppConfig{}
 	var bytes []byte
 
-	// >>> OPENFRAME(mysql-multitenancy): app_config is a single-row table (id PK). Under
-	// shared-DB multitenancy each tenant's config is stored under id = its team id; read this
-	// process's team config so tenants don't share one config.
-	stmt := `SELECT json_value FROM app_config_json LIMIT 1`
-	var args []interface{}
-	if teamID, ok := fleet.OpenframeTeamID(ctx); ok {
-		stmt = `SELECT json_value FROM app_config_json WHERE id = ? LIMIT 1`
-		args = append(args, teamID)
-	}
+	// >>> OPENFRAME(mysql-multitenancy): tenant row when pinned, instance row (id = 1) when
+	// unpinned under multitenancy — see openframeAppConfigSelect.
+	stmt, args := openframeAppConfigSelect(ctx)
 	// <<< OPENFRAME(mysql-multitenancy)
 
 	err := sqlx.GetContext(ctx, q, &bytes, stmt, args...)
@@ -59,13 +87,11 @@ func appConfigDB(ctx context.Context, q sqlx.QueryerContext) (*fleet.AppConfig, 
 		return nil, ctxerr.Wrap(ctx, err, "selecting app config")
 	}
 	if err == sql.ErrNoRows {
-		// >>> OPENFRAME(mysql-multitenancy): a pinned tenant may have no app_config_json row yet
-		// (team created before config seeding shipped, row manually deleted) — serve the same
-		// config EnsureOpenframeTeamID seeds, so software inventory / host users aren't silently
-		// off and no agent options override orbit's endpoints. Unpinned keeps the upstream
-		// bare-config behavior.
-		if _, ok := fleet.OpenframeTeamID(ctx); ok {
-			return OpenframeDefaultAppConfig(), nil
+		// >>> OPENFRAME(mysql-multitenancy): a multitenant reader may have no row yet (tenant
+		// predating config seeding, or an unseeded instance row) — serve the seeded defaults
+		// instead of a zero config. Non-multitenant keeps the upstream bare-config behavior.
+		if openframeAppConfigDefaultsOnMissing(ctx) {
+			return fleet.OpenframeDefaultAppConfig(), nil
 		}
 		// <<< OPENFRAME(mysql-multitenancy)
 		return &fleet.AppConfig{}, nil
@@ -84,13 +110,8 @@ func (ds *Datastore) AppConfigUrls(ctx context.Context) (*fleet.AppConfigUrls, e
 	info := &fleet.AppConfigUrls{}
 	var bytes []byte
 
-	// >>> OPENFRAME(mysql-multitenancy): read this process's team config (see appConfigDB).
-	stmt := `SELECT json_value FROM app_config_json LIMIT 1`
-	var args []interface{}
-	if teamID, ok := fleet.OpenframeTeamID(ctx); ok {
-		stmt = `SELECT json_value FROM app_config_json WHERE id = ? LIMIT 1`
-		args = append(args, teamID)
-	}
+	// >>> OPENFRAME(mysql-multitenancy): same row selection as appConfigDB.
+	stmt, args := openframeAppConfigSelect(ctx)
 	// <<< OPENFRAME(mysql-multitenancy)
 
 	err := sqlx.GetContext(ctx, ds.reader(ctx), &bytes, stmt, args...)

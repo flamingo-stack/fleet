@@ -13,6 +13,7 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -328,4 +329,68 @@ func TestMigrateOpenframeCdcTeamIdStamping(t *testing.T) {
 		"SELECT team_id FROM policy_membership WHERE policy_id = ? AND host_id = ?", pol.ID, host.ID))
 	require.True(t, memberTeam.Valid)
 	require.EqualValues(t, team.ID, memberTeam.Int64)
+}
+
+// TestMigrateOpenframeSeedGlobalAppConfig verifies 20260831000001: instance row (id = 1)
+// seeded when absent, repaired when degenerate (schema.sql ships exactly that fixture),
+// tenant rows and team id 1 protected.
+func TestMigrateOpenframeSeedGlobalAppConfig(t *testing.T) {
+	ctx := context.Background()
+
+	readFlags := func(t *testing.T, ds *Datastore, id uint) (swInv, hostUsers, histVulns bool, orgName string) {
+		var raw []byte
+		require.NoError(t, ds.writer(ctx).GetContext(ctx, &raw,
+			`SELECT json_value FROM app_config_json WHERE id = ?`, id))
+		var ac fleet.AppConfig
+		require.NoError(t, json.Unmarshal(raw, &ac))
+		return ac.Features.EnableSoftwareInventory, ac.Features.EnableHostUsers,
+			ac.Features.HistoricalData.Vulnerabilities, ac.OrgInfo.OrgName
+	}
+
+	t.Run("repairs the degenerate row without clobbering siblings", func(t *testing.T) {
+		ds := CreateMySQLDS(t)
+		// Marker outside features proves JSON_MERGE_PATCH leaves sibling keys alone.
+		_, err := ds.writer(ctx).ExecContext(ctx,
+			`UPDATE app_config_json SET json_value = JSON_MERGE_PATCH(json_value, '{"org_info":{"org_name":"keep-me"}}') WHERE id = 1`)
+		require.NoError(t, err)
+
+		require.NoError(t, ds.MigrateOpenframe(ctx))
+
+		swInv, hostUsers, histVulns, orgName := readFlags(t, ds, 1)
+		require.True(t, swInv)
+		require.True(t, hostUsers)
+		require.True(t, histVulns)
+		require.Equal(t, "keep-me", orgName)
+	})
+
+	t.Run("seeds the row when absent", func(t *testing.T) {
+		ds := CreateMySQLDS(t)
+		_, err := ds.writer(ctx).ExecContext(ctx, `DELETE FROM app_config_json`)
+		require.NoError(t, err)
+
+		require.NoError(t, ds.MigrateOpenframe(ctx))
+
+		swInv, hostUsers, histVulns, _ := readFlags(t, ds, 1)
+		require.True(t, swInv)
+		require.True(t, hostUsers)
+		require.True(t, histVulns)
+	})
+
+	t.Run("tenant rows untouched, team id 1 reserved", func(t *testing.T) {
+		ds := CreateMySQLDS(t)
+		_, err := ds.writer(ctx).ExecContext(ctx,
+			`INSERT INTO app_config_json (id, json_value) VALUES (5, '{"features":{"enable_software_inventory":false}}')`)
+		require.NoError(t, err)
+
+		require.NoError(t, ds.MigrateOpenframe(ctx))
+		// Idempotent: a second run must not change anything.
+		require.NoError(t, ds.MigrateOpenframe(ctx))
+
+		swInv, _, _, _ := readFlags(t, ds, 5)
+		require.False(t, swInv, "tenant rows (id > 1) must not be patched")
+
+		team, err := ds.NewTeam(ctx, &fleet.Team{Name: "first-after-reserve"})
+		require.NoError(t, err)
+		require.Greater(t, team.ID, uint(1), "team id 1 is reserved for the instance config row")
+	})
 }

@@ -84,6 +84,13 @@ role-authz grouping upstream; here it is a hard boundary regardless of token rol
 - **teams** — `TeamLite`/`ListTeams` read fence.
 - **app_config** cache (`cached_mysql.go`) — cache key includes the pinned team so one tenant's
   config is never served to another; unpinned keeps the constant key.
+- **app_config** reads (`app_configs.go`) — tenant rows at `id = team id`; `id = 1` is the
+  *instance* row, read by every unpinned path (crons, workers, boot). Unpinned multitenant reads
+  select `WHERE id = 1` instead of upstream's bare `LIMIT 1`, which returns an arbitrary row. 
+  A missing row falls back to `OpenframeDefaultAppConfig()` for any multitenant read (nothing else 
+  seeds `id = 1`; a zero-value config would disable software inventory and historical data instance-wide).
+  Non-multitenant keeps the upstream statement and fallback byte-identical. Migration
+  `20260831000001` seeds/repairs the row and reserves team id 1.
 
 ## Per-request pinning
 

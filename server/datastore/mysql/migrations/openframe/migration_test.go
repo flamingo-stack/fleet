@@ -26,6 +26,9 @@ func TestAllOpenframeMigrationsRegistered(t *testing.T) {
 		20260626000001, // ScopeHostIdentityUniqueToTeam
 		20260629000001, // AddTeamsOpenframeTenantUUID
 		20260722000001, // AddTeamIdToCdcTables
+		20260818000001, // AddPoliciesOpenframeManagedColumn
+		20260818000002, // AddQueriesOpenframeManagedColumn
+		20260831000001, // SeedGlobalAppConfigRow
 	}
 
 	var got []int64

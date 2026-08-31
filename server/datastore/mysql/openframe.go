@@ -181,7 +181,7 @@ func (ds *Datastore) EnsureOpenframeTeamID(ctx context.Context, tenantUUID strin
 			`INSERT INTO enroll_secrets (secret, team_id) VALUES (?, ?)`, secret, id); err != nil {
 			return ctxerr.Wrap(ctx, err, "seeding openframe team enroll secret")
 		}
-		appConfig := OpenframeDefaultAppConfig()
+		appConfig := fleet.OpenframeDefaultAppConfig()
 		configBytes, err := json.Marshal(appConfig)
 		if err != nil {
 			return ctxerr.Wrap(ctx, err, "marshaling openframe team app config")
@@ -201,21 +201,6 @@ func (ds *Datastore) EnsureOpenframeTeamID(ctx context.Context, tenantUUID strin
 		return 0, ctxerr.Wrap(ctx, err, "creating openframe team for tenant uuid")
 	}
 	return id, nil
-}
-
-// OpenframeDefaultAppConfig is the config a tenant is born with in shared mode — the equivalent
-// of what POST /setup persists on a dedicated Fleet, since shared mode runs setup once for the
-// whole database and never per tenant.
-//
-// Upstream's new-install defaults are taken as-is except for agent options, which are dropped.
-// In openframe mode the agent reaches Fleet through the gateway's /tools/agent/fleetmdm-server
-// prefix and orbit passes every osquery endpoint on the command line accordingly; osquery lets
-// served config options override those flags.
-func OpenframeDefaultAppConfig() *fleet.AppConfig {
-	appConfig := &fleet.AppConfig{}
-	appConfig.ApplyDefaultsForNewInstalls()
-	appConfig.AgentOptions = nil
-	return appConfig
 }
 
 // openframeMigrationLockName is the cluster-wide MySQL named lock serializing schema
